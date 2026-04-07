@@ -749,20 +749,11 @@ function iST:CreateTwistMacro()
     -- Only create once — flag saved so users can freely remove/rename the macros
     if iSTSettings.macroCreated then return end
 
-    -- Faction-aware seal name: Alliance = Seal of the Martyr, Horde = Seal of Blood
-    local faction = UnitFactionGroup("player")
-    local twistSeal = (faction == "Horde") and "Seal of Blood" or "Seal of the Martyr"
-
     local macros = {
         {
             name = "SealTwist",
-            body = "#showtooltip\n/castsequence reset=30 Seal of Command, " .. twistSeal .. "\n/startattack",
+            body = "#showtooltip\n/castsequence reset=30 Seal of Command, Seal of Righteousness\n/startattack",
             icon = "INV_Hammer_04",
-        },
-        {
-            name = "SealTwistTank",
-            body = "#showtooltip\n/castsequence reset=cmb Seal of Righteousness, " .. twistSeal .. "\n/startattack",
-            icon = "Spell_Holy_SealOfRighteousness",
         },
     }
 

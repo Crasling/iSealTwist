@@ -1,6 +1,6 @@
 ## Interface: 20505
-## Title: |cffff9716iSealTwist |cFF00FF00v0.2.1|r
-## Version: 0.2.1
+## Title: |cffff9716iSealTwist |cFF00FF00v0.2.2|r
+## Version: 0.2.2
 ## Notes: |cffff9716Seal Twist Helper|n|cFFFF0000Time your seals perfectly.|r
 ## Author: Crasling
 ## IconTexture: Interface\AddOns\iSealTwist\Images\Logo_iST.blp
