@@ -187,6 +187,7 @@ iST.SettingsDefault = {
     showWeaponSpeed = true,
     onlyInCombat = true,
     onlyAsPaladin = true,
+    onlyInRetSpec = false,
     barPoint = { "CENTER", nil, "CENTER", 0, -200 },
     showTwistSuccess = true,
     showTwistFail = true,
@@ -470,15 +471,35 @@ function iST:OnBarUpdate(elapsed)
         end
     end
 
-    -- Check if swing timer is active
-    if state.NextSwingTime <= 0 or state.WeaponSpeed <= 0 then return end
+    -- Check if swing timer is active or stale
+    local noSwing = (state.NextSwingTime <= 0 or state.WeaponSpeed <= 0)
+    local stale   = (not noSwing) and (not state.TestMode) and
+                    (now > state.NextSwingTime + iST.CONSTANTS.BAR_STALE_THRESHOLD)
 
-    -- Check if stale (swing should have happened)
-    if now > state.NextSwingTime + iST.CONSTANTS.BAR_STALE_THRESHOLD then
-        if not state.TestMode then
+    if noSwing or stale then
+        if iSTSettings.onlyInCombat then
             self:HideBar()
-            return
+        else
+            -- Stay visible but show an empty idle bar
+            bar.fill:SetWidth(1)
+            local bc = iSTSettings.barColor
+            bar.fill:SetVertexColor(bc.r, bc.g, bc.b, bc.a * 0.4)
+            bar.twistZone:Hide()
+            bar.twistMarker:Hide()
+            if bar.gcdZone   then bar.gcdZone:Hide()   end
+            if bar.gcdMarker then bar.gcdMarker:Hide() end
+            if bar.sealSwitchZone then bar.sealSwitchZone:Hide() end
+            if bar.glowEdges then
+                for _, g in ipairs(bar.glowEdges) do g:SetVertexColor(0,0,0,0) end
+            end
+            local bnc = iSTSettings.borderNormalColor
+            if bar.SetBackdropBorderColor then
+                bar:SetBackdropBorderColor(bnc.r, bnc.g, bnc.b, bnc.a * 0.5)
+            end
+            bar.speedText:SetShown(iSTSettings.showWeaponSpeed)
+            bar.latencyText:SetShown(iSTSettings.showLatency)
         end
+        return
     end
 
     local barWidth = bar:GetWidth() - 2 -- account for border
@@ -687,6 +708,37 @@ function iST:HideBar()
         self.BarFrame:Hide()
         self.State.BarVisible = false
     end
+end
+
+-- Returns true when player has the most talent points in Retribution (tab 3).
+-- Falls back to true when no talents are spent (fresh character / loading).
+function iST:IsRetSpec()
+    if not GetNumTalentTabs then return true end
+    local maxPoints, maxTab = 0, 0
+    for i = 1, GetNumTalentTabs() do
+        local _, _, pointsSpent = GetTalentTabInfo(i)
+        if (pointsSpent or 0) > maxPoints then
+            maxPoints = pointsSpent
+            maxTab = i
+        end
+    end
+    if maxPoints == 0 then return true end  -- no talents spent, show anyway
+    return maxTab == 3  -- Paladin tab 3 = Retribution
+end
+
+-- Central visibility decision: respects enabled, spec, and combat settings.
+function iST:UpdateBarVisibility()
+    if not self.BarFrame then return end
+    if not iSTSettings.enabled then self:HideBar() return end
+    if iSTSettings.onlyInRetSpec and not self:IsRetSpec() then
+        self:HideBar()
+        return
+    end
+    if iSTSettings.onlyInCombat and not self.State.InCombat and not self.State.TestMode then
+        self:HideBar()
+        return
+    end
+    self:ShowBar()
 end
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -1112,10 +1164,7 @@ local function OnEvent(self, event, ...)
 
     if event == "PLAYER_REGEN_ENABLED" then
         iST.State.InCombat = false
-        if iSTSettings.onlyInCombat and not iST.State.TestMode then
-            iST:HideBar()
-        end
-        -- Rescan seal (may have changed)
+        iST:UpdateBarVisibility()
         iST:ScanForActiveSeal()
         return
     end
@@ -1167,6 +1216,11 @@ local function OnEvent(self, event, ...)
         end
         return
     end
+
+    if event == "PLAYER_TALENT_UPDATE" then
+        iST:UpdateBarVisibility()
+        return
+    end
 end
 
 eventFrame:SetScript("OnEvent", OnEvent)
@@ -1215,6 +1269,9 @@ function iST:OnAddonLoaded()
     self:CreateSwingBar()
     self:RestoreBarPosition()
 
+    -- Apply initial visibility (respects onlyInRetSpec + onlyInCombat)
+    self:UpdateBarVisibility()
+
     -- Start latency polling
     self:UpdateLatency()
 
@@ -1229,6 +1286,7 @@ function iST:OnAddonLoaded()
     eventFrame:RegisterEvent("UNIT_SPELLCAST_STOP")
     eventFrame:RegisterEvent("UNIT_SPELLCAST_FAILED")
     eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+    eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
 
     -- Initial seal scan
     self:ScanForActiveSeal()

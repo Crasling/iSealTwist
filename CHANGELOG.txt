@@ -2,6 +2,16 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.2.5 - Release
+--------------------------------------------------------------------------------
+
+ [NEW] "Only Active In Retribution Spec" setting — bar automatically hides when
+       you are in Holy or Protection spec; detected by talent tree point count
+ [FIX] "Only Show In Combat" unchecked now correctly shows bar outside combat as
+       an idle (empty) bar; toggling the setting takes effect immediately
+ [IMPROVE] All show/hide decisions route through a single UpdateBarVisibility()
+           function — spec, combat, and enabled checks are always consistent
+
 v0.2.4 - Release
 --------------------------------------------------------------------------------
 
