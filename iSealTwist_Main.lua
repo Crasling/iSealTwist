@@ -142,9 +142,43 @@ for _, name in pairs(iST.SEALS) do
     iST.SEAL_NAMES[name] = true
 end
 
--- Spells that reset the swing timer (e.g., Crusader Strike)
+-- Spells that reset the swing timer
 iST.SWING_RESET_SPELLS = {
-    [35395] = true, -- Crusader Strike
+    -- Repentance
+    [20066] = "Repentance",
+    -- Holy Wrath
+    [2812]  = "Holy Wrath", -- Rank 1
+    [10318] = "Holy Wrath", -- Rank 2
+    [27139] = "Holy Wrath", -- Rank 3
+    -- Hammer of Justice
+    [853]   = "Hammer of Justice", -- Rank 1
+    [5588]  = "Hammer of Justice", -- Rank 2
+    [5589]  = "Hammer of Justice", -- Rank 3
+    [10308] = "Hammer of Justice", -- Rank 4
+    -- Hammer of Wrath
+    [24275] = "Hammer of Wrath", -- Rank 1
+    [24274] = "Hammer of Wrath", -- Rank 2
+    [24239] = "Hammer of Wrath", -- Rank 3
+    [27180] = "Hammer of Wrath", -- Rank 4
+    -- Holy Light
+    [635]   = "Holy Light", -- Rank 1
+    [639]   = "Holy Light", -- Rank 2
+    [647]   = "Holy Light", -- Rank 3
+    [1026]  = "Holy Light", -- Rank 4
+    [1042]  = "Holy Light", -- Rank 5
+    [3472]  = "Holy Light", -- Rank 6
+    [10328] = "Holy Light", -- Rank 7
+    [10329] = "Holy Light", -- Rank 8
+    [25292] = "Holy Light", -- Rank 9
+    [27135] = "Holy Light", -- Rank 10
+    -- Flash of Light
+    [19750] = "Flash of Light", -- Rank 1
+    [19939] = "Flash of Light", -- Rank 2
+    [19940] = "Flash of Light", -- Rank 3
+    [19941] = "Flash of Light", -- Rank 4
+    [19942] = "Flash of Light", -- Rank 5
+    [19943] = "Flash of Light", -- Rank 6
+    [27137] = "Flash of Light", -- Rank 7
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
