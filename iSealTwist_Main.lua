@@ -142,10 +142,10 @@ for _, name in pairs(iST.SEALS) do
     iST.SEAL_NAMES[name] = true
 end
 
--- Spells that reset the swing timer (e.g., Crusader Strike)
-iST.SWING_RESET_SPELLS = {
-    [35395] = true, -- Crusader Strike
-}
+-- Spells that reset the swing timer
+-- NOTE: Crusader Strike (35395) does NOT reset the auto-attack swing timer in TBC —
+-- it is a special attack on its own cooldown and must NOT be listed here.
+iST.SWING_RESET_SPELLS = {}
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                                 Runtime State                                  │

@@ -2,6 +2,12 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.3.0 - Release
+--------------------------------------------------------------------------------
+
+ [FIX] Crusader Strike no longer resets the swing timer bar — CS is a special
+       attack in TBC and does not affect the auto-attack swing timing
+
 v0.2.5 - Release
 --------------------------------------------------------------------------------
 
