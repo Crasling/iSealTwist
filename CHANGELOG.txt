@@ -5,6 +5,9 @@
 v0.3.0 - Release
 --------------------------------------------------------------------------------
 
+ [NEW] Swing timer now resets on cast-interrupt spells (Found by: IvanRL22)
+       Detects all ranks of: Repentance, Holy Wrath, Hammer of Justice,
+       Hammer of Wrath, Holy Light, Flash of Light
  [FIX] Crusader Strike no longer resets the swing timer bar — CS is a special
        attack in TBC and does not affect the auto-attack swing timing
 
