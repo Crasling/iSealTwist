@@ -653,12 +653,17 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSettingsCheckbox(displayContent, L["OnlyInCombat"], L["OnlyInCombatDesc"], y,
             function() return iSTSettings.onlyInCombat end,
-            function(v) iSTSettings.onlyInCombat = v end
+            function(v) iSTSettings.onlyInCombat = v iST:UpdateBarVisibility() end
         )
 
         _, y = CreateSettingsCheckbox(displayContent, L["OnlyAsPaladin"], L["OnlyAsPaladinDesc"], y,
             function() return iSTSettings.onlyAsPaladin end,
             function(v) iSTSettings.onlyAsPaladin = v end
+        )
+
+        _, y = CreateSettingsCheckbox(displayContent, L["OnlyInRetSpec"], L["OnlyInRetSpecDesc"], y,
+            function() return iSTSettings.onlyInRetSpec end,
+            function(v) iSTSettings.onlyInRetSpec = v iST:UpdateBarVisibility() end
         )
 
         _, y = CreateSettingsCheckbox(displayContent, L["ShowGCDIndicator"], L["ShowGCDIndicatorDesc"], y,
