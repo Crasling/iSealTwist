@@ -2,6 +2,16 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.3.1 - Release
+--------------------------------------------------------------------------------
+
+ [FIX] Bar invisible when "Only Show In Combat" is unchecked — idle state now
+       shows a faint full-width bar so the frame is always clearly visible
+ [FIX] Test bar auto-stop (30s) now respects the "Only Show In Combat" setting;
+       bar stays visible after test ends if the setting is off
+ [FIX] Active seal not detected on login — initial scan now runs after the
+       player is fully in the world, where buff data is accessible
+
 v0.3.0 - Release
 --------------------------------------------------------------------------------
 

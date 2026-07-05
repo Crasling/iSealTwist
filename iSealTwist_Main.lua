@@ -516,10 +516,11 @@ function iST:OnBarUpdate(elapsed)
         if iSTSettings.onlyInCombat then
             self:HideBar()
         else
-            -- Stay visible but show an empty idle bar
-            bar.fill:SetWidth(1)
+            -- Idle state: full-width faint fill so the bar is clearly visible
+            local idleWidth = math.max(1, bar:GetWidth() - 2)
+            bar.fill:SetWidth(idleWidth)
             local bc = iSTSettings.barColor
-            bar.fill:SetVertexColor(bc.r, bc.g, bc.b, bc.a * 0.4)
+            bar.fill:SetVertexColor(bc.r, bc.g, bc.b, 0.18)
             bar.twistZone:Hide()
             bar.twistMarker:Hide()
             if bar.gcdZone   then bar.gcdZone:Hide()   end
@@ -530,9 +531,10 @@ function iST:OnBarUpdate(elapsed)
             end
             local bnc = iSTSettings.borderNormalColor
             if bar.SetBackdropBorderColor then
-                bar:SetBackdropBorderColor(bnc.r, bnc.g, bnc.b, bnc.a * 0.5)
+                bar:SetBackdropBorderColor(bnc.r, bnc.g, bnc.b, bnc.a)
             end
-            bar.speedText:SetShown(iSTSettings.showWeaponSpeed)
+            bar.timeText:SetText("")
+            bar.speedText:Hide()
             bar.latencyText:SetShown(iSTSettings.showLatency)
         end
         return
@@ -1106,7 +1108,7 @@ function iST:StartTestMode()
         if self.State.TestMode then
             self.State.TestMode = false
             if not self.State.InCombat then
-                self:HideBar()
+                self:UpdateBarVisibility()
             end
         end
     end)
@@ -1341,6 +1343,14 @@ function iST:OnPlayerLogin()
     if self.CreateOptionsPanel and self.State.Initialized then
         self:CreateOptionsPanel()
     end
+
+    -- Re-scan for seals after a short delay — player buffs aren't available at ADDON_LOADED time
+    C_Timer.After(1, function()
+        if iST.State.Initialized then
+            iST:ScanForActiveSeal()
+            iST:UpdateBarVisibility()
+        end
+    end)
 
     -- Login message
     C_Timer.After(2, function()
