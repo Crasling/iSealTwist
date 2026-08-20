@@ -513,30 +513,55 @@ function iST:OnBarUpdate(elapsed)
                     (now > state.NextSwingTime + iST.CONSTANTS.BAR_STALE_THRESHOLD)
 
     if noSwing or stale then
-        if iSTSettings.onlyInCombat then
-            self:HideBar()
-        else
-            -- Idle state: full-width faint fill so the bar is clearly visible
-            local idleWidth = math.max(1, bar:GetWidth() - 2)
-            bar.fill:SetWidth(idleWidth)
-            local bc = iSTSettings.barColor
-            bar.fill:SetVertexColor(bc.r, bc.g, bc.b, 0.18)
-            bar.twistZone:Hide()
-            bar.twistMarker:Hide()
-            if bar.gcdZone   then bar.gcdZone:Hide()   end
-            if bar.gcdMarker then bar.gcdMarker:Hide() end
-            if bar.sealSwitchZone then bar.sealSwitchZone:Hide() end
-            if bar.glowEdges then
-                for _, g in ipairs(bar.glowEdges) do g:SetVertexColor(0,0,0,0) end
-            end
-            local bnc = iSTSettings.borderNormalColor
-            if bar.SetBackdropBorderColor then
-                bar:SetBackdropBorderColor(bnc.r, bnc.g, bnc.b, bnc.a)
-            end
-            bar.timeText:SetText("")
-            bar.speedText:Hide()
-            bar.latencyText:SetShown(iSTSettings.showLatency)
+        self:UpdateBarVisibility()
+
+        -- Stop here if enabled/spec/combat settings require the bar to be hidden
+        if not self.State.BarVisible then
+            return
         end
+
+        -- Idle state while waiting for the next valid swing
+        local idleWidth = math.max(1, bar:GetWidth() - 2)
+        bar.fill:SetWidth(idleWidth)
+
+        local bc = iSTSettings.barColor
+        bar.fill:SetVertexColor(bc.r, bc.g, bc.b, 0.18)
+
+        bar.twistZone:Hide()
+        bar.twistMarker:Hide()
+
+        if bar.gcdZone then
+            bar.gcdZone:Hide()
+        end
+
+        if bar.gcdMarker then
+            bar.gcdMarker:Hide()
+        end
+
+        if bar.sealSwitchZone then
+            bar.sealSwitchZone:Hide()
+        end
+
+        if bar.glowEdges then
+            for _, glow in ipairs(bar.glowEdges) do
+                glow:SetVertexColor(0, 0, 0, 0)
+            end
+        end
+
+        local borderColor = iSTSettings.borderNormalColor
+        if bar.SetBackdropBorderColor then
+            bar:SetBackdropBorderColor(
+                borderColor.r,
+                borderColor.g,
+                borderColor.b,
+                borderColor.a
+            )
+        end
+
+        bar.timeText:SetText("")
+        bar.speedText:Hide()
+        bar.latencyText:SetShown(iSTSettings.showLatency)
+
         return
     end
 
@@ -828,10 +853,12 @@ function iST:ResetSwingTimer()
     self.State.SealChangedInTwistZone = false
     self.State.InTwistZone = false
 
+    local now = GetTime()
+
     self.State.WeaponSpeed = speed
-    self.State.LastSwingTime = GetTime()
-    self.State.NextSwingTime = GetTime() + speed
-    self:ShowBar()
+    self.State.LastSwingTime = now
+    self.State.NextSwingTime = now + speed
+    self:UpdateBarVisibility()
 end
 
 function iST:OnAttackSpeedChanged()
@@ -1193,6 +1220,10 @@ local function OnEvent(self, event, ...)
     if event == "PLAYER_REGEN_DISABLED" then
         iST.State.InCombat = true
         iST.State.TestMode = false
+
+        -- Immediately update visibility when entering combat
+        iST:UpdateBarVisibility()
+
         -- Close settings in combat
         if iST.SettingsFrame and iST.SettingsFrame:IsShown() then
             iST.SettingsFrame:Hide()
