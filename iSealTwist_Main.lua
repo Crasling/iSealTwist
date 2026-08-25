@@ -774,19 +774,40 @@ function iST:HideBar()
 end
 
 -- Returns true when player has the most talent points in Retribution (tab 3).
--- Falls back to true when no talents are spent (fresh character / loading).
+-- Falls back to true when no talents are spent or talent data is unavailable.
 function iST:IsRetSpec()
-    if not GetNumTalentTabs then return true end
-    local maxPoints, maxTab = 0, 0
-    for i = 1, GetNumTalentTabs() do
-        local _, _, pointsSpent = GetTalentTabInfo(i)
-        if (pointsSpent or 0) > maxPoints then
+    if not GetNumTalentTabs or not GetTalentTabInfo then
+        return true
+    end
+
+    local maxPoints = 0
+    local maxTab = 0
+
+    for tabIndex = 1, GetNumTalentTabs() do
+        local _, _, thirdValue, _, fifthValue = GetTalentTabInfo(tabIndex)
+
+        -- Older Classic clients return pointsSpent as the third value.
+        -- TBC AE returns pointsSpent as the fifth value.
+        local pointsSpent = 0
+
+        if type(thirdValue) == "number" then
+            pointsSpent = thirdValue
+        elseif type(fifthValue) == "number" then
+            pointsSpent = fifthValue
+        end
+
+        if pointsSpent > maxPoints then
             maxPoints = pointsSpent
-            maxTab = i
+            maxTab = tabIndex
         end
     end
-    if maxPoints == 0 then return true end  -- no talents spent, show anyway
-    return maxTab == 3  -- Paladin tab 3 = Retribution
+
+    if maxPoints == 0 then
+        return true
+    end
+
+    -- Paladin talent tab 3 is Retribution.
+    return maxTab == 3
 end
 
 -- Central visibility decision: respects enabled, spec, and combat settings.
