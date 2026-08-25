@@ -15,6 +15,17 @@ local addonName, iST = ...
 local GetAddOnMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
 local GetAddOnInfo = C_AddOns and C_AddOns.GetAddOnInfo or GetAddOnInfo
 
+local function GetLocalizedSpellName(spellID, fallback)
+    local localizedName
+    if C_Spell and C_Spell.GetSpellName then
+        localizedName = C_Spell.GetSpellName(spellID)
+    end
+    if not localizedName and GetSpellInfo then
+        localizedName = GetSpellInfo(spellID)
+    end
+    return localizedName or fallback
+end
+
 local Title = "iSealTwist"
 local Version = GetAddOnMetadata(addonName, "Version")
 local Author = "Crasling"
@@ -138,8 +149,13 @@ iST.SEALS = {
 
 -- Reverse lookup: name -> true (for name-based fallback matching)
 iST.SEAL_NAMES = {}
-for _, name in pairs(iST.SEALS) do
+-- Representative spell ID per seal name (lowest rank, used for localization).
+iST.SEAL_SPELL_IDS = {}
+for spellID, name in pairs(iST.SEALS) do
     iST.SEAL_NAMES[name] = true
+    if not iST.SEAL_SPELL_IDS[name] or spellID < iST.SEAL_SPELL_IDS[name] then
+        iST.SEAL_SPELL_IDS[name] = spellID
+    end
 end
 
 -- Spells that reset the swing timer (credits: https://github.com/IvanRL22)
@@ -173,6 +189,7 @@ iST.SWING_RESET_SPELLS = {
     [10329] = "Holy Light", -- Rank 8
     [25292] = "Holy Light", -- Rank 9
     [27135] = "Holy Light", -- Rank 10
+    [27136] = "Holy Light", -- Rank 11
     -- Flash of Light
     [19750] = "Flash of Light", -- Rank 1
     [19939] = "Flash of Light", -- Rank 2
@@ -206,7 +223,7 @@ iST.State = {
     TwistResultDuration = 0,
     GCDStartTime = 0,
     GCDEndTime = 0,
-    InCast = false,
+    GCDDuration = 1.5,
     Idle = false,
 }
 
@@ -597,7 +614,8 @@ function iST:OnBarUpdate(elapsed)
     local onIntoSeal = (state.CurrentSealName == iSTSettings.twistIntoSeal)
     local gcdFree = (state.GCDEndTime == 0 or state.GCDEndTime <= now)
     local gcdRunsPastSwing = (state.GCDEndTime > 0 and state.GCDEndTime >= state.NextSwingTime)
-    local gcdStartFrac = twistStart - iST.CONSTANTS.GCD_DURATION / state.WeaponSpeed
+    local gcdDuration = state.GCDDuration or iST.CONSTANTS.GCD_DURATION
+    local gcdStartFrac = twistStart - gcdDuration / state.WeaponSpeed
 
     -- Three pulsing states (mutually exclusive, priority order):
     -- ORANGE: Seal2 is active — twist completed, waiting for swing
@@ -605,9 +623,12 @@ function iST:OnBarUpdate(elapsed)
     -- GREEN:  Seal1 active + inside twist window + GCD free — cast Seal2 now!
     local greenMode  = iSTSettings.showGreenPulse and
                        (not orangeMode) and onFromSeal and (progress >= twistStart) and gcdFree
-    -- RED:    Seal1 active + GCD will not expire before swing — missed the window
-    local redMode    = iSTSettings.showRedPulse and iSTSettings.showWrongSealWarning and
-                       (not orangeMode) and onFromSeal and gcdRunsPastSwing
+    -- RED: wrong seal, or Seal1 with a GCD that runs past the swing.
+    local wrongSealMode = iSTSettings.showWrongSealWarning and
+                          (not onFromSeal) and (not onIntoSeal)
+    local missedWindowMode = iSTSettings.showRedPulse and
+                             (not orangeMode) and onFromSeal and gcdRunsPastSwing
+    local redMode = wrongSealMode or missedWindowMode
 
     local ac  = iSTSettings.alertColor
     local bnc = iSTSettings.borderNormalColor
@@ -615,7 +636,8 @@ function iST:OnBarUpdate(elapsed)
 
     -- Fill color
     if redMode then
-        bar.fill:SetVertexColor(ac.r, ac.g, ac.b, ac.a * pulse)
+        local redAlpha = missedWindowMode and (ac.a * pulse) or ac.a
+        bar.fill:SetVertexColor(ac.r, ac.g, ac.b, redAlpha)
     elseif greenMode then
         bar.fill:SetVertexColor(0.2, 1.0, 0.2, tc.a * pulse)
     elseif orangeMode then
@@ -627,7 +649,7 @@ function iST:OnBarUpdate(elapsed)
     end
 
     -- Border + glow edges
-    local glowAlpha = (redMode or greenMode or orangeMode) and pulse or 0
+    local glowAlpha = wrongSealMode and 1 or ((redMode or greenMode or orangeMode) and pulse or 0)
     local gr, gg, gb
     if redMode then
         gr, gg, gb = ac.r, ac.g, ac.b
@@ -698,7 +720,7 @@ function iST:OnBarUpdate(elapsed)
     -- GCD indicator: position one GCD before the twist window opens
     if bar.gcdMarker then
         if iSTSettings.showGCDIndicator and state.WeaponSpeed > 0 then
-            local gcdStart = twistStart - iST.CONSTANTS.GCD_DURATION / state.WeaponSpeed
+            local gcdStart = twistStart - gcdDuration / state.WeaponSpeed
             if gcdStart > 0.02 then
                 local gcdX = 1 + (gcdStart * barWidth)
                 bar.gcdMarker:ClearAllPoints()
@@ -919,6 +941,39 @@ function iST:OnAttackSpeedChanged()
     state.NextSwingTime = state.LastSwingTime + newSpeed
 end
 
+-- Force the next OnUpdate to re-apply idle visuals after a live setting change.
+function iST:InvalidateBarState()
+    self.State.Idle = false
+    if self.BarFrame then
+        self.BarFrame.updateAccum = self.CONSTANTS.BAR_UPDATE_RATE
+    end
+end
+
+-- Read the real global cooldown instead of assuming every spell cast triggers it.
+function iST:UpdateGCDState()
+    local startTime, duration
+
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local cooldownInfo = C_Spell.GetSpellCooldown(61304)
+        if cooldownInfo then
+            startTime = cooldownInfo.startTime
+            duration = cooldownInfo.duration
+        end
+    end
+    if not startTime and GetSpellCooldown then
+        startTime, duration = GetSpellCooldown(61304)
+    end
+
+    if startTime and duration and startTime > 0 and duration > 0 then
+        self.State.GCDStartTime = startTime
+        self.State.GCDEndTime = startTime + duration
+        self.State.GCDDuration = duration
+    else
+        self.State.GCDStartTime = 0
+        self.State.GCDEndTime = 0
+    end
+end
+
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                         Combat Log Event Parsing                               │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
@@ -969,13 +1024,17 @@ function iST:SetCurrentSeal(spellID)
     if not name then return end
 
     local previousSealID = self.State.CurrentSealID or self.State.PreviousSealID
+    local previousSealName = previousSealID and self.SEALS[previousSealID]
     self.State.CurrentSealID = spellID
     self.State.PreviousSealID = nil -- clear once consumed
     self.State.CurrentSealName = name
     self.State.CurrentSealIcon = GetSpellTexture(spellID)
 
-    -- Detect twist timing (only if seal actually changed)
-    if previousSealID and previousSealID ~= spellID then
+    -- Only the configured FROM -> INTO transition is a twist attempt.
+    local isConfiguredTwist = previousSealName == iSTSettings.twistFromSeal and
+                              name == iSTSettings.twistIntoSeal
+
+    if previousSealID and previousSealID ~= spellID and isConfiguredTwist then
         if self.State.NextSwingTime > 0 and self.State.WeaponSpeed > 0 then
             local now = GetTime()
 
@@ -1000,7 +1059,14 @@ function iST:SetCurrentSeal(spellID)
                 self.State.PendingSealChange = true
                 self.State.SealChangedInTwistZone = false
             end
+        else
+            self.State.PendingSealChange = false
+            self.State.SealChangedInTwistZone = false
         end
+    elseif previousSealID and previousSealID ~= spellID then
+        -- An unrelated seal change cancels any pending configured attempt.
+        self.State.PendingSealChange = false
+        self.State.SealChangedInTwistZone = false
     end
 
     self:UpdateSealDisplay()
@@ -1123,45 +1189,99 @@ end
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                           Auto-Create Twist Macro                              │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
+local TWIST_MACRO_NAME = "SealTwist"
+local TWIST_MACRO_ICON = "INV_Hammer_04"
+local LEGACY_TWIST_MACRO_BODY = "#showtooltip\n/castsequence reset=30 Seal of Command, Seal of Righteousness\n/startattack"
+
+function iST:BuildTwistMacroBody(fromSeal, intoSeal)
+    fromSeal = fromSeal or iSTSettings.twistFromSeal
+    intoSeal = intoSeal or iSTSettings.twistIntoSeal
+    if not fromSeal or fromSeal == "" or not intoSeal or intoSeal == "" then
+        return nil
+    end
+
+    local fromSpellID = self.SEAL_SPELL_IDS[fromSeal]
+    local intoSpellID = self.SEAL_SPELL_IDS[intoSeal]
+    local localizedFrom = fromSpellID and GetLocalizedSpellName(fromSpellID, fromSeal) or fromSeal
+    local localizedInto = intoSpellID and GetLocalizedSpellName(intoSpellID, intoSeal) or intoSeal
+
+    return "#showtooltip\n/castsequence reset=30 " .. localizedFrom .. ", " .. localizedInto .. "\n/startattack"
+end
+
+-- Update only a macro whose body is still known to be addon-managed. This keeps
+-- user edits intact while allowing seal-pair changes and the 0.4.2 migration.
+function iST:RefreshTwistMacro(allowLegacyMigration)
+    if not iSTSettings or not iSTSettings.macroCreated then return false end
+    if InCombatLockdown and InCombatLockdown() then return false end
+
+    local macroIndex = GetMacroIndexByName(TWIST_MACRO_NAME)
+    if not macroIndex or macroIndex == 0 then return false end
+
+    local _, icon, currentBody = GetMacroInfo(macroIndex)
+    local managedBody = iSTSettings.generatedMacroBody
+    local localizedLegacyBody = self:BuildTwistMacroBody("Seal of Command", "Seal of Righteousness")
+    local isManaged = (managedBody and currentBody == managedBody) or
+                      (allowLegacyMigration and
+                       (currentBody == LEGACY_TWIST_MACRO_BODY or currentBody == localizedLegacyBody))
+    if not isManaged then return false end
+
+    local desiredBody = self:BuildTwistMacroBody()
+    if not desiredBody then return false end
+
+    if currentBody ~= desiredBody then
+        local ok, err = pcall(EditMacro, macroIndex, TWIST_MACRO_NAME, icon or TWIST_MACRO_ICON, desiredBody)
+        if not ok then
+            print(L["PrintPrefix"] .. Colors.Red .. "Failed to update macro " .. TWIST_MACRO_NAME .. ": " .. tostring(err) .. Colors.Reset)
+            return false
+        end
+    end
+
+    iSTSettings.generatedMacroBody = desiredBody
+    return true
+end
+
 function iST:CreateTwistMacro()
     local _, playerClass = UnitClass("player")
     if playerClass ~= "PALADIN" then return end
 
-    -- Only create once — flag saved so users can freely remove/rename the macros
-    if iSTSettings.macroCreated then return end
-
-    local macros = {
-        {
-            name = "SealTwist",
-            body = "#showtooltip\n/castsequence reset=30 Seal of Command, Seal of Righteousness\n/startattack",
-            icon = "INV_Hammer_04",
-        },
-    }
-
-    local created = 0
-    for _, macro in ipairs(macros) do
-        local numGlobal, numPerChar = GetNumMacros()
-        local ok, err = pcall(function()
-            if numGlobal < 36 then
-                CreateMacro(macro.name, macro.icon, macro.body, false)
-                print(L["PrintPrefix"] .. Colors.Green .. "Created macro: " .. Colors.Yellow .. macro.name .. Colors.Reset)
-                created = created + 1
-            elseif numPerChar < 18 then
-                CreateMacro(macro.name, macro.icon, macro.body, true)
-                print(L["PrintPrefix"] .. Colors.Green .. "Created character macro: " .. Colors.Yellow .. macro.name .. Colors.Reset)
-                created = created + 1
-            else
-                print(L["PrintPrefix"] .. Colors.Red .. "No macro slots available for " .. macro.name .. ". Create it manually." .. Colors.Reset)
-            end
-        end)
-        if not ok then
-            print(L["PrintPrefix"] .. Colors.Red .. "Failed to create macro " .. macro.name .. ": " .. tostring(err) .. Colors.Reset)
-        end
+    -- Existing 0.4.2 users are migrated only when the old generated body is
+    -- untouched. Renamed, removed, or manually edited macros remain untouched.
+    if iSTSettings.macroCreated then
+        self:RefreshTwistMacro(not iSTSettings.generatedMacroBody)
+        return
     end
 
-    -- Only set flag if at least one macro was actually created
-    if created > 0 then
+    local macroBody = self:BuildTwistMacroBody()
+    if not macroBody then return end
+
+    -- Respect an existing user-created macro with the same name.
+    local existingIndex = GetMacroIndexByName(TWIST_MACRO_NAME)
+    if existingIndex and existingIndex > 0 then
+        return
+    end
+
+    local numGlobal, numPerChar = GetNumMacros()
+    local created = false
+    local ok, err = pcall(function()
+        if numGlobal < 36 then
+            CreateMacro(TWIST_MACRO_NAME, TWIST_MACRO_ICON, macroBody, false)
+            print(L["PrintPrefix"] .. Colors.Green .. "Created macro: " .. Colors.Yellow .. TWIST_MACRO_NAME .. Colors.Reset)
+            created = true
+        elseif numPerChar < 18 then
+            CreateMacro(TWIST_MACRO_NAME, TWIST_MACRO_ICON, macroBody, true)
+            print(L["PrintPrefix"] .. Colors.Green .. "Created character macro: " .. Colors.Yellow .. TWIST_MACRO_NAME .. Colors.Reset)
+            created = true
+        else
+            print(L["PrintPrefix"] .. Colors.Red .. "No macro slots available for " .. TWIST_MACRO_NAME .. ". Create it manually." .. Colors.Reset)
+        end
+    end)
+    if not ok then
+        print(L["PrintPrefix"] .. Colors.Red .. "Failed to create macro " .. TWIST_MACRO_NAME .. ": " .. tostring(err) .. Colors.Reset)
+    end
+
+    if created then
         iSTSettings.macroCreated = true
+        iSTSettings.generatedMacroBody = macroBody
     end
 end
 
@@ -1301,34 +1421,18 @@ local function OnEvent(self, event, ...)
         return
     end
 
-    -- GCD tracking: cast-time spells trigger GCD on START; instant spells on SUCCEEDED
-    if event == "UNIT_SPELLCAST_START" then
-        local unit = ...
-        if unit == "player" then
-            iST.State.InCast = true
-            iST.State.GCDStartTime = GetTime()
-            iST.State.GCDEndTime   = GetTime() + iST.CONSTANTS.GCD_DURATION
-        end
+    if event == "SPELL_UPDATE_COOLDOWN" then
+        iST:UpdateGCDState()
         return
     end
 
-    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+    -- Fallback refresh for clients where the cooldown event arrives late.
+    if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit = ...
         if unit == "player" then
-            if not iST.State.InCast then
-                -- Instant spell (no START event fired)
-                iST.State.GCDStartTime = GetTime()
-                iST.State.GCDEndTime   = GetTime() + iST.CONSTANTS.GCD_DURATION
-            end
-            iST.State.InCast = false
-        end
-        return
-    end
-
-    if event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" then
-        local unit = ...
-        if unit == "player" then
-            iST.State.InCast = false
+            C_Timer.After(0, function()
+                iST:UpdateGCDState()
+            end)
         end
         return
     end
@@ -1394,12 +1498,12 @@ function iST:OnAddonLoaded()
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     eventFrame:RegisterEvent("UNIT_AURA")
     eventFrame:RegisterEvent("UNIT_ATTACK_SPEED")
+    eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     eventFrame:RegisterEvent("UNIT_SPELLCAST_START")
     eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-    eventFrame:RegisterEvent("UNIT_SPELLCAST_STOP")
-    eventFrame:RegisterEvent("UNIT_SPELLCAST_FAILED")
-    eventFrame:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
     eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+
+    self:UpdateGCDState()
 
     -- Initial seal scan
     self:ScanForActiveSeal()

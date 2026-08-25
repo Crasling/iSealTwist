@@ -2,6 +2,24 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.5.1 - Release
+--------------------------------------------------------------------------------
+
+ [FIX] Added Holy Light rank 11 (spell ID 27136) to swing-reset detection
+ [FIX] Twist success/failure feedback now only evaluates the configured
+       FROM-to-INTO seal transition
+ [FIX] Wrong Seal Warning now activates when neither configured seal is active
+ [FIX] GCD tracking now reads the real global cooldown, avoiding false GCDs from
+       off-GCD abilities and adapting the marker to the observed GCD duration
+ [FIX] Live option changes now refresh idle bar dimensions, colors, and latency
+       visibility immediately
+ [FIX] Auto-created SealTwist macros now follow the configured seal pair, use
+       localized spell names, and safely migrate untouched older macros
+ [FIX] Unsupported-client warning no longer incorrectly claims features are
+       disabled
+ [FIX] Release packaging now validates the tag against the TOC and publishes the
+       matching changelog section through the supported BigWigs configuration
+
 v0.4.2 - Release
 --------------------------------------------------------------------------------
 

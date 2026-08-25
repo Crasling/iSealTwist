@@ -52,7 +52,7 @@ L["DebugError"] = Colors.iST .. "[iST]: " .. Colors.Red .. "ERROR: " .. Colors.R
 
 L["AddonLoaded"] = Msg(Colors.iST .. "iSealTwist " .. Colors.Green .. "v%s" .. Colors.Reset .. " Loaded.")
 L["NotPaladin"] = Msg("Only active for Paladins. Disable 'Only As Paladin' in settings to override.")
-L["UnsupportedVersion"] = "iSealTwist is designed for Anniversary TBC only. Detected: %s. The swing timer and seal twist features are disabled."
+L["UnsupportedVersion"] = "iSealTwist is designed for Anniversary TBC only. Detected: %s. Some features may not work correctly."
 L["BarEnabled"] = Msg("Swing timer " .. Colors.Green .. "enabled" .. Colors.iST .. ".")
 L["BarDisabled"] = Msg("Swing timer " .. Colors.Red .. "disabled" .. Colors.iST .. ".")
 L["BarLocked"] = Msg("Bar " .. Colors.Green .. "locked" .. Colors.iST .. ".")
@@ -124,7 +124,7 @@ L["TwistIntoSealDesc"] = Colors.Gray .. "The seal you switch to inside the twist
 
 -- GCD indicator & wrong seal warning
 L["ShowGCDIndicator"] = "Show GCD Indicator"
-L["ShowGCDIndicatorDesc"] = Colors.Gray .. "Show a gold marker line on the bar one GCD (1.5s) before the twist window opens — this is when to press your twist macro.|r"
+L["ShowGCDIndicatorDesc"] = Colors.Gray .. "Show a gold marker line on the bar one global cooldown before the twist window opens — this is when to press your twist macro.|r"
 L["ShowWrongSealWarning"] = "Show Wrong Seal Warning"
 L["ShowWrongSealWarningDesc"] = Colors.Gray .. "Highlight the bar in red when you are not on either of your configured twist seals.|r"
 

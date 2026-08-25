@@ -1,0 +1,7 @@
+manual-changelog: .release-changelog.md
+
+ignore:
+  - .github
+  - .release-changelog.md
+  - Libs/LibStub/tests
+  - Libs/LibDataBroker-1.1/README.textile

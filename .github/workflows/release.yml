@@ -3,7 +3,8 @@ name: Release AddOn
 on:
   push:
     tags:
-      - '*' # Trigger on any tag
+      - '[0-9]*.[0-9]*.[0-9]*'
+      - 'v[0-9]*.[0-9]*.[0-9]*'
 
 env:
   CF_API_KEY: ${{ secrets.CF_API_KEY }}
@@ -18,36 +19,33 @@ jobs:
         with:
           fetch-depth: 0 # Fetch full history for tags
 
-      - name: Prepare Build Directory
+      - name: Validate Version and Prepare Changelog
         run: |
-          # Ensure the build directory exists
-          mkdir -p build
+          release_version="${GITHUB_REF_NAME#v}"
+          toc_version=$(awk -F': *' '/^## Version:/{print $2; exit}' iSealTwist.toc)
 
-          # Create a clean folder structure for the add-on
-          mkdir -p build/iSealTwist
+          if [[ ! "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unsupported release tag: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          if [[ "$release_version" != "$toc_version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match TOC version $toc_version" >&2
+            exit 1
+          fi
 
-          # Copy repository files to the final folder
-          cp -r $(ls -A | grep -v build) build/iSealTwist/
+          awk -v header="v$release_version" '
+            $1 == header { found=1; next }
+            found && $1 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.txt > .release-changelog.md
 
-          # Navigate to the build directory
-          cd build
+          if [[ ! -s .release-changelog.md ]]; then
+            echo "No changelog section found for $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
 
-          # Create the zip file with the tag in the name
-          zip -r iSealTwist-$(git describe --tags).zip iSealTwist
-
-      - name: Extract Changelog for Latest Version
-        id: changelog
-        run: |
-          # Extract everything between the first and second version headers in CHANGELOG.txt
-          changelog=$(awk '/^v[0-9]+\.[0-9]+/{if(found) exit; found=1; next} found' CHANGELOG.txt)
-          # Write to GITHUB_OUTPUT using delimiter for multiline
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$changelog" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Publish to CurseForge
+      - name: Build and Publish Release
         uses: BigWigsMods/packager@v2
         with:
-          name: iSealTwist
-          path: build/iSealTwist-$(git describe --tags).zip
-          changelog: ${{ steps.changelog.outputs.changelog }}
+          args: -m .pkgmeta

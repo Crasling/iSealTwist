@@ -50,6 +50,7 @@ local function CreateSettingsCheckbox(parent, label, descText, yOffset, getFunc,
     cb:SetChecked(getFunc())
     cb:SetScript("OnClick", function(self)
         setFunc(self:GetChecked() and true or false)
+        if iST.InvalidateBarState then iST:InvalidateBarState() end
     end)
 
     local nextY = yOffset - 22
@@ -175,6 +176,7 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
     track:SetScript("OnMouseDown", function()
         local val = ValueFromMouse()
         setFunc(val)
+        if iST.InvalidateBarState then iST:InvalidateBarState() end
         SetVisualValue(val)
         isDragging = true
     end)
@@ -183,6 +185,7 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
         if not isDragging then return end
         local val = ValueFromMouse()
         setFunc(val)
+        if iST.InvalidateBarState then iST:InvalidateBarState() end
         SetVisualValue(val)
     end)
     track:EnableMouseWheel(true)
@@ -191,6 +194,7 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
         local newVal = SnapValue(current + delta * step)
         newVal = math.max(minVal, math.min(maxVal, newVal))
         setFunc(newVal)
+        if iST.InvalidateBarState then iST:InvalidateBarState() end
         SetVisualValue(newVal)
     end)
 
@@ -299,6 +303,7 @@ local function CreateColorEditor(parent, label, yOffset, getFunc, onChange)
             SetVis(val)
             RefreshSwatch()
             if onChange then onChange() end
+            if iST.InvalidateBarState then iST:InvalidateBarState() end
         end
 
         local dragging = false
@@ -750,6 +755,7 @@ function iST:CreateOptionsPanel()
                     UIDropDownMenu_SetSelectedValue(fromDropdown, btn.value)
                     UIDropDownMenu_SetText(fromDropdown, btn.value)
                     iSTSettings.twistFromSeal = btn.value
+                    if iST.RefreshTwistMacro then iST:RefreshTwistMacro(false) end
                 end
                 UIDropDownMenu_AddButton(info, level)
             end
@@ -793,6 +799,7 @@ function iST:CreateOptionsPanel()
                     UIDropDownMenu_SetSelectedValue(intoDropdown, btn.value)
                     UIDropDownMenu_SetText(intoDropdown, btn.value)
                     iSTSettings.twistIntoSeal = btn.value
+                    if iST.RefreshTwistMacro then iST:RefreshTwistMacro(false) end
                 end
                 UIDropDownMenu_AddButton(info, level)
             end
