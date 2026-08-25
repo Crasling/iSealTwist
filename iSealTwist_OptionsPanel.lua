@@ -658,7 +658,7 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSettingsCheckbox(displayContent, L["OnlyAsPaladin"], L["OnlyAsPaladinDesc"], y,
             function() return iSTSettings.onlyAsPaladin end,
-            function(v) iSTSettings.onlyAsPaladin = v end
+            function(v) iSTSettings.onlyAsPaladin = v iST:UpdateBarVisibility() end
         )
 
         _, y = CreateSettingsCheckbox(displayContent, L["OnlyInRetSpec"], L["OnlyInRetSpecDesc"], y,
@@ -941,7 +941,12 @@ function iST:CreateOptionsPanel()
     -- ═══════════════════════════════════════════════════════════
     settingsFrame:HookScript("OnShow", function()
         for _, promo in ipairs(promoData) do
-            local loaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded(promo.addonName)
+            local loaded = false
+            if C_AddOns and C_AddOns.IsAddOnLoaded then
+                loaded = C_AddOns.IsAddOnLoaded(promo.addonName)
+            elseif IsAddOnLoaded then
+                loaded = IsAddOnLoaded(promo.addonName)
+            end
             if installedFrames[promo.tabIdx] then
                 installedFrames[promo.tabIdx]:SetShown(loaded)
             end

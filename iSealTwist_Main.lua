@@ -207,6 +207,7 @@ iST.State = {
     GCDStartTime = 0,
     GCDEndTime = 0,
     InCast = false,
+    Idle = false,
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -513,6 +514,14 @@ function iST:OnBarUpdate(elapsed)
                     (now > state.NextSwingTime + iST.CONSTANTS.BAR_STALE_THRESHOLD)
 
     if noSwing or stale then
+        -- The idle appearance and visibility only need updating when entering
+        -- the idle state. Visibility changes are otherwise driven by events
+        -- and settings callbacks.
+        if state.Idle then
+            return
+        end
+        state.Idle = true
+
         self:UpdateBarVisibility()
 
         -- Stop here if enabled/spec/combat settings require the bar to be hidden
@@ -564,6 +573,8 @@ function iST:OnBarUpdate(elapsed)
 
         return
     end
+
+    state.Idle = false
 
     local barWidth = bar:GetWidth() - 2 -- account for border
     local progress = (now - state.LastSwingTime) / state.WeaponSpeed
@@ -810,10 +821,17 @@ function iST:IsRetSpec()
     return maxTab == 3
 end
 
--- Central visibility decision: respects enabled, spec, and combat settings.
+-- Central visibility decision: respects enabled, class, spec, and combat settings.
 function iST:UpdateBarVisibility()
     if not self.BarFrame then return end
     if not iSTSettings.enabled then self:HideBar() return end
+    if iSTSettings.onlyAsPaladin then
+        local _, playerClass = UnitClass("player")
+        if playerClass ~= "PALADIN" then
+            self:HideBar()
+            return
+        end
+    end
     if iSTSettings.onlyInRetSpec and not self:IsRetSpec() then
         self:HideBar()
         return
@@ -873,6 +891,7 @@ function iST:ResetSwingTimer()
     self.State.PendingSealChange = false
     self.State.SealChangedInTwistZone = false
     self.State.InTwistZone = false
+    self.State.Idle = false
 
     local now = GetTime()
 
@@ -914,7 +933,11 @@ function iST:OnCombatLogEvent()
             return
         end
 
-        if (subevent == "SPELL_DAMAGE" or subevent == "SPELL_MISSED") and spellID and self.SWING_RESET_SPELLS[spellID] then
+        -- Spells that reset the melee swing timer reset it when the cast succeeds.
+        if subevent == "SPELL_CAST_SUCCESS"
+            and spellID
+            and self.SWING_RESET_SPELLS[spellID] then
+
             self:ResetSwingTimer()
             return
         end
@@ -1075,8 +1098,8 @@ function iST:CreateMinimapButton()
                     print(L["BarEnabled"])
                 else
                     print(L["BarDisabled"])
-                    iST:HideBar()
                 end
+                iST:UpdateBarVisibility()
             elseif button == "RightButton" then
                 iST:SettingsToggle()
             end
@@ -1101,6 +1124,9 @@ end
 -- │                           Auto-Create Twist Macro                              │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 function iST:CreateTwistMacro()
+    local _, playerClass = UnitClass("player")
+    if playerClass ~= "PALADIN" then return end
+
     -- Only create once — flag saved so users can freely remove/rename the macros
     if iSTSettings.macroCreated then return end
 
@@ -1347,12 +1373,9 @@ function iST:OnAddonLoaded()
     self:CreateMinimapButton()
 
     if iSTSettings.onlyAsPaladin and playerClass ~= "PALADIN" then
-        -- Still register slash commands for configuration
-        self:RegisterSlashCommands()
         C_Timer.After(2, function()
             print(L["NotPaladin"])
         end)
-        return
     end
 
     -- Create the swing timer bar

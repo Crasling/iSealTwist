@@ -2,6 +2,20 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.4.2 - Release
+--------------------------------------------------------------------------------
+
+ [FIX] Retribution specialization detection now supports both the older Classic
+       and TBC Anniversary talent API return layouts, preventing the 0.4.1 crash
+ [FIX] Swing-reset spells now reset the timer on SPELL_CAST_SUCCESS, including
+       Holy Light, Flash of Light, Hammer of Justice, and Repentance
+ [FIX] Enabling the addon from the minimap updates bar visibility immediately
+ [FIX] "Only Active as Paladin" now takes effect immediately when changed
+ [FIX] Installed sister addons are detected through the legacy IsAddOnLoaded()
+       API when C_AddOns is unavailable
+ [IMPROVE] Idle/stale bar appearance is applied once per state transition instead
+           of recalculating visibility on every frame
+
 v0.3.1 - Release
 --------------------------------------------------------------------------------
 
