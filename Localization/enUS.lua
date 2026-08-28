@@ -79,12 +79,18 @@ L["SettingsTitle"] = Colors.iST .. "iSealTwist — Settings"
 
 -- Sidebar
 L["TabGeneral"] = "General"
-L["TabDisplay"] = "Display"
+L["TabTiming"] = "Timing"
+L["TabIndicators"] = "Indicators"
+L["TabCustomization"] = "Customization"
+L["TabSoundEffects"] = "Sound Effects"
 L["TabAbout"] = "About"
 L["SidebarOtherAddons"] = "Other Addons"
 
--- Bar Appearance
-L["SectionBarAppearance"] = Colors.iST .. "Bar Appearance"
+-- General
+L["SectionActivation"] = Colors.iST .. "Activation"
+
+-- Bar size
+L["SectionBarAppearance"] = Colors.iST .. "Bar Size"
 L["BarWidth"] = "Bar Width"
 L["BarHeight"] = "Bar Height"
 
@@ -94,6 +100,7 @@ L["TwistWindow"] = "Twist Window (ms)"
 L["TwistWindowDesc"] = Colors.Gray .. "Time before swing to start the twist. Default: 400ms.|r"
 L["ShowLatency"] = "Show Latency"
 L["ShowLatencyDesc"] = Colors.Gray .. "Display current home latency on the bar.|r"
+L["SectionTimingGuides"] = Colors.iST .. "Timing Guides"
 
 -- Display
 L["ShowSealIcon"] = "Show Seal Icon"
@@ -111,8 +118,9 @@ L["ShowTwistSuccessDesc"] = Colors.Gray .. "Show green text on the bar when a tw
 L["ShowTwistFail"] = "Show 'Fail Twist!' Text"
 L["ShowTwistFailDesc"] = Colors.Gray .. "Show red text on the bar when a twist fails (too late).|r"
 
--- Display sub-sections
-L["SectionVisibility"] = Colors.iST .. "Visibility"
+-- Indicator sub-sections
+L["SectionBarInformation"] = Colors.iST .. "Bar Information"
+L["SectionWarnings"] = Colors.iST .. "Warnings"
 L["SectionTwistFeedback"] = Colors.iST .. "Twist Feedback"
 L["SectionSealPair"] = Colors.iST .. "Seal Pair"
 
@@ -138,10 +146,31 @@ L["ShowRedPulse"] = "Red Pulse — GCD Runs Past Swing"
 L["ShowRedPulseDesc"] = Colors.Gray .. "Pulse red when Seal1 is active but the active GCD will not expire before the swing — too late to twist.|r"
 
 -- Twist text customization
+L["SectionTextAppearance"] = Colors.iST .. "Text"
 L["TwistTextSize"] = "Twist Text Size"
+L["IconSize"] = "Seal Icon Size"
+L["CurrentSealTextSize"] = "Current Seal Text Size"
+L["LatencyTextSize"] = "Latency Text Size"
+L["BarFont"] = "Bar Font"
+
+-- Sound effects and optional iSoundPlayer integration
+L["SectionSoundEffects"] = Colors.iST .. "Sound Effects"
+L["SoundEffectsWIP"] = Colors.Yellow .. "Work in Progress — sound triggers and available effects may change during development.|r"
+L["SoundEffectsIntro"] = Colors.Gray .. "Choose from short built-in WoW sounds for twist results and timing warnings. Custom sounds can be added to iST through iSoundPlayer.|r"
+L["EnableSoundEffects"] = "Enable Sound Effects"
+L["EnableSoundEffectsDesc"] = Colors.Gray .. "Play the selected sounds for twist results and timing warnings.|r"
+L["TwistSuccessSound"] = "Twist Success Sound"
+L["TwistFailSound"] = "Twist Fail Sound"
+L["WrongSealWarningSound"] = "Wrong Seal Near Swing Sound"
+L["WrongSealSoundLeadTime"] = "Wrong Seal Warning Lead Time"
+L["TestSound"] = "Test"
+L["None"] = "None"
+L["CustomSoundsAvailable"] = Colors.Gray .. "Custom sounds registered in iSoundPlayer are included in the selectors above with an [iSP] label.|r"
+L["CustomSoundsViaISP"] = Colors.Gray .. "Want custom sound effects? Install iSoundPlayer, register your MP3/OGG sounds there, and they will automatically appear in this tab.|r"
 
 -- Bar colors section
 L["SectionBarColors"]   = Colors.iST .. "Bar Colors"
+L["DefaultColors"]      = "Default Colors"
 L["ColorBar"]           = "Fill"
 L["ColorTwistZone"]     = "Twist Zone Fill"
 L["ColorAlert"]         = "Alert (Wrong Seal)"
@@ -171,8 +200,6 @@ L["TabIWR"] = "iWR Settings"
 L["TabIWRPromo"] = "iWillRemember"
 L["TabISP"] = "iSP Settings"
 L["TabISPPromo"] = "iSoundPlayer"
-L["TabICC"] = "iCC Settings"
-L["TabICCPromo"] = "iCommunityChat"
 L["TabINIF"] = "iNIF Settings"
 L["TabINIFPromo"] = "iNeedIfYouNeed"
 
@@ -183,7 +210,5 @@ L["IWRPromoDesc"] = Colors.iST .. "iWillRemember " .. Colors.Reset .. "is a play
 L["IWRPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/iwillremember"
 L["ISPPromoDesc"] = Colors.iST .. "iSoundPlayer " .. Colors.Reset .. "is a custom sound addon. Play your own sounds on game events, spell cooldowns, and buff changes. Your game, your sounds."
 L["ISPPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/isoundplayer"
-L["ICCPromoDesc"] = Colors.iST .. "iCommunityChat " .. Colors.Reset .. "is a cross-guild community chat addon. Chat across guilds with a shared channel and roster."
-L["ICCPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/icommunitychat"
 L["INIFPromoDesc"] = Colors.iST .. "iNeedIfYouNeed " .. Colors.Reset .. "is a smart loot addon. Automatic need/greed rolling with party coordination. Don't let them ninja without needing back."
 L["INIFPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/ineedifyouneed"

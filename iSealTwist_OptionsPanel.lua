@@ -211,6 +211,46 @@ local function CreateSettingsButton(parent, text, width, yOffset, onClick)
     return btn, yOffset - 34
 end
 
+local function CreateSettingsDropdown(parent, label, yOffset, width, getOptions, getValue, setValue)
+    local labelText = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    labelText:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
+    labelText:SetText(label)
+
+    local dropdown = CreateFrame("Frame", nil, parent, "UIDropDownMenuTemplate")
+    dropdown:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yOffset - 18)
+    UIDropDownMenu_SetWidth(dropdown, width)
+
+    local function RefreshText()
+        local current = getValue()
+        local display = L["None"] or "None"
+        for _, option in ipairs(getOptions()) do
+            if option.value == current then
+                display = option.text
+                break
+            end
+        end
+        UIDropDownMenu_SetSelectedValue(dropdown, current)
+        UIDropDownMenu_SetText(dropdown, display)
+    end
+
+    UIDropDownMenu_Initialize(dropdown, function(_, level)
+        for _, option in ipairs(getOptions()) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = option.text
+            info.value = option.value
+            info.checked = option.value == getValue()
+            info.func = function(button)
+                setValue(button.value)
+                RefreshText()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+
+    RefreshText()
+    return dropdown, yOffset - 58, RefreshText
+end
+
 local function CreateInfoText(parent, text, yOffset, fontObj)
     local fs = parent:CreateFontString(nil, "OVERLAY", fontObj or "GameFontHighlight")
     fs:SetPoint("TOPLEFT", parent, "TOPLEFT", 25, yOffset)
@@ -223,104 +263,100 @@ local function CreateInfoText(parent, text, yOffset, fontObj)
 end
 
 local function CreateColorEditor(parent, label, yOffset, getFunc, onChange)
-    local MINI_W = 230
-    local THUMB  = 10
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(350, 26)
+    button:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
 
-    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    fs:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
-    fs:SetText(label)
+    local highlight = button:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(1, 0.59, 0.09, 0.12)
 
-    -- Color swatch (live preview)
-    local swatchBg = parent:CreateTexture(nil, "BACKGROUND")
-    swatchBg:SetSize(18, 18)
-    swatchBg:SetPoint("LEFT", fs, "RIGHT", 8, 0)
-    swatchBg:SetColorTexture(0, 0, 0, 1)
-    local swatch = parent:CreateTexture(nil, "ARTWORK")
-    swatch:SetSize(16, 16)
-    swatch:SetPoint("CENTER", swatchBg, "CENTER")
-    swatch:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+    local labelText = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    labelText:SetPoint("LEFT", button, "LEFT", 4, 0)
+    labelText:SetText(label)
+
+    local swatchBorder = button:CreateTexture(nil, "BACKGROUND")
+    swatchBorder:SetSize(32, 22)
+    swatchBorder:SetPoint("RIGHT", button, "RIGHT", -4, 0)
+    swatchBorder:SetColorTexture(0, 0, 0, 1)
+
+    local swatchBackground = button:CreateTexture(nil, "BORDER")
+    swatchBackground:SetSize(28, 18)
+    swatchBackground:SetPoint("CENTER", swatchBorder, "CENTER")
+    swatchBackground:SetColorTexture(0.5, 0.5, 0.5, 1)
+
+    local swatch = button:CreateTexture(nil, "ARTWORK")
+    swatch:SetAllPoints(swatchBackground)
+
     local function RefreshSwatch()
-        local c = getFunc()
-        swatch:SetVertexColor(c.r, c.g, c.b, 1)
+        local color = getFunc()
+        swatch:SetColorTexture(color.r, color.g, color.b, color.a or 1)
     end
+
+    local function ApplyColor(r, g, b, a)
+        local color = getFunc()
+        color.r = r
+        color.g = g
+        color.b = b
+        color.a = a or color.a or 1
+        RefreshSwatch()
+        if onChange then onChange() end
+        if iST.InvalidateBarState then iST:InvalidateBarState() end
+    end
+
+    button:SetScript("OnClick", function()
+        if not ColorPickerFrame then return end
+
+        local color = getFunc()
+        local original = {
+            r = color.r,
+            g = color.g,
+            b = color.b,
+            a = color.a or 1,
+        }
+        local usesModernPicker = ColorPickerFrame.SetupColorPickerAndShow ~= nil
+
+        local function PickerChanged()
+            local r, g, b = ColorPickerFrame:GetColorRGB()
+            local a = original.a
+            if usesModernPicker and ColorPickerFrame.GetColorAlpha then
+                a = ColorPickerFrame:GetColorAlpha()
+            elseif OpacitySliderFrame then
+                a = 1 - OpacitySliderFrame:GetValue()
+            end
+            ApplyColor(r, g, b, a)
+        end
+
+        local function PickerCancelled()
+            ApplyColor(original.r, original.g, original.b, original.a)
+        end
+
+        if usesModernPicker then
+            ColorPickerFrame:SetupColorPickerAndShow({
+                r = original.r,
+                g = original.g,
+                b = original.b,
+                opacity = original.a,
+                hasOpacity = true,
+                swatchFunc = PickerChanged,
+                opacityFunc = PickerChanged,
+                cancelFunc = PickerCancelled,
+            })
+        else
+            ColorPickerFrame:Hide()
+            ColorPickerFrame.func = PickerChanged
+            ColorPickerFrame.opacityFunc = PickerChanged
+            ColorPickerFrame.cancelFunc = PickerCancelled
+            ColorPickerFrame.hasOpacity = true
+            ColorPickerFrame.opacity = 1 - original.a
+            ColorPickerFrame.previousValues = { original.r, original.g, original.b, original.a }
+            ColorPickerFrame:SetColorRGB(original.r, original.g, original.b)
+            ColorPickerFrame:Show()
+        end
+    end)
+
     RefreshSwatch()
-    yOffset = yOffset - 20
-
-    local channels = {
-        { key = "r", label = "R", cr = 1, cg = 0.2, cb = 0.2 },
-        { key = "g", label = "G", cr = 0.2, cg = 0.9, cb = 0.2 },
-        { key = "b", label = "B", cr = 0.3, cg = 0.5, cb = 1 },
-        { key = "a", label = "A", cr = 0.8, cg = 0.8, cb = 0.8 },
-    }
-    for _, ch in ipairs(channels) do
-        local rowLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        rowLabel:SetPoint("TOPLEFT", parent, "TOPLEFT", 28, yOffset + 1)
-        rowLabel:SetText(ch.label)
-        rowLabel:SetTextColor(ch.cr, ch.cg, ch.cb, 1)
-
-        local valText = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        valText:SetPoint("TOPLEFT", parent, "TOPLEFT", 44 + MINI_W + 6, yOffset + 1)
-        valText:SetTextColor(0.8, 0.8, 0.8, 1)
-
-        local track = CreateFrame("Frame", nil, parent)
-        track:SetSize(MINI_W, 6)
-        track:SetPoint("TOPLEFT", parent, "TOPLEFT", 44, yOffset - 4)
-        track:EnableMouse(true)
-
-        local trackBg = track:CreateTexture(nil, "BACKGROUND")
-        trackBg:SetAllPoints()
-        trackBg:SetColorTexture(0.12, 0.12, 0.16, 0.9)
-
-        local fillTex = track:CreateTexture(nil, "ARTWORK")
-        fillTex:SetPoint("TOPLEFT",    track, "TOPLEFT")
-        fillTex:SetPoint("BOTTOMLEFT", track, "BOTTOMLEFT")
-        fillTex:SetWidth(1)
-        fillTex:SetColorTexture(ch.cr, ch.cg, ch.cb, 0.8)
-
-        local thumb = CreateFrame("Frame", nil, track)
-        thumb:SetSize(THUMB, THUMB)
-        thumb:EnableMouse(true)
-        local thumbTex = thumb:CreateTexture(nil, "OVERLAY")
-        thumbTex:SetAllPoints()
-        thumbTex:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
-        thumbTex:SetVertexColor(0.9, 0.9, 0.9, 1)
-
-        local function SetVis(val)
-            val = math.max(0, math.min(1, val))
-            local xPos = val * (MINI_W - THUMB)
-            thumb:ClearAllPoints()
-            thumb:SetPoint("LEFT", track, "LEFT", xPos, 0)
-            fillTex:SetWidth(math.max(1, val * MINI_W))
-            valText:SetText(string.format("%.2f", val))
-        end
-        local function GetMouse()
-            local cx = select(1, GetCursorPosition()) / UIParent:GetEffectiveScale()
-            local left = track:GetLeft()
-            return math.max(0, math.min(1, math.floor(((cx - left) / MINI_W) * 100 + 0.5) / 100))
-        end
-        local function Apply(val)
-            getFunc()[ch.key] = val
-            SetVis(val)
-            RefreshSwatch()
-            if onChange then onChange() end
-            if iST.InvalidateBarState then iST:InvalidateBarState() end
-        end
-
-        local dragging = false
-        thumb:SetScript("OnMouseDown", function() dragging = true end)
-        thumb:SetScript("OnMouseUp",   function() dragging = false end)
-        track:SetScript("OnMouseDown", function() Apply(GetMouse()); dragging = true end)
-        track:SetScript("OnMouseUp",   function() dragging = false end)
-        track:SetScript("OnUpdate",    function() if dragging then Apply(GetMouse()) end end)
-        track:EnableMouseWheel(true)
-        track:SetScript("OnMouseWheel", function(_, d)
-            Apply(math.max(0, math.min(1, math.floor((getFunc()[ch.key] + d * 0.05) * 100 + 0.5) / 100)))
-        end)
-
-        SetVis(getFunc()[ch.key])
-        yOffset = yOffset - 16
-    end
-    return yOffset - 8
+    return yOffset - 30, RefreshSwatch
 end
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -471,14 +507,26 @@ function iST:CreateOptionsPanel()
     -- Create Tab Containers
     -- ═══════════════════════════════════════════════════════════
     local generalContainer, generalContent = CreateTabContent()
-    local displayContainer, displayContent = CreateTabContent()
+    local timingContainer, timingContent = CreateTabContent()
+    local indicatorsContainer, indicatorsContent = CreateTabContent()
+    local customizationContainer, customizationContent = CreateTabContent()
+    local soundContainer, soundContent = CreateTabContent()
     local aboutContainer, aboutContent = CreateTabContent()
     local iWRContainer, iWRContent = CreateTabContent()
     local iSPContainer, iSPContent = CreateTabContent()
-    local iCCContainer, iCCContent = CreateTabContent()
     local iNIFContainer, iNIFContent = CreateTabContent()
 
-    local tabContents = { generalContainer, displayContainer, aboutContainer, iWRContainer, iSPContainer, iCCContainer, iNIFContainer }
+    local tabContents = {
+        generalContainer,
+        timingContainer,
+        indicatorsContainer,
+        customizationContainer,
+        soundContainer,
+        aboutContainer,
+        iWRContainer,
+        iSPContainer,
+        iNIFContainer,
+    }
 
     -- ═══════════════════════════════════════════════════════════
     -- Tab Selection
@@ -508,13 +556,15 @@ function iST:CreateOptionsPanel()
     local sidebarItems = {
         { type = "header", label = Colors.iST .. "iSealTwist" },
         { type = "tab", label = L["TabGeneral"], index = 1 },
-        { type = "tab", label = L["TabDisplay"], index = 2 },
-        { type = "tab", label = L["TabAbout"], index = 3 },
+        { type = "tab", label = L["TabTiming"], index = 2 },
+        { type = "tab", label = L["TabIndicators"], index = 3 },
+        { type = "tab", label = L["TabCustomization"], index = 4 },
+        { type = "tab", label = L["TabSoundEffects"], index = 5 },
+        { type = "tab", label = L["TabAbout"], index = 6 },
         { type = "header", label = Colors.iST .. L["SidebarOtherAddons"] },
-        { type = "tab", label = L["TabIWRPromo"], index = 4 },
-        { type = "tab", label = L["TabISPPromo"], index = 5 },
-        { type = "tab", label = L["TabICCPromo"], index = 6 },
-        { type = "tab", label = L["TabINIFPromo"], index = 7 },
+        { type = "tab", label = L["TabIWRPromo"], index = 7 },
+        { type = "tab", label = L["TabISPPromo"], index = 8 },
+        { type = "tab", label = L["TabINIFPromo"], index = 9 },
     }
 
     local sidebarY = -8
@@ -556,195 +606,35 @@ function iST:CreateOptionsPanel()
     -- ═══════════════════════════════════════════════════════════
     do
         local y = -10
-        _, y = CreateSectionHeader(generalContent, L["SectionBarAppearance"], y)
+        _, y = CreateSectionHeader(generalContent, L["SectionActivation"], y)
 
-        _, y = CreateCustomSlider(generalContent, L["BarWidth"], y, 100, 500, 10,
-            function() return iSTSettings.barWidth end,
-            function(v)
-                iSTSettings.barWidth = v
-                if iST.BarFrame then iST.BarFrame:SetWidth(v) end
-            end,
-            function(v) return v .. "px" end
-        )
-
-        _, y = CreateCustomSlider(generalContent, L["BarHeight"], y, 15, 50, 1,
-            function() return iSTSettings.barHeight end,
-            function(v)
-                iSTSettings.barHeight = v
-                if iST.BarFrame then
-                    iST.BarFrame:SetHeight(v)
-                    if iST.BarFrame.sealIcon then iST.BarFrame.sealIcon:SetSize(v, v) end
-                end
-            end,
-            function(v) return v .. "px" end
-        )
-
-        _, y = CreateSectionHeader(generalContent, L["SectionTwistTiming"], y)
-
-        _, y = CreateCustomSlider(generalContent, L["TwistWindow"], y, 200, 600, 10,
-            function() return iSTSettings.twistWindow * 1000 end,
-            function(v) iSTSettings.twistWindow = v / 1000 end,
-            function(v) return v .. "ms" end
-        )
-
-        local twistDesc = generalContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        twistDesc:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 25, y)
-        twistDesc:SetWidth(350)
-        twistDesc:SetText(L["TwistWindowDesc"])
-        y = y - 16
-
-        _, y = CreateSettingsCheckbox(generalContent, L["ShowLatency"], L["ShowLatencyDesc"], y,
-            function() return iSTSettings.showLatency end,
-            function(v) iSTSettings.showLatency = v end
-        )
-
-        _, y = CreateSectionHeader(generalContent, L["SectionBarColors"], y)
-
-        y = CreateColorEditor(generalContent, L["ColorBar"], y,
-            function() return iSTSettings.barColor end, nil)
-
-        y = CreateColorEditor(generalContent, L["ColorTwistZone"], y,
-            function() return iSTSettings.twistZoneColor end, nil)
-
-        y = CreateColorEditor(generalContent, L["ColorAlert"], y,
-            function() return iSTSettings.alertColor end, nil)
-
-        y = CreateColorEditor(generalContent, L["ColorGCDZone"], y,
-            function() return iSTSettings.gcdZoneColor end, nil)
-
-        y = CreateColorEditor(generalContent, L["ColorTwistMarker"], y,
-            function() return iSTSettings.twistMarkerColor end,
-            function()
-                if iST.BarFrame and iST.BarFrame.twistMarker then
-                    local c = iSTSettings.twistMarkerColor
-                    iST.BarFrame.twistMarker:SetVertexColor(c.r, c.g, c.b, c.a)
-                end
-            end)
-
-        y = CreateColorEditor(generalContent, L["ColorGCDMarker"], y,
-            function() return iSTSettings.gcdMarkerColor end, nil)
-
-        y = CreateColorEditor(generalContent, L["ColorBorderNormal"], y,
-            function() return iSTSettings.borderNormalColor end, nil)
-
-        y = CreateColorEditor(generalContent, L["ColorTwistSuccess"], y,
-            function() return iSTSettings.twistSuccessColor end, nil)
-
-        y = CreateColorEditor(generalContent, L["ColorTwistFail"], y,
-            function() return iSTSettings.twistFailColor end, nil)
-
-        scrollChildren[1]:SetHeight(math.abs(y) + 10)
-    end
-
-    -- ═══════════════════════════════════════════════════════════
-    -- Tab 2: Display
-    -- ═══════════════════════════════════════════════════════════
-    do
-        local y = -10
-        _, y = CreateSectionHeader(displayContent, L["SectionVisibility"], y)
-
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowSealIcon"], L["ShowSealIconDesc"], y,
-            function() return iSTSettings.showSealIcon end,
-            function(v)
-                iSTSettings.showSealIcon = v
-                iST:UpdateSealDisplay()
-            end
-        )
-
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowWeaponSpeed"], L["ShowWeaponSpeedDesc"], y,
-            function() return iSTSettings.showWeaponSpeed end,
-            function(v) iSTSettings.showWeaponSpeed = v end
-        )
-
-        _, y = CreateSettingsCheckbox(displayContent, L["OnlyInCombat"], L["OnlyInCombatDesc"], y,
-            function() return iSTSettings.onlyInCombat end,
-            function(v) iSTSettings.onlyInCombat = v iST:UpdateBarVisibility() end
-        )
-
-        _, y = CreateSettingsCheckbox(displayContent, L["OnlyAsPaladin"], L["OnlyAsPaladinDesc"], y,
+        _, y = CreateSettingsCheckbox(generalContent, L["OnlyAsPaladin"], L["OnlyAsPaladinDesc"], y,
             function() return iSTSettings.onlyAsPaladin end,
             function(v) iSTSettings.onlyAsPaladin = v iST:UpdateBarVisibility() end
         )
 
-        _, y = CreateSettingsCheckbox(displayContent, L["OnlyInRetSpec"], L["OnlyInRetSpecDesc"], y,
+        _, y = CreateSettingsCheckbox(generalContent, L["OnlyInRetSpec"], L["OnlyInRetSpecDesc"], y,
             function() return iSTSettings.onlyInRetSpec end,
             function(v) iSTSettings.onlyInRetSpec = v iST:UpdateBarVisibility() end
         )
 
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowGCDIndicator"], L["ShowGCDIndicatorDesc"], y,
-            function() return iSTSettings.showGCDIndicator end,
-            function(v) iSTSettings.showGCDIndicator = v end
+        _, y = CreateSettingsCheckbox(generalContent, L["OnlyInCombat"], L["OnlyInCombatDesc"], y,
+            function() return iSTSettings.onlyInCombat end,
+            function(v) iSTSettings.onlyInCombat = v iST:UpdateBarVisibility() end
         )
 
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowWrongSealWarning"], L["ShowWrongSealWarningDesc"], y,
-            function() return iSTSettings.showWrongSealWarning end,
-            function(v) iSTSettings.showWrongSealWarning = v end
-        )
-
-        _, y = CreateSectionHeader(displayContent, L["SectionPulseIndicators"], y)
-
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowGreenPulse"], L["ShowGreenPulseDesc"], y,
-            function() return iSTSettings.showGreenPulse end,
-            function(v) iSTSettings.showGreenPulse = v end
-        )
-
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowOrangePulse"], L["ShowOrangePulseDesc"], y,
-            function() return iSTSettings.showOrangePulse end,
-            function(v) iSTSettings.showOrangePulse = v end
-        )
-
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowRedPulse"], L["ShowRedPulseDesc"], y,
-            function() return iSTSettings.showRedPulse end,
-            function(v) iSTSettings.showRedPulse = v end
-        )
-
-        _, y = CreateSectionHeader(displayContent, L["SectionTwistFeedback"], y)
-
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowTwistSuccess"], L["ShowTwistSuccessDesc"], y,
-            function() return iSTSettings.showTwistSuccess end,
-            function(v) iSTSettings.showTwistSuccess = v end
-        )
-
-        _, y = CreateSettingsCheckbox(displayContent, L["ShowTwistFail"], L["ShowTwistFailDesc"], y,
-            function() return iSTSettings.showTwistFail end,
-            function(v) iSTSettings.showTwistFail = v end
-        )
-
-        _, y = CreateCustomSlider(displayContent, L["TwistTextSize"], y, 8, 32, 1,
-            function() return iSTSettings.twistTextSize end,
-            function(v) iSTSettings.twistTextSize = v end,
-            function(v) return v .. "pt" end
-        )
-
-        _, y = CreateSectionHeader(displayContent, L["SectionPosition"], y)
-
-        _, y = CreateSettingsCheckbox(displayContent, L["LockBar"], L["LockBarDesc"], y,
-            function() return iSTSettings.barLocked end,
-            function(v) iSTSettings.barLocked = v end
-        )
-
-        _, y = CreateSettingsButton(displayContent, L["ResetPosition"], 130, y, function()
-            iST:ResetBarPosition()
-        end)
-
-        _, y = CreateSettingsButton(displayContent, L["TestBar"], 130, y, function()
-            iST:StartTestMode()
-        end)
-
-        -- ── Seal Pair ──────────────────────────────────────────
-        y = y - 6
-        _, y = CreateSectionHeader(displayContent, L["SectionSealPair"], y)
+        _, y = CreateSectionHeader(generalContent, L["SectionSealPair"], y)
 
         -- Seal to Twist (restricted: SoC or SoR)
         local fromOptions = { "Seal of Command", "Seal of Righteousness" }
 
-        local fromLabel = displayContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        fromLabel:SetPoint("TOPLEFT", displayContent, "TOPLEFT", 20, y)
+        local fromLabel = generalContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        fromLabel:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
         fromLabel:SetText(L["TwistFromSeal"])
         y = y - 20
 
-        local fromDropdown = CreateFrame("Frame", "iSTFromSealDropdown", displayContent, "UIDropDownMenuTemplate")
-        fromDropdown:SetPoint("TOPLEFT", displayContent, "TOPLEFT", 10, y)
+        local fromDropdown = CreateFrame("Frame", "iSTFromSealDropdown", generalContent, "UIDropDownMenuTemplate")
+        fromDropdown:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 10, y)
         UIDropDownMenu_SetWidth(fromDropdown, 200)
         UIDropDownMenu_Initialize(fromDropdown, function(self, level)
             for _, option in ipairs(fromOptions) do
@@ -764,8 +654,8 @@ function iST:CreateOptionsPanel()
         UIDropDownMenu_SetText(fromDropdown, iSTSettings.twistFromSeal)
         y = y - 32
 
-        local fromDesc = displayContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        fromDesc:SetPoint("TOPLEFT", displayContent, "TOPLEFT", 20, y)
+        local fromDesc = generalContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        fromDesc:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
         fromDesc:SetWidth(350)
         fromDesc:SetJustifyH("LEFT")
         fromDesc:SetText(L["TwistFromSealDesc"])
@@ -782,13 +672,13 @@ function iST:CreateOptionsPanel()
         end
         table.sort(intoOptions)
 
-        local intoLabel = displayContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        intoLabel:SetPoint("TOPLEFT", displayContent, "TOPLEFT", 20, y)
+        local intoLabel = generalContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        intoLabel:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
         intoLabel:SetText(L["TwistIntoSeal"])
         y = y - 20
 
-        local intoDropdown = CreateFrame("Frame", "iSTIntoSealDropdown", displayContent, "UIDropDownMenuTemplate")
-        intoDropdown:SetPoint("TOPLEFT", displayContent, "TOPLEFT", 10, y)
+        local intoDropdown = CreateFrame("Frame", "iSTIntoSealDropdown", generalContent, "UIDropDownMenuTemplate")
+        intoDropdown:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 10, y)
         UIDropDownMenu_SetWidth(intoDropdown, 200)
         UIDropDownMenu_Initialize(intoDropdown, function(self, level)
             for _, option in ipairs(intoOptions) do
@@ -808,18 +698,371 @@ function iST:CreateOptionsPanel()
         UIDropDownMenu_SetText(intoDropdown, iSTSettings.twistIntoSeal)
         y = y - 32
 
-        local intoDesc = displayContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        intoDesc:SetPoint("TOPLEFT", displayContent, "TOPLEFT", 20, y)
+        local intoDesc = generalContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        intoDesc:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
         intoDesc:SetWidth(350)
         intoDesc:SetJustifyH("LEFT")
         intoDesc:SetText(L["TwistIntoSealDesc"])
         y = y - intoDesc:GetStringHeight() - 10
 
+        scrollChildren[1]:SetHeight(math.abs(y) + 10)
+    end
+
+    -- ═══════════════════════════════════════════════════════════
+    -- Tab 2: Timing
+    -- ═══════════════════════════════════════════════════════════
+    do
+        local y = -10
+        _, y = CreateSectionHeader(timingContent, L["SectionTwistTiming"], y)
+
+        _, y = CreateCustomSlider(timingContent, L["TwistWindow"], y, 200, 600, 10,
+            function() return iSTSettings.twistWindow * 1000 end,
+            function(v) iSTSettings.twistWindow = v / 1000 end,
+            function(v) return v .. "ms" end
+        )
+
+        local twistDesc = timingContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        twistDesc:SetPoint("TOPLEFT", timingContent, "TOPLEFT", 25, y)
+        twistDesc:SetWidth(350)
+        twistDesc:SetText(L["TwistWindowDesc"])
+        y = y - 16
+
+        _, y = CreateSectionHeader(timingContent, L["SectionTimingGuides"], y)
+
+        _, y = CreateSettingsCheckbox(timingContent, L["ShowGCDIndicator"], L["ShowGCDIndicatorDesc"], y,
+            function() return iSTSettings.showGCDIndicator end,
+            function(v) iSTSettings.showGCDIndicator = v end
+        )
+
+        _, y = CreateSettingsCheckbox(timingContent, L["ShowLatency"], L["ShowLatencyDesc"], y,
+            function() return iSTSettings.showLatency end,
+            function(v) iSTSettings.showLatency = v end
+        )
+
         scrollChildren[2]:SetHeight(math.abs(y) + 10)
     end
 
     -- ═══════════════════════════════════════════════════════════
-    -- Tab 3: About
+    -- Tab 3: Indicators
+    -- ═══════════════════════════════════════════════════════════
+    do
+        local y = -10
+        _, y = CreateSectionHeader(indicatorsContent, L["SectionBarInformation"], y)
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowSealIcon"], L["ShowSealIconDesc"], y,
+            function() return iSTSettings.showSealIcon end,
+            function(v)
+                iSTSettings.showSealIcon = v
+                iST:UpdateSealDisplay()
+            end
+        )
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowWeaponSpeed"], L["ShowWeaponSpeedDesc"], y,
+            function() return iSTSettings.showWeaponSpeed end,
+            function(v) iSTSettings.showWeaponSpeed = v end
+        )
+
+        _, y = CreateSectionHeader(indicatorsContent, L["SectionWarnings"], y)
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowWrongSealWarning"], L["ShowWrongSealWarningDesc"], y,
+            function() return iSTSettings.showWrongSealWarning end,
+            function(v) iSTSettings.showWrongSealWarning = v end
+        )
+
+        _, y = CreateSectionHeader(indicatorsContent, L["SectionPulseIndicators"], y)
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowGreenPulse"], L["ShowGreenPulseDesc"], y,
+            function() return iSTSettings.showGreenPulse end,
+            function(v) iSTSettings.showGreenPulse = v end
+        )
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowOrangePulse"], L["ShowOrangePulseDesc"], y,
+            function() return iSTSettings.showOrangePulse end,
+            function(v) iSTSettings.showOrangePulse = v end
+        )
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowRedPulse"], L["ShowRedPulseDesc"], y,
+            function() return iSTSettings.showRedPulse end,
+            function(v) iSTSettings.showRedPulse = v end
+        )
+
+        _, y = CreateSectionHeader(indicatorsContent, L["SectionTwistFeedback"], y)
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowTwistSuccess"], L["ShowTwistSuccessDesc"], y,
+            function() return iSTSettings.showTwistSuccess end,
+            function(v) iSTSettings.showTwistSuccess = v end
+        )
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowTwistFail"], L["ShowTwistFailDesc"], y,
+            function() return iSTSettings.showTwistFail end,
+            function(v) iSTSettings.showTwistFail = v end
+        )
+
+        scrollChildren[3]:SetHeight(math.abs(y) + 10)
+    end
+
+    -- ═══════════════════════════════════════════════════════════
+    -- Tab 4: Customization
+    -- ═══════════════════════════════════════════════════════════
+    do
+        local y = -10
+        local colorRefreshers = {}
+
+        local function AddColorEditor(label, getFunc, onChange)
+            local refresh
+            y, refresh = CreateColorEditor(customizationContent, label, y, getFunc, onChange)
+            table.insert(colorRefreshers, refresh)
+        end
+
+        _, y = CreateSectionHeader(customizationContent, L["SectionBarAppearance"], y)
+
+        _, y = CreateCustomSlider(customizationContent, L["BarWidth"], y, 100, 500, 10,
+            function() return iSTSettings.barWidth end,
+            function(v)
+                iSTSettings.barWidth = v
+                if iST.BarFrame then iST.BarFrame:SetWidth(v) end
+            end,
+            function(v) return v .. "px" end
+        )
+
+        _, y = CreateCustomSlider(customizationContent, L["BarHeight"], y, 15, 50, 1,
+            function() return iSTSettings.barHeight end,
+            function(v)
+                iSTSettings.barHeight = v
+                if iST.BarFrame then
+                    iST.BarFrame:SetHeight(v)
+                    if iST.BarFrame.UpdateModernDimensions then
+                        iST.BarFrame:UpdateModernDimensions(v)
+                    elseif iST.BarFrame.sealIcon then
+                        iST.BarFrame.sealIcon:SetSize(v, v)
+                    end
+                end
+            end,
+            function(v) return v .. "px" end
+        )
+
+        _, y = CreateCustomSlider(customizationContent, L["IconSize"], y, 16, 64, 1,
+            function() return iSTSettings.sealIconSize end,
+            function(v)
+                iSTSettings.sealIconSize = v
+                if iST.BarFrame and iST.BarFrame.UpdateModernDimensions then
+                    iST.BarFrame:UpdateModernDimensions(iSTSettings.barHeight)
+                end
+            end,
+            function(v) return v .. "px" end
+        )
+
+        _, y = CreateSectionHeader(customizationContent, L["SectionTextAppearance"], y)
+
+        _, y = CreateCustomSlider(customizationContent, L["TwistTextSize"], y, 8, 32, 1,
+            function() return iSTSettings.twistTextSize end,
+            function(v)
+                iSTSettings.twistTextSize = v
+                iST:ApplyBarTypography()
+            end,
+            function(v) return v .. "pt" end
+        )
+
+        _, y = CreateCustomSlider(customizationContent, L["CurrentSealTextSize"], y, 8, 24, 1,
+            function() return iSTSettings.sealTextSize end,
+            function(v)
+                iSTSettings.sealTextSize = v
+                iST:ApplyBarTypography()
+            end,
+            function(v) return v .. "pt" end
+        )
+
+        _, y = CreateCustomSlider(customizationContent, L["LatencyTextSize"], y, 8, 20, 1,
+            function() return iSTSettings.latencyTextSize end,
+            function(v)
+                iSTSettings.latencyTextSize = v
+                iST:ApplyBarTypography()
+            end,
+            function(v) return v .. "pt" end
+        )
+
+        local function GetFontOptions()
+            local options = {}
+            for _, font in ipairs(iST.FONT_CHOICES) do
+                table.insert(options, { value = font.value, text = font.label })
+            end
+            return options
+        end
+
+        _, y = CreateSettingsDropdown(customizationContent, L["BarFont"], y, 220,
+            GetFontOptions,
+            function() return iSTSettings.barFont end,
+            function(value)
+                iSTSettings.barFont = value
+                iST:ApplyBarTypography()
+            end
+        )
+
+        _, y = CreateSectionHeader(customizationContent, L["SectionBarColors"], y)
+
+        AddColorEditor(L["ColorBar"],
+            function() return iSTSettings.barColor end, nil)
+
+        AddColorEditor(L["ColorTwistZone"],
+            function() return iSTSettings.twistZoneColor end, nil)
+
+        AddColorEditor(L["ColorAlert"],
+            function() return iSTSettings.alertColor end, nil)
+
+        AddColorEditor(L["ColorGCDZone"],
+            function() return iSTSettings.gcdZoneColor end, nil)
+
+        AddColorEditor(L["ColorTwistMarker"],
+            function() return iSTSettings.twistMarkerColor end,
+            function()
+                if iST.BarFrame and iST.BarFrame.twistMarker then
+                    local c = iSTSettings.twistMarkerColor
+                    iST.BarFrame.twistMarker:SetVertexColor(c.r, c.g, c.b, c.a)
+                end
+            end)
+
+        AddColorEditor(L["ColorGCDMarker"],
+            function() return iSTSettings.gcdMarkerColor end, nil)
+
+        AddColorEditor(L["ColorBorderNormal"],
+            function() return iSTSettings.borderNormalColor end, nil)
+
+        AddColorEditor(L["ColorTwistSuccess"],
+            function() return iSTSettings.twistSuccessColor end, nil)
+
+        AddColorEditor(L["ColorTwistFail"],
+            function() return iSTSettings.twistFailColor end, nil)
+
+        _, y = CreateSettingsButton(customizationContent, L["DefaultColors"], 140, y - 4, function()
+            local colorKeys = {
+                "barColor",
+                "twistZoneColor",
+                "alertColor",
+                "gcdZoneColor",
+                "twistMarkerColor",
+                "gcdMarkerColor",
+                "borderNormalColor",
+                "twistSuccessColor",
+                "twistFailColor",
+            }
+
+            for _, key in ipairs(colorKeys) do
+                local default = iST.SettingsDefault[key]
+                local color = iSTSettings[key]
+                color.r = default.r
+                color.g = default.g
+                color.b = default.b
+                color.a = default.a
+            end
+
+            for _, refresh in ipairs(colorRefreshers) do
+                refresh()
+            end
+
+            if iST.InvalidateBarState then iST:InvalidateBarState() end
+        end)
+
+        _, y = CreateSectionHeader(customizationContent, L["SectionPosition"], y)
+
+        _, y = CreateSettingsCheckbox(customizationContent, L["LockBar"], L["LockBarDesc"], y,
+            function() return iSTSettings.barLocked end,
+            function(v) iSTSettings.barLocked = v end
+        )
+
+        _, y = CreateSettingsButton(customizationContent, L["ResetPosition"], 130, y, function()
+            iST:ResetBarPosition()
+        end)
+
+        _, y = CreateSettingsButton(customizationContent, L["TestBar"], 130, y, function()
+            iST:StartTestMode()
+        end)
+
+        scrollChildren[4]:SetHeight(math.abs(y) + 10)
+    end
+
+    -- ═══════════════════════════════════════════════════════════
+    -- Tab 5: Sound Effects
+    -- ═══════════════════════════════════════════════════════════
+    do
+        local y = -10
+        _, y = CreateSectionHeader(soundContent, L["SectionSoundEffects"], y)
+        _, y = CreateInfoText(soundContent, L["SoundEffectsWIP"], y, "GameFontNormalSmall")
+        _, y = CreateInfoText(soundContent, L["SoundEffectsIntro"], y, "GameFontHighlight")
+        y = y - 6
+
+        _, y = CreateSettingsCheckbox(soundContent, L["EnableSoundEffects"], L["EnableSoundEffectsDesc"], y,
+            function() return iSTSettings.enableSoundEffects end,
+            function(v) iSTSettings.enableSoundEffects = v end
+        )
+
+        local function GetSoundOptions()
+            local options = { { value = "", text = L["None"] } }
+            local seen = { [""] = true }
+
+            for _, sound in ipairs(iST.BUILTIN_SOUNDS) do
+                table.insert(options, { value = sound.value, text = "[WoW] " .. sound.label })
+                seen[sound.value] = true
+            end
+
+            if iST:IsISPLoaded() then
+                for _, soundName in ipairs(iSPSettings.SoundFiles or {}) do
+                    if not seen[soundName] then
+                        local displayName = soundName
+                        if iSPSettings.SoundNames and iSPSettings.SoundNames[soundName] and iSPSettings.SoundNames[soundName] ~= "" then
+                            displayName = iSPSettings.SoundNames[soundName]
+                        end
+                        table.insert(options, { value = soundName, text = "[iSP] " .. displayName })
+                        seen[soundName] = true
+                    end
+                end
+            end
+
+            return options
+        end
+
+        local function AddSoundSelector(label, getValue, setValue)
+            local rowY = y
+            _, y = CreateSettingsDropdown(soundContent, label, y, 250, GetSoundOptions, getValue, setValue)
+
+            local testButton = CreateFrame("Button", nil, soundContent, "UIPanelButtonTemplate")
+            testButton:SetSize(70, 22)
+            testButton:SetPoint("TOPLEFT", soundContent, "TOPLEFT", 330, rowY - 20)
+            testButton:SetText(L["TestSound"])
+            testButton:SetScript("OnClick", function()
+                iST:PlayConfiguredSound(getValue())
+            end)
+        end
+
+        AddSoundSelector(L["TwistSuccessSound"],
+            function() return iSTSettings.twistSuccessSound end,
+            function(value) iSTSettings.twistSuccessSound = value end)
+
+        AddSoundSelector(L["TwistFailSound"],
+            function() return iSTSettings.twistFailSound end,
+            function(value) iSTSettings.twistFailSound = value end)
+
+        _, y = CreateCustomSlider(soundContent, L["WrongSealSoundLeadTime"], y, 0.2, 1.5, 0.1,
+            function() return iSTSettings.wrongSealSoundLeadTime end,
+            function(v) iSTSettings.wrongSealSoundLeadTime = v end,
+            function(v) return string.format("%.1fs", v) end
+        )
+
+        AddSoundSelector(L["WrongSealWarningSound"],
+            function() return iSTSettings.wrongSealWarningSound end,
+            function(value) iSTSettings.wrongSealWarningSound = value end)
+
+        y = y - 4
+        if iST:IsISPLoaded() then
+            _, y = CreateInfoText(soundContent, L["CustomSoundsAvailable"], y, "GameFontDisableSmall")
+        else
+            _, y = CreateInfoText(soundContent, L["CustomSoundsViaISP"], y, "GameFontDisableSmall")
+        end
+
+        scrollChildren[5]:SetHeight(math.abs(y) + 10)
+    end
+
+    -- ═══════════════════════════════════════════════════════════
+    -- Tab 6: About
     -- ═══════════════════════════════════════════════════════════
     do
         local y = -15
@@ -860,33 +1103,27 @@ function iST:CreateOptionsPanel()
             L["ISTCurseForgeLink"],
             y, "GameFontDisableSmall")
 
-        scrollChildren[3]:SetHeight(math.abs(y) + 10)
+        scrollChildren[6]:SetHeight(math.abs(y) + 10)
     end
 
     -- ═══════════════════════════════════════════════════════════
-    -- Tabs 4-7: Other Addons (Installed + Promo dual frames)
+    -- Tabs 7-9: Other Addons (Installed + Promo dual frames)
     -- ═══════════════════════════════════════════════════════════
     local promoData = {
-        { content = iWRContent, scrollIdx = 4, name = "iWillRemember", addonName = "iWillRemember", tabIdx = 4,
+        { content = iWRContent, scrollIdx = 7, name = "iWillRemember", addonName = "iWillRemember", tabIdx = 7,
           tabLoaded = "iWillRemember", tabLabel = "iWillRemember",
           desc = L["IWRPromoDesc"], link = L["IWRPromoLink"],
           installedDesc = Colors.iST .. "iWillRemember" .. Colors.Reset .. " is installed. Open its settings to manage player notes and sync.",
           buttonText = "Open iWR Settings",
           tabLabel = L["TabIWR"], tabLabelPromo = L["TabIWRPromo"],
           getFrame = function() return _G.iWR and _G.iWR.SettingsFrame end },
-        { content = iSPContent, scrollIdx = 5, name = "iSoundPlayer", addonName = "iSoundPlayer", tabIdx = 5,
+        { content = iSPContent, scrollIdx = 8, name = "iSoundPlayer", addonName = "iSoundPlayer", tabIdx = 8,
           desc = L["ISPPromoDesc"], link = L["ISPPromoLink"],
           installedDesc = Colors.iST .. "iSoundPlayer" .. Colors.Reset .. " is installed. Open its settings to configure sounds and triggers.",
           buttonText = "Open iSP Settings",
           tabLabel = L["TabISP"], tabLabelPromo = L["TabISPPromo"],
           getFrame = function() return _G["iSPSettingsFrame"] end },
-        { content = iCCContent, scrollIdx = 6, name = "iCommunityChat", addonName = "iCommunityChat", tabIdx = 6,
-          desc = L["ICCPromoDesc"], link = L["ICCPromoLink"],
-          installedDesc = Colors.iST .. "iCommunityChat" .. Colors.Reset .. " is installed. Open its settings to configure community chat.",
-          buttonText = "Open iCC Settings",
-          tabLabel = L["TabICC"], tabLabelPromo = L["TabICCPromo"],
-          getFrame = function() return _G.iCC and _G.iCC.SettingsFrame end },
-        { content = iNIFContent, scrollIdx = 7, name = "iNeedIfYouNeed", addonName = "iNeedIfYouNeed", tabIdx = 7,
+        { content = iNIFContent, scrollIdx = 9, name = "iNeedIfYouNeed", addonName = "iNeedIfYouNeed", tabIdx = 9,
           desc = L["INIFPromoDesc"], link = L["INIFPromoLink"],
           installedDesc = Colors.iST .. "iNeedIfYouNeed" .. Colors.Reset .. " is installed. Open its settings to configure loot options.",
           buttonText = "Open iNIF Settings",
@@ -983,8 +1220,6 @@ local function CloseOtherAddonSettings()
     if iWRFrame and iWRFrame:IsShown() then iWRFrame:Hide() end
     local iSPFrame = _G["iSPSettingsFrame"]
     if iSPFrame and iSPFrame:IsShown() then iSPFrame:Hide() end
-    local iCCFrame = _G.iCC and _G.iCC.SettingsFrame
-    if iCCFrame and iCCFrame:IsShown() then iCCFrame:Hide() end
     local iNIFFrame = _G["iNIFSettingsFrame"]
     if iNIFFrame and iNIFFrame:IsShown() then iNIFFrame:Hide() end
 end

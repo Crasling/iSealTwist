@@ -14,6 +14,7 @@ local addonName, iST = ...
 -- API compat for TBC Classic (C_AddOns may not exist)
 local GetAddOnMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
 local GetAddOnInfo = C_AddOns and C_AddOns.GetAddOnInfo or GetAddOnInfo
+local IsAddOnLoadedAPI = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
 
 local function GetLocalizedSpellName(spellID, fallback)
     local localizedName
@@ -99,6 +100,20 @@ iST.CONSTANTS = {
     BAR_UPDATE_RATE = 0.016,        -- ~60fps
     BAR_STALE_THRESHOLD = 0.5,      -- hide bar this long after expected swing
     GCD_DURATION = 1.5,            -- TBC GCD in seconds
+}
+
+iST.FONT_CHOICES = {
+    { value = "FRIZQT",   label = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
+    { value = "ARIALN",   label = "Arial Narrow",   path = "Fonts\\ARIALN.TTF" },
+    { value = "MORPHEUS", label = "Morpheus",       path = "Fonts\\MORPHEUS.TTF" },
+    { value = "SKURRI",   label = "Skurri",         path = "Fonts\\SKURRI.TTF" },
+}
+
+iST.BUILTIN_SOUNDS = {
+    { value = "wow:856",  label = "Soft Confirm" },
+    { value = "wow:857",  label = "Soft Warning" },
+    { value = "wow:3339", label = "Map Ping" },
+    { value = "wow:8959", label = "Raid Warning" },
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -225,6 +240,8 @@ iST.State = {
     GCDEndTime = 0,
     GCDDuration = 1.5,
     Idle = false,
+    WrongSealSoundPlayed = false,
+    WrongSealSince = nil,
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -234,6 +251,7 @@ iST.SettingsDefault = {
     enabled = true,
     barWidth = 250,
     barHeight = 25,
+    sealIconSize = 25,
     barLocked = false,
     twistWindow = 0.400,
     showLatency = true,
@@ -246,6 +264,14 @@ iST.SettingsDefault = {
     showTwistSuccess = true,
     showTwistFail = true,
     twistTextSize     = 16,
+    sealTextSize      = 10,
+    latencyTextSize   = 9,
+    barFont           = "FRIZQT",
+    enableSoundEffects = false,
+    twistSuccessSound = "wow:856",
+    twistFailSound    = "wow:857",
+    wrongSealWarningSound = "wow:3339",
+    wrongSealSoundLeadTime = 0.5,
     twistSuccessColor = { r = 0.2, g = 1.0, b = 0.2, a = 1.0 },
     twistFailColor    = { r = 1.0, g = 0.2, b = 0.2, a = 1.0 },
     barColor          = { r = 1,    g = 0.59, b = 0.09, a = 0.9 },
@@ -270,6 +296,9 @@ iST.SettingsDefault = {
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 function iST:InitializeSettings()
     if not iSTSettings then iSTSettings = {} end
+    if iSTSettings.enableSoundEffects == nil and iSTSettings.enableISPSounds ~= nil then
+        iSTSettings.enableSoundEffects = iSTSettings.enableISPSounds
+    end
     for key, value in pairs(self.SettingsDefault) do
         if iSTSettings[key] == nil then
             if type(value) == "table" then
@@ -291,6 +320,37 @@ function iST:InitializeSettings()
     end
 end
 
+function iST:GetBarFontPath()
+    local selected = iSTSettings and iSTSettings.barFont or self.SettingsDefault.barFont
+    for _, font in ipairs(self.FONT_CHOICES) do
+        if font.value == selected then
+            return font.path
+        end
+    end
+    return self.FONT_CHOICES[1].path
+end
+
+function iST:ApplyBarTypography()
+    local bar = self.BarFrame
+    if not bar then return end
+
+    local fontPath = self:GetBarFontPath()
+    local function ApplyFont(fontString, size, flags)
+        if fontString then
+            fontString:SetFont(fontPath, size, flags)
+        end
+    end
+
+    local _, timeSize = bar.timeText:GetFont()
+    local _, speedSize = bar.speedText:GetFont()
+    ApplyFont(bar.timeText, timeSize or 11, "OUTLINE")
+    ApplyFont(bar.speedText, speedSize or 11, "OUTLINE")
+    ApplyFont(bar.latencyText, iSTSettings.latencyTextSize or 9, "OUTLINE")
+    ApplyFont(bar.sealText, iSTSettings.sealTextSize or 10, "OUTLINE")
+    ApplyFont(bar.twistResultText, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
+    bar.latencyText:SetScale(1)
+end
+
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                             Create Swing Bar                                   │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
@@ -299,10 +359,12 @@ function iST:CreateSwingBar()
 
     local barWidth = iSTSettings.barWidth
     local barHeight = iSTSettings.barHeight
+    local CONTENT_INSET = 3
 
     -- Main bar frame
     local bar = CreateFrame("Frame", "iSealTwistBar", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
     bar:SetSize(barWidth, barHeight)
+    bar.contentInset = CONTENT_INSET
     bar:SetClampedToScreen(true)
     bar:SetMovable(true)
     bar:EnableMouse(true)
@@ -311,12 +373,22 @@ function iST:CreateSwingBar()
     if bar.SetBackdrop then
         bar:SetBackdrop({
             bgFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeSize = 1,
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            edgeSize = 9,
+            insets = { left = CONTENT_INSET, right = CONTENT_INSET, top = CONTENT_INSET, bottom = CONTENT_INSET },
         })
-        bar:SetBackdropColor(0.05, 0.05, 0.1, 0.85)
+        bar:SetBackdropColor(0.025, 0.025, 0.045, 0.94)
         bar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
     end
+
+    -- Subtle inner highlight for a cleaner, more modern surface.
+    local gloss = bar:CreateTexture(nil, "ARTWORK", nil, 6)
+    gloss:SetPoint("TOPLEFT", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
+    gloss:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -CONTENT_INSET, -CONTENT_INSET)
+    gloss:SetHeight(math.max(1, math.floor((barHeight - CONTENT_INSET * 2) * 0.35)))
+    gloss:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+    gloss:SetVertexColor(1, 1, 1, 0.055)
+    bar.gloss = gloss
 
     -- Drag handlers
     bar:SetScript("OnMouseDown", function(self, button)
@@ -331,18 +403,18 @@ function iST:CreateSwingBar()
 
     -- Fill texture (progress bar)
     local fill = bar:CreateTexture(nil, "ARTWORK")
-    fill:SetPoint("TOPLEFT", bar, "TOPLEFT", 1, -1)
-    fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 1, 1)
+    fill:SetPoint("TOPLEFT", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
+    fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", CONTENT_INSET, CONTENT_INSET)
     fill:SetWidth(1)
-    fill:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+    fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
     local bc = iSTSettings.barColor
     fill:SetVertexColor(bc.r, bc.g, bc.b, bc.a)
     bar.fill = fill
 
     -- Twist zone overlay (semi-transparent green area from twist point to end)
     local twistZone = bar:CreateTexture(nil, "ARTWORK", nil, 1)
-    twistZone:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -1, -1)
-    twistZone:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1, 1)
+    twistZone:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -CONTENT_INSET, -CONTENT_INSET)
+    twistZone:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -CONTENT_INSET, CONTENT_INSET)
     twistZone:SetWidth(1)
     twistZone:SetTexture("Interface\\BUTTONS\\WHITE8X8")
     local tc = iSTSettings.twistZoneColor
@@ -352,8 +424,8 @@ function iST:CreateSwingBar()
     -- Twist marker line (vertical line at twist point)
     local marker = bar:CreateTexture(nil, "OVERLAY")
     marker:SetWidth(2)
-    marker:SetPoint("TOP", bar, "TOPLEFT", 0, 0)
-    marker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", 0, 0)
+    marker:SetPoint("TOP", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
+    marker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", CONTENT_INSET, CONTENT_INSET)
     marker:SetTexture("Interface\\BUTTONS\\WHITE8X8")
     local tm = iSTSettings.twistMarkerColor
     marker:SetVertexColor(tm.r, tm.g, tm.b, tm.a)
@@ -363,50 +435,34 @@ function iST:CreateSwingBar()
     local sealSwitchZone = bar:CreateTexture(nil, "ARTWORK", nil, 3)
     sealSwitchZone:SetTexture("Interface\\BUTTONS\\WHITE8X8")
     sealSwitchZone:SetVertexColor(1, 0.55, 0.0, 0.35)
-    sealSwitchZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    0, -1)
-    sealSwitchZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0,  1)
+    sealSwitchZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    CONTENT_INSET, -CONTENT_INSET)
+    sealSwitchZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", CONTENT_INSET,  CONTENT_INSET)
     sealSwitchZone:SetWidth(1)
     sealSwitchZone:Hide()
     bar.sealSwitchZone = sealSwitchZone
 
-    -- Red glow edges (rendered outside bar bounds, pulse in alert mode)
-    local GLOW = 5
-    local function MakeGlowEdge()
-        local g = bar:CreateTexture(nil, "OVERLAY", nil, 5)
-        g:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-        g:SetVertexColor(1, 0.05, 0.05, 0)
-        return g
+    -- Continuous rounded alert halo. This replaces the old four hard-edged blocks.
+    local alertGlow = CreateFrame("Frame", nil, bar, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    alertGlow:SetPoint("TOPLEFT", bar, "TOPLEFT", -5, 5)
+    alertGlow:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 5, -5)
+    alertGlow:SetFrameLevel(bar:GetFrameLevel() + 4)
+    if alertGlow.SetBackdrop then
+        alertGlow:SetBackdrop({
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            edgeSize = 14,
+            insets = { left = 2, right = 2, top = 2, bottom = 2 },
+        })
+        alertGlow:SetBackdropBorderColor(1, 0.1, 0.1, 0)
     end
-    local ge_top    = MakeGlowEdge()
-    local ge_bottom = MakeGlowEdge()
-    local ge_left   = MakeGlowEdge()
-    local ge_right  = MakeGlowEdge()
-
-    ge_top:SetHeight(GLOW)
-    ge_top:SetPoint("BOTTOMLEFT",  bar, "TOPLEFT",   -GLOW, GLOW)
-    ge_top:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT",   GLOW, GLOW)
-
-    ge_bottom:SetHeight(GLOW)
-    ge_bottom:SetPoint("TOPLEFT",  bar, "BOTTOMLEFT",  -GLOW, -GLOW)
-    ge_bottom:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT",  GLOW, -GLOW)
-
-    ge_left:SetWidth(GLOW)
-    ge_left:SetPoint("TOPRIGHT",    bar, "TOPLEFT",    -GLOW,  GLOW)
-    ge_left:SetPoint("BOTTOMRIGHT", bar, "BOTTOMLEFT", -GLOW, -GLOW)
-
-    ge_right:SetWidth(GLOW)
-    ge_right:SetPoint("TOPLEFT",    bar, "TOPRIGHT",    GLOW,  GLOW)
-    ge_right:SetPoint("BOTTOMLEFT", bar, "BOTTOMRIGHT", GLOW, -GLOW)
-
-    bar.glowEdges = { ge_top, ge_bottom, ge_left, ge_right }
+    bar.alertGlow = alertGlow
 
     -- GCD active zone (gray block showing current GCD duration on bar)
     local gcdZone = bar:CreateTexture(nil, "ARTWORK", nil, 2)
     gcdZone:SetTexture("Interface\\BUTTONS\\WHITE8X8")
     local gz = iSTSettings.gcdZoneColor
     gcdZone:SetVertexColor(gz.r, gz.g, gz.b, gz.a)
-    gcdZone:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, -1)
-    gcdZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 1)
+    gcdZone:SetPoint("TOPLEFT", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
+    gcdZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", CONTENT_INSET, CONTENT_INSET)
     gcdZone:SetWidth(1)
     gcdZone:Hide()
     bar.gcdZone = gcdZone
@@ -414,20 +470,54 @@ function iST:CreateSwingBar()
     -- GCD indicator line (vertical — marks where to press SoC)
     local gcdMarker = bar:CreateTexture(nil, "OVERLAY")
     gcdMarker:SetWidth(2)
-    gcdMarker:SetPoint("TOP", bar, "TOPLEFT", 0, 0)
-    gcdMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", 0, 0)
+    gcdMarker:SetPoint("TOP", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
+    gcdMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", CONTENT_INSET, CONTENT_INSET)
     gcdMarker:SetTexture("Interface\\BUTTONS\\WHITE8X8")
     local gm = iSTSettings.gcdMarkerColor
     gcdMarker:SetVertexColor(gm.r, gm.g, gm.b, gm.a)
     gcdMarker:Hide()
     bar.gcdMarker = gcdMarker
 
-    -- Seal icon (left of bar)
-    local sealIcon = bar:CreateTexture(nil, "OVERLAY")
-    sealIcon:SetSize(barHeight, barHeight)
-    sealIcon:SetPoint("RIGHT", bar, "LEFT", -4, 0)
-    sealIcon:Hide()
+    -- Circular seal icon (left of bar)
+    local sealIconFrame = CreateFrame("Frame", nil, bar)
+    sealIconFrame:SetPoint("RIGHT", bar, "LEFT", -7, 0)
+    sealIconFrame:Hide()
+
+    local sealIconShadow = sealIconFrame:CreateTexture(nil, "BACKGROUND")
+    sealIconShadow:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+    sealIconShadow:SetPoint("CENTER", sealIconFrame, "CENTER", 1, -1)
+    sealIconShadow:SetVertexColor(0, 0, 0, 0.75)
+
+    local sealIconRing = sealIconFrame:CreateTexture(nil, "BORDER")
+    sealIconRing:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+    sealIconRing:SetPoint("CENTER", sealIconFrame, "CENTER")
+    sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95)
+
+    local sealIcon = sealIconFrame:CreateTexture(nil, "ARTWORK")
+    sealIcon:SetPoint("CENTER", sealIconFrame, "CENTER")
+    sealIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+
+    local sealIconMask
+    if sealIcon.AddMaskTexture and sealIconFrame.CreateMaskTexture then
+        sealIconMask = sealIconFrame:CreateMaskTexture()
+        sealIconMask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+        sealIconMask:SetAllPoints(sealIcon)
+        sealIcon:AddMaskTexture(sealIconMask)
+    end
+
+    function bar:UpdateModernDimensions(height)
+        local iconSize = math.max(16, iSTSettings.sealIconSize or height)
+        sealIconFrame:SetSize(iconSize + 6, iconSize + 6)
+        sealIconShadow:SetSize(iconSize + 8, iconSize + 8)
+        sealIconRing:SetSize(iconSize + 6, iconSize + 6)
+        sealIcon:SetSize(iconSize, iconSize)
+        gloss:SetHeight(math.max(1, math.floor((height - CONTENT_INSET * 2) * 0.35)))
+    end
+
+    bar:UpdateModernDimensions(barHeight)
+    bar.sealIconFrame = sealIconFrame
     bar.sealIcon = sealIcon
+    bar.sealIconMask = sealIconMask
 
     -- Time remaining text (right side)
     local timeText = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -448,7 +538,6 @@ function iST:CreateSwingBar()
     latencyText:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", -2, -2)
     latencyText:SetText("")
     latencyText:SetTextColor(0.5, 0.5, 0.5, 0.8)
-    latencyText:SetScale(0.85)
     bar.latencyText = latencyText
 
     -- Seal name text (below bar, center)
@@ -475,6 +564,7 @@ function iST:CreateSwingBar()
 
     bar:Hide() -- Start hidden
     self.BarFrame = bar
+    self:ApplyBarTypography()
 end
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -547,7 +637,8 @@ function iST:OnBarUpdate(elapsed)
         end
 
         -- Idle state while waiting for the next valid swing
-        local idleWidth = math.max(1, bar:GetWidth() - 2)
+        local contentInset = bar.contentInset or 1
+        local idleWidth = math.max(1, bar:GetWidth() - contentInset * 2)
         bar.fill:SetWidth(idleWidth)
 
         local bc = iSTSettings.barColor
@@ -568,10 +659,8 @@ function iST:OnBarUpdate(elapsed)
             bar.sealSwitchZone:Hide()
         end
 
-        if bar.glowEdges then
-            for _, glow in ipairs(bar.glowEdges) do
-                glow:SetVertexColor(0, 0, 0, 0)
-            end
+        if bar.alertGlow and bar.alertGlow.SetBackdropBorderColor then
+            bar.alertGlow:SetBackdropBorderColor(0, 0, 0, 0)
         end
 
         local borderColor = iSTSettings.borderNormalColor
@@ -593,7 +682,8 @@ function iST:OnBarUpdate(elapsed)
 
     state.Idle = false
 
-    local barWidth = bar:GetWidth() - 2 -- account for border
+    local contentInset = bar.contentInset or 1
+    local barWidth = bar:GetWidth() - contentInset * 2
     local progress = (now - state.LastSwingTime) / state.WeaponSpeed
     progress = math.max(0, math.min(progress, 1))
 
@@ -624,8 +714,13 @@ function iST:OnBarUpdate(elapsed)
     local greenMode  = iSTSettings.showGreenPulse and
                        (not orangeMode) and onFromSeal and (progress >= twistStart) and gcdFree
     -- RED: wrong seal, or Seal1 with a GCD that runs past the swing.
-    local wrongSealMode = iSTSettings.showWrongSealWarning and
-                          (not onFromSeal) and (not onIntoSeal)
+    local hasWrongSeal = (not onFromSeal) and (not onIntoSeal)
+    if hasWrongSeal then
+        state.WrongSealSince = state.WrongSealSince or now
+    else
+        state.WrongSealSince = nil
+    end
+    local wrongSealMode = iSTSettings.showWrongSealWarning and hasWrongSeal
     local missedWindowMode = iSTSettings.showRedPulse and
                              (not orangeMode) and onFromSeal and gcdRunsPastSwing
     local redMode = wrongSealMode or missedWindowMode
@@ -648,8 +743,9 @@ function iST:OnBarUpdate(elapsed)
         bar.fill:SetVertexColor(bc.r, bc.g, bc.b, bc.a)
     end
 
-    -- Border + glow edges
-    local glowAlpha = wrongSealMode and 1 or ((redMode or greenMode or orangeMode) and pulse or 0)
+    -- Main border + softly pulsing rounded alert halo
+    local glowAlpha = wrongSealMode and (0.72 + pulse * 0.23) or
+                      ((redMode or greenMode or orangeMode) and (0.55 + pulse * 0.35) or 0)
     local gr, gg, gb
     if redMode then
         gr, gg, gb = ac.r, ac.g, ac.b
@@ -670,13 +766,11 @@ function iST:OnBarUpdate(elapsed)
             bar:SetBackdropBorderColor(bnc.r, bnc.g, bnc.b, bnc.a)
         end
     end
-    if bar.glowEdges then
-        local edgeAlpha = (redMode and glowAlpha) or
-                          (greenMode and glowAlpha * 0.8) or
-                          (orangeMode and glowAlpha * 0.7) or 0
-        for _, g in ipairs(bar.glowEdges) do
-            g:SetVertexColor(gr, gg * (redMode and 0.3 or 1.0), gb * (redMode and 0.3 or 1.0), edgeAlpha)
-        end
+    if bar.alertGlow and bar.alertGlow.SetBackdropBorderColor then
+        local haloAlpha = (redMode and glowAlpha * 0.62) or
+                          (greenMode and glowAlpha * 0.42) or
+                          (orangeMode and glowAlpha * 0.36) or 0
+        bar.alertGlow:SetBackdropBorderColor(gr, gg, gb, haloAlpha)
     end
 
     -- GCD zone color (update each frame in case settings changed)
@@ -690,10 +784,10 @@ function iST:OnBarUpdate(elapsed)
     bar.twistZone:SetWidth(twistZoneWidth)
 
     -- Update twist marker line position + color
-    local markerX = 1 + (twistStart * barWidth)
+    local markerX = contentInset + (twistStart * barWidth)
     bar.twistMarker:ClearAllPoints()
-    bar.twistMarker:SetPoint("TOP", bar, "TOPLEFT", markerX, 0)
-    bar.twistMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", markerX, 0)
+    bar.twistMarker:SetPoint("TOP", bar, "TOPLEFT", markerX, -contentInset)
+    bar.twistMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", markerX, contentInset)
     local tm = iSTSettings.twistMarkerColor
     bar.twistMarker:SetVertexColor(tm.r, tm.g, tm.b, tm.a)
 
@@ -706,10 +800,10 @@ function iST:OnBarUpdate(elapsed)
             startFrac = math.max(0, math.min(startFrac, 1))
             endFrac   = math.max(0, math.min(endFrac, 1))
             local zoneWidth = math.max(1, (endFrac - startFrac) * barWidth)
-            local startX = 1 + startFrac * barWidth
+            local startX = contentInset + startFrac * barWidth
             bar.gcdZone:ClearAllPoints()
-            bar.gcdZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    startX, -1)
-            bar.gcdZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", startX,  1)
+            bar.gcdZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    startX, -contentInset)
+            bar.gcdZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", startX,  contentInset)
             bar.gcdZone:SetWidth(zoneWidth)
             bar.gcdZone:Show()
         else
@@ -722,10 +816,10 @@ function iST:OnBarUpdate(elapsed)
         if iSTSettings.showGCDIndicator and state.WeaponSpeed > 0 then
             local gcdStart = twistStart - gcdDuration / state.WeaponSpeed
             if gcdStart > 0.02 then
-                local gcdX = 1 + (gcdStart * barWidth)
+                local gcdX = contentInset + (gcdStart * barWidth)
                 bar.gcdMarker:ClearAllPoints()
-                bar.gcdMarker:SetPoint("TOP", bar, "TOPLEFT", gcdX, 0)
-                bar.gcdMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", gcdX, 0)
+                bar.gcdMarker:SetPoint("TOP", bar, "TOPLEFT", gcdX, -contentInset)
+                bar.gcdMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", gcdX, contentInset)
                 local gmColor = iSTSettings.gcdMarkerColor
                 bar.gcdMarker:SetVertexColor(gmColor.r, gmColor.g, gmColor.b, gmColor.a)
                 bar.gcdMarker:Show()
@@ -740,11 +834,11 @@ function iST:OnBarUpdate(elapsed)
     -- Seal switch zone: amber block from GCD marker to twist window ("press twistFromSeal here")
     if bar.sealSwitchZone then
         if iSTSettings.showGCDIndicator and gcdStartFrac > 0.02 and gcdStartFrac < twistStart then
-            local startX = 1 + gcdStartFrac * barWidth
+            local startX = contentInset + gcdStartFrac * barWidth
             local zoneW  = math.max(1, (twistStart - gcdStartFrac) * barWidth)
             bar.sealSwitchZone:ClearAllPoints()
-            bar.sealSwitchZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    startX, -1)
-            bar.sealSwitchZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", startX,  1)
+            bar.sealSwitchZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    startX, -contentInset)
+            bar.sealSwitchZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", startX,  contentInset)
             bar.sealSwitchZone:SetWidth(zoneW)
             bar.sealSwitchZone:Show()
         else
@@ -755,6 +849,17 @@ function iST:OnBarUpdate(elapsed)
     -- Time remaining text
     local remaining = math.max(0, state.NextSwingTime - now)
     bar.timeText:SetText(string.format("%.1fs", remaining))
+
+    -- Optional warning: fire once per swing when time is running out on a wrong seal.
+    local warningSound = iSTSettings.wrongSealWarningSound
+    local warningLeadTime = iSTSettings.wrongSealSoundLeadTime or 0.5
+    if not state.TestMode and iSTSettings.enableSoundEffects and hasWrongSeal and
+       not state.WrongSealSoundPlayed and warningSound and warningSound ~= "" and
+       state.WrongSealSince and (now - state.WrongSealSince) >= 0.1 and
+       remaining > 0 and remaining <= warningLeadTime then
+        state.WrongSealSoundPlayed = true
+        self:PlayConfiguredSound(warningSound)
+    end
 
     -- Weapon speed text
     if iSTSettings.showWeaponSpeed then
@@ -868,7 +973,66 @@ end
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                          Twist Result Display                                  │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
+function iST:IsISPLoaded()
+    return IsAddOnLoadedAPI and IsAddOnLoadedAPI("iSoundPlayer") and type(iSPSettings) == "table"
+end
+
+function iST:IsBuiltinSound(soundName)
+    for _, sound in ipairs(self.BUILTIN_SOUNDS) do
+        if sound.value == soundName then return true end
+    end
+    return false
+end
+
+function iST:PlayConfiguredSound(soundName)
+    if not soundName or soundName == "" then return false end
+
+    local soundKitID = soundName:match("^wow:(%d+)$")
+    if soundKitID and self:IsBuiltinSound(soundName) then
+        local ok, willPlay = pcall(PlaySound, tonumber(soundKitID), "Master")
+        return ok and willPlay and true or false
+    end
+
+    if not self:IsISPLoaded() or iSPSettings.Enabled == false then return false end
+
+    local registered = false
+    for _, registeredSound in ipairs(iSPSettings.SoundFiles or {}) do
+        if registeredSound == soundName then
+            registered = true
+            break
+        end
+    end
+    if not registered then return false end
+
+    local channel = iSPSettings.SoundChannel or "Master"
+    if channel == "Dialog" then channel = "Master" end
+
+    soundKitID = soundName:match("^wow:(%d+)$")
+    if soundKitID then
+        local ok, willPlay = pcall(PlaySound, tonumber(soundKitID), channel)
+        return ok and willPlay and true or false
+    end
+
+    local paths = {
+        "Interface\\AddOns\\iSoundPlayer_Sounds\\" .. soundName,
+        "Interface\\AddOns\\iSoundPlayer\\sounds\\" .. soundName,
+    }
+    for _, path in ipairs(paths) do
+        local ok, willPlay = pcall(PlaySoundFile, path, channel)
+        if ok and willPlay then return true end
+    end
+    return false
+end
+
+function iST:PlayTwistSound(success)
+    if not iSTSettings.enableSoundEffects then return end
+    local soundName = success and iSTSettings.twistSuccessSound or iSTSettings.twistFailSound
+    self:PlayConfiguredSound(soundName)
+end
+
 function iST:ShowTwistResult(success)
+    self:PlayTwistSound(success)
+
     if not self.BarFrame or not self.BarFrame.twistResultText then return end
 
     -- Check settings
@@ -914,6 +1078,7 @@ function iST:ResetSwingTimer()
     self.State.SealChangedInTwistZone = false
     self.State.InTwistZone = false
     self.State.Idle = false
+    self.State.WrongSealSoundPlayed = false
 
     local now = GetTime()
 
@@ -1090,8 +1255,10 @@ function iST:UpdateSealDisplay()
     if self.State.CurrentSealIcon and iSTSettings.showSealIcon then
         bar.sealIcon:SetTexture(self.State.CurrentSealIcon)
         bar.sealIcon:Show()
+        if bar.sealIconFrame then bar.sealIconFrame:Show() end
     else
         bar.sealIcon:Hide()
+        if bar.sealIconFrame then bar.sealIconFrame:Hide() end
     end
 
     if self.State.CurrentSealName then
@@ -1290,6 +1457,7 @@ end
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 function iST:StartTestMode()
     self.State.TestMode = true
+    self.State.WrongSealSoundPlayed = false
     self.State.WeaponSpeed = 3.6
     self.State.LastSwingTime = GetTime()
     self.State.NextSwingTime = GetTime() + 3.6
