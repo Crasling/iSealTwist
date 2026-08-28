@@ -2,6 +2,22 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.6.1 - Release
+--------------------------------------------------------------------------------
+
+ [NEW] Customization tab with native WoW color pickers and a Default Colors button
+ [NEW] Adjustable seal icon, current-seal text, latency text, and twist-result text sizes
+ [NEW] Selectable in-game fonts for all swing-timer text
+ [NEW] Sound Effects tab with short built-in WoW sounds for successful twists,
+       failed twists, and wrong-seal warnings near the next swing
+ [NEW] Optional iSoundPlayer integration exposes registered custom sounds in iST
+ [CHANGED] Swing timer has a rounder modern bar, circular seal icon, and redesigned
+           wrong-seal alert border
+ [CHANGED] Settings are reorganized into General, Timing, Indicators,
+           Customization, Sound Effects, and About tabs
+ [CHANGED] Sound Effects tab includes a Work in Progress notice
+ [CHANGED] Removed deprecated iCommunityChat from the Other Addons panel
+
 v0.5.1 - Release
 --------------------------------------------------------------------------------
 
@@ -31,7 +47,7 @@ v0.4.2 - Release
  [FIX] "Only Active as Paladin" now takes effect immediately when changed
  [FIX] Installed sister addons are detected through the legacy IsAddOnLoaded()
        API when C_AddOns is unavailable
- [IMPROVE] Idle/stale bar appearance is applied once per state transition instead
+ [CHANGED] Idle/stale bar appearance is applied once per state transition instead
            of recalculating visibility on every frame
 
 v0.3.1 - Release
@@ -60,7 +76,7 @@ v0.2.5 - Release
        you are in Holy or Protection spec; detected by talent tree point count
  [FIX] "Only Show In Combat" unchecked now correctly shows bar outside combat as
        an idle (empty) bar; toggling the setting takes effect immediately
- [IMPROVE] All show/hide decisions route through a single UpdateBarVisibility()
+ [CHANGED] All show/hide decisions route through a single UpdateBarVisibility()
            function — spec, combat, and enabled checks are always consistent
 
 v0.2.4 - Release
@@ -93,7 +109,7 @@ v0.2.2 - Release
 --------------------------------------------------------------------------------
 
  [CHANGED] SealTwist macro Updated
- [REMOVED] SealTwistTank macro auto-creation removed
+ [CHANGED] SealTwistTank macro auto-creation removed
 
 v0.2.1 - Release
 --------------------------------------------------------------------------------
