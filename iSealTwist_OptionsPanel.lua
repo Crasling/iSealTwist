@@ -645,7 +645,7 @@ function iST:CreateOptionsPanel()
                     UIDropDownMenu_SetSelectedValue(fromDropdown, btn.value)
                     UIDropDownMenu_SetText(fromDropdown, btn.value)
                     iSTSettings.twistFromSeal = btn.value
-                    if iST.RefreshTwistMacro then iST:RefreshTwistMacro(false) end
+                    if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
                 end
                 UIDropDownMenu_AddButton(info, level)
             end
@@ -665,7 +665,7 @@ function iST:CreateOptionsPanel()
         local intoOptions = {}
         local seenNames = {}
         for _, name in pairs(iST.SEALS) do
-            if not seenNames[name] then
+            if not seenNames[name] and iST:IsSealAvailableForPlayerFaction(name) then
                 seenNames[name] = true
                 table.insert(intoOptions, name)
             end
@@ -689,7 +689,7 @@ function iST:CreateOptionsPanel()
                     UIDropDownMenu_SetSelectedValue(intoDropdown, btn.value)
                     UIDropDownMenu_SetText(intoDropdown, btn.value)
                     iSTSettings.twistIntoSeal = btn.value
-                    if iST.RefreshTwistMacro then iST:RefreshTwistMacro(false) end
+                    if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
                 end
                 UIDropDownMenu_AddButton(info, level)
             end

@@ -173,6 +173,29 @@ for spellID, name in pairs(iST.SEALS) do
     end
 end
 
+function iST:IsSealAvailableForPlayerFaction(sealName)
+    local _, playerFaction = UnitFactionGroup("player")
+    if playerFaction == "Alliance" then
+        return sealName ~= "Seal of Blood" and sealName ~= "Seal of Corruption"
+    end
+    if playerFaction == "Horde" then
+        return sealName ~= "Seal of the Martyr" and sealName ~= "Seal of Vengeance"
+    end
+    return true
+end
+
+function iST:GetFactionSealEquivalent(sealName)
+    local _, playerFaction = UnitFactionGroup("player")
+    if playerFaction == "Alliance" then
+        if sealName == "Seal of Blood" then return "Seal of the Martyr" end
+        if sealName == "Seal of Corruption" then return "Seal of Vengeance" end
+    elseif playerFaction == "Horde" then
+        if sealName == "Seal of the Martyr" then return "Seal of Blood" end
+        if sealName == "Seal of Vengeance" then return "Seal of Corruption" end
+    end
+    return sealName
+end
+
 -- Spells that reset the swing timer (credits: https://github.com/IvanRL22)
 -- NOTE: Crusader Strike (35395) does NOT reset the auto-attack swing timer in TBC —
 -- it is a special attack on its own cooldown and must NOT be listed here.
@@ -234,6 +257,7 @@ iST.State = {
     SealChangedInTwistZone = false,
     PendingSealChange = false,
     PreviousSealID = nil,
+    PreviousSealName = nil,
     TwistResultStart = 0,
     TwistResultDuration = 0,
     GCDStartTime = 0,
@@ -242,6 +266,7 @@ iST.State = {
     Idle = false,
     WrongSealSoundPlayed = false,
     WrongSealSince = nil,
+    PendingMacroRefresh = false,
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -441,16 +466,17 @@ function iST:CreateSwingBar()
     sealSwitchZone:Hide()
     bar.sealSwitchZone = sealSwitchZone
 
-    -- Continuous rounded alert halo. This replaces the old four hard-edged blocks.
+    -- Continuous rounded alert halo. Keep it broad enough to remain clearly
+    -- visible around the modern rounded bar at every supported bar height.
     local alertGlow = CreateFrame("Frame", nil, bar, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    alertGlow:SetPoint("TOPLEFT", bar, "TOPLEFT", -5, 5)
-    alertGlow:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 5, -5)
+    alertGlow:SetPoint("TOPLEFT", bar, "TOPLEFT", -7, 7)
+    alertGlow:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 7, -7)
     alertGlow:SetFrameLevel(bar:GetFrameLevel() + 4)
     if alertGlow.SetBackdrop then
         alertGlow:SetBackdrop({
             edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 14,
-            insets = { left = 2, right = 2, top = 2, bottom = 2 },
+            edgeSize = 20,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
         })
         alertGlow:SetBackdropBorderColor(1, 0.1, 0.1, 0)
     end
@@ -547,9 +573,20 @@ function iST:CreateSwingBar()
     sealText:SetTextColor(1, 0.59, 0.09, 0.9)
     bar.sealText = sealText
 
-    -- Twist result text (center of bar, fades out)
-    local twistResultText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    twistResultText:SetPoint("CENTER", bar, "CENTER", 0, 0)
+    -- Twist result text in a dedicated feedback row above the bar. Keeping this
+    -- outside the timer content makes it readable without covering the swing,
+    -- seal, GCD, or alert indicators.
+    local resultOverlay = CreateFrame("Frame", nil, bar)
+    resultOverlay:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 8)
+    resultOverlay:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", 0, 8)
+    resultOverlay:SetHeight(24)
+    resultOverlay:SetFrameLevel(alertGlow:GetFrameLevel() + 1)
+    resultOverlay:EnableMouse(false)
+    resultOverlay:Hide()
+    bar.resultOverlay = resultOverlay
+
+    local twistResultText = resultOverlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    twistResultText:SetPoint("CENTER", resultOverlay, "CENTER", 0, 0)
     twistResultText:SetText("")
     twistResultText:SetAlpha(0)
     twistResultText:SetShadowOffset(1, -1)
@@ -713,7 +750,8 @@ function iST:OnBarUpdate(elapsed)
     -- GREEN:  Seal1 active + inside twist window + GCD free — cast Seal2 now!
     local greenMode  = iSTSettings.showGreenPulse and
                        (not orangeMode) and onFromSeal and (progress >= twistStart) and gcdFree
-    -- RED: wrong seal, or Seal1 with a GCD that runs past the swing.
+    -- RED: wrong seal, or Seal1 with a GCD that makes the twist impossible
+    -- before the next swing lands.
     local hasWrongSeal = (not onFromSeal) and (not onIntoSeal)
     if hasWrongSeal then
         state.WrongSealSince = state.WrongSealSince or now
@@ -721,8 +759,8 @@ function iST:OnBarUpdate(elapsed)
         state.WrongSealSince = nil
     end
     local wrongSealMode = iSTSettings.showWrongSealWarning and hasWrongSeal
-    local missedWindowMode = iSTSettings.showRedPulse and
-                             (not orangeMode) and onFromSeal and gcdRunsPastSwing
+    local tooLateToTwist = (not orangeMode) and onFromSeal and gcdRunsPastSwing
+    local missedWindowMode = iSTSettings.showRedPulse and tooLateToTwist
     local redMode = wrongSealMode or missedWindowMode
 
     local ac  = iSTSettings.alertColor
@@ -744,8 +782,9 @@ function iST:OnBarUpdate(elapsed)
     end
 
     -- Main border + softly pulsing rounded alert halo
-    local glowAlpha = wrongSealMode and (0.72 + pulse * 0.23) or
-                      ((redMode or greenMode or orangeMode) and (0.55 + pulse * 0.35) or 0)
+    local glowAlpha = missedWindowMode and (0.82 + pulse * 0.18) or
+                      (wrongSealMode and (0.76 + pulse * 0.22) or
+                      ((greenMode or orangeMode) and (0.55 + pulse * 0.35) or 0))
     local gr, gg, gb
     if redMode then
         gr, gg, gb = ac.r, ac.g, ac.b
@@ -767,7 +806,8 @@ function iST:OnBarUpdate(elapsed)
         end
     end
     if bar.alertGlow and bar.alertGlow.SetBackdropBorderColor then
-        local haloAlpha = (redMode and glowAlpha * 0.62) or
+        local haloAlpha = (missedWindowMode and glowAlpha) or
+                          (wrongSealMode and glowAlpha * 0.9) or
                           (greenMode and glowAlpha * 0.42) or
                           (orangeMode and glowAlpha * 0.36) or 0
         bar.alertGlow:SetBackdropBorderColor(gr, gg, gb, haloAlpha)
@@ -880,7 +920,7 @@ function iST:OnBarUpdate(elapsed)
     -- Track twist zone state
     state.InTwistZone = (progress >= twistStart)
 
-    -- Fade twist result text
+    -- Fade twist result text and fully hide its frame when finished.
     if bar.twistResultText and state.TwistResultDuration > 0 then
         local elapsed = now - state.TwistResultStart
         if elapsed < state.TwistResultDuration then
@@ -889,6 +929,10 @@ function iST:OnBarUpdate(elapsed)
         else
             bar.twistResultText:SetAlpha(0)
             bar.twistResultText:SetText("")
+            bar.twistResultText:Hide()
+            if bar.resultOverlay then
+                bar.resultOverlay:Hide()
+            end
             state.TwistResultDuration = 0
         end
     end
@@ -1042,6 +1086,11 @@ function iST:ShowTwistResult(success)
     local text = self.BarFrame.twistResultText
     local state = self.State
 
+    if self.BarFrame.resultOverlay then
+        self.BarFrame.resultOverlay:Show()
+    end
+    text:Show()
+
     -- Apply configured size
     local fontPath = text:GetFont()
     text:SetFont(fontPath, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
@@ -1189,17 +1238,21 @@ function iST:SetCurrentSeal(spellID)
     if not name then return end
 
     local previousSealID = self.State.CurrentSealID or self.State.PreviousSealID
-    local previousSealName = previousSealID and self.SEALS[previousSealID]
+    local previousSealName = self.State.CurrentSealName or
+                             self.State.PreviousSealName or
+                             (previousSealID and self.SEALS[previousSealID])
     self.State.CurrentSealID = spellID
     self.State.PreviousSealID = nil -- clear once consumed
+    self.State.PreviousSealName = nil
     self.State.CurrentSealName = name
     self.State.CurrentSealIcon = GetSpellTexture(spellID)
 
     -- Only the configured FROM -> INTO transition is a twist attempt.
     local isConfiguredTwist = previousSealName == iSTSettings.twistFromSeal and
                               name == iSTSettings.twistIntoSeal
+    local sealChanged = previousSealName and previousSealName ~= name
 
-    if previousSealID and previousSealID ~= spellID and isConfiguredTwist then
+    if sealChanged and isConfiguredTwist then
         if self.State.NextSwingTime > 0 and self.State.WeaponSpeed > 0 then
             local now = GetTime()
 
@@ -1228,7 +1281,7 @@ function iST:SetCurrentSeal(spellID)
             self.State.PendingSealChange = false
             self.State.SealChangedInTwistZone = false
         end
-    elseif previousSealID and previousSealID ~= spellID then
+    elseif sealChanged then
         -- An unrelated seal change cancels any pending configured attempt.
         self.State.PendingSealChange = false
         self.State.SealChangedInTwistZone = false
@@ -1241,6 +1294,9 @@ function iST:ClearCurrentSeal()
     -- Preserve previous seal ID so twist detection works across REMOVED→APPLIED gap
     if self.State.CurrentSealID then
         self.State.PreviousSealID = self.State.CurrentSealID
+    end
+    if self.State.CurrentSealName then
+        self.State.PreviousSealName = self.State.CurrentSealName
     end
     self.State.CurrentSealID = nil
     self.State.CurrentSealName = nil
@@ -1282,9 +1338,10 @@ function iST:ScanForActiveSeal()
 
         -- Fallback: name-based match
         if name and self.SEAL_NAMES[name] then
-            self.State.CurrentSealName = name
-            self.State.CurrentSealIcon = GetSpellTexture(spellID or 0)
-            self:UpdateSealDisplay()
+            local representativeSpellID = self.SEAL_SPELL_IDS[name]
+            if representativeSpellID then
+                self:SetCurrentSeal(representativeSpellID)
+            end
             return
         end
     end
@@ -1375,10 +1432,38 @@ function iST:BuildTwistMacroBody(fromSeal, intoSeal)
     return "#showtooltip\n/castsequence reset=30 " .. localizedFrom .. ", " .. localizedInto .. "\n/startattack"
 end
 
+local function NormalizeMacroBody(body)
+    if type(body) ~= "string" then return nil end
+    return body:gsub("\r\n", "\n"):gsub("%s+$", "")
+end
+
+-- Recognize every exact macro body iST can generate, including the older
+-- English-only format. This recovers management metadata lost by old releases
+-- while still rejecting macros with custom commands or edits.
+function iST:IsGeneratedTwistMacroBody(body)
+    local normalizedBody = NormalizeMacroBody(body)
+    if not normalizedBody then return false end
+    if normalizedBody == NormalizeMacroBody(LEGACY_TWIST_MACRO_BODY) then return true end
+
+    for fromSeal in pairs(self.SEAL_SPELL_IDS) do
+        for intoSeal in pairs(self.SEAL_SPELL_IDS) do
+            local localizedBody = self:BuildTwistMacroBody(fromSeal, intoSeal)
+            local englishBody = "#showtooltip\n/castsequence reset=30 " ..
+                                fromSeal .. ", " .. intoSeal .. "\n/startattack"
+            if normalizedBody == NormalizeMacroBody(localizedBody) or
+               normalizedBody == NormalizeMacroBody(englishBody) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 -- Update only a macro whose body is still known to be addon-managed. This keeps
 -- user edits intact while allowing seal-pair changes and the 0.4.2 migration.
 function iST:RefreshTwistMacro(allowLegacyMigration)
-    if not iSTSettings or not iSTSettings.macroCreated then return false end
+    if not iSTSettings then return false end
     if InCombatLockdown and InCombatLockdown() then return false end
 
     local macroIndex = GetMacroIndexByName(TWIST_MACRO_NAME)
@@ -1387,24 +1472,64 @@ function iST:RefreshTwistMacro(allowLegacyMigration)
     local _, icon, currentBody = GetMacroInfo(macroIndex)
     local managedBody = iSTSettings.generatedMacroBody
     local localizedLegacyBody = self:BuildTwistMacroBody("Seal of Command", "Seal of Righteousness")
-    local isManaged = (managedBody and currentBody == managedBody) or
+    local isManaged = (managedBody and NormalizeMacroBody(currentBody) == NormalizeMacroBody(managedBody)) or
+                      self:IsGeneratedTwistMacroBody(currentBody) or
                       (allowLegacyMigration and
-                       (currentBody == LEGACY_TWIST_MACRO_BODY or currentBody == localizedLegacyBody))
+                       (NormalizeMacroBody(currentBody) == NormalizeMacroBody(LEGACY_TWIST_MACRO_BODY) or
+                        NormalizeMacroBody(currentBody) == NormalizeMacroBody(localizedLegacyBody)))
     if not isManaged then return false end
 
     local desiredBody = self:BuildTwistMacroBody()
     if not desiredBody then return false end
 
+    local macroUpdated = false
     if currentBody ~= desiredBody then
         local ok, err = pcall(EditMacro, macroIndex, TWIST_MACRO_NAME, icon or TWIST_MACRO_ICON, desiredBody)
         if not ok then
             print(L["PrintPrefix"] .. Colors.Red .. "Failed to update macro " .. TWIST_MACRO_NAME .. ": " .. tostring(err) .. Colors.Reset)
             return false
         end
+
+        -- EditMacro may fail without throwing on some clients. Only store the
+        -- new ownership body after the game confirms the edit was applied.
+        local _, _, updatedBody = GetMacroInfo(macroIndex)
+        if NormalizeMacroBody(updatedBody) ~= NormalizeMacroBody(desiredBody) then
+            print(L["PrintPrefix"] .. Colors.Red .. "Failed to update macro " .. TWIST_MACRO_NAME .. "." .. Colors.Reset)
+            return false
+        end
+        macroUpdated = true
     end
 
     iSTSettings.generatedMacroBody = desiredBody
+    iSTSettings.macroCreated = true
+
+    if macroUpdated then
+        local fromSeal = iSTSettings.twistFromSeal
+        local intoSeal = iSTSettings.twistIntoSeal
+        local fromSpellID = self.SEAL_SPELL_IDS[fromSeal]
+        local intoSpellID = self.SEAL_SPELL_IDS[intoSeal]
+        local displayFrom = fromSpellID and GetLocalizedSpellName(fromSpellID, fromSeal) or fromSeal
+        local displayInto = intoSpellID and GetLocalizedSpellName(intoSpellID, intoSeal) or intoSeal
+        print(L["PrintPrefix"] .. Colors.iST .. string.format(
+            L["MacroUpdated"],
+            Colors.Yellow .. displayFrom .. Colors.iST,
+            Colors.Yellow .. displayInto .. Colors.iST
+        ) .. Colors.Reset)
+    end
+
     return true
+end
+
+-- Apply seal-pair changes immediately when possible. Macro edits are protected
+-- during combat, so remember the request and complete it after combat ends.
+function iST:RequestTwistMacroRefresh()
+    if InCombatLockdown and InCombatLockdown() then
+        self.State.PendingMacroRefresh = true
+        return false
+    end
+
+    self.State.PendingMacroRefresh = false
+    return self:RefreshTwistMacro(false)
 end
 
 function iST:CreateTwistMacro()
@@ -1424,6 +1549,15 @@ function iST:CreateTwistMacro()
     -- Respect an existing user-created macro with the same name.
     local existingIndex = GetMacroIndexByName(TWIST_MACRO_NAME)
     if existingIndex and existingIndex > 0 then
+        -- Recover addon ownership metadata only when the existing body exactly
+        -- matches the currently generated macro. Custom bodies remain untouched.
+        local _, _, existingBody = GetMacroInfo(existingIndex)
+        if NormalizeMacroBody(existingBody) == NormalizeMacroBody(macroBody) or
+           self:IsGeneratedTwistMacroBody(existingBody) then
+            iSTSettings.macroCreated = true
+            iSTSettings.generatedMacroBody = existingBody
+            self:RefreshTwistMacro(true)
+        end
         return
     end
 
@@ -1570,6 +1704,9 @@ local function OnEvent(self, event, ...)
         iST.State.InCombat = false
         iST:UpdateBarVisibility()
         iST:ScanForActiveSeal()
+        if iST.State.PendingMacroRefresh then
+            iST:RequestTwistMacroRefresh()
+        end
         return
     end
 
@@ -1596,8 +1733,13 @@ local function OnEvent(self, event, ...)
 
     -- Fallback refresh for clients where the cooldown event arrives late.
     if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local unit = ...
+        local unit, _, spellID = ...
         if unit == "player" then
+            -- A successful seal cast is a deterministic transition source on
+            -- clients where aura updates arrive in an unexpected order.
+            if event == "UNIT_SPELLCAST_SUCCEEDED" and spellID and iST.SEALS[spellID] then
+                iST:SetCurrentSeal(spellID)
+            end
             C_Timer.After(0, function()
                 iST:UpdateGCDState()
             end)
@@ -1622,14 +1764,14 @@ function iST:OnAddonLoaded()
     -- Initialize saved settings
     self:InitializeSettings()
 
-    -- Set faction-aware default for twistIntoSeal on first load
+    -- Set and repair the faction-aware twist target. This also migrates saved
+    -- selections made before faction-specific seals were filtered.
+    local _, playerFaction = UnitFactionGroup("player")
     if iSTSettings.twistIntoSeal == "" then
-        local _, playerFaction = UnitFactionGroup("player")
-        if playerFaction == "Horde" then
-            iSTSettings.twistIntoSeal = "Seal of Blood"
-        else
-            iSTSettings.twistIntoSeal = "Seal of the Martyr"
-        end
+        iSTSettings.twistIntoSeal = playerFaction == "Horde" and
+                                    "Seal of Blood" or "Seal of the Martyr"
+    elseif not self:IsSealAvailableForPlayerFaction(iSTSettings.twistIntoSeal) then
+        iSTSettings.twistIntoSeal = self:GetFactionSealEquivalent(iSTSettings.twistIntoSeal)
     end
 
     -- Version warning (non-blocking)

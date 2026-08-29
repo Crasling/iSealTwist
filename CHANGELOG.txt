@@ -2,6 +2,24 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.6.2 - Release
+--------------------------------------------------------------------------------
+
+ [NEW] A chat confirmation now shows the selected seal pair after the managed
+       SealTwist macro is successfully updated
+ [CHANGED] The seal-pair selector now hides Horde-only seals for Alliance and
+           Alliance-only seals for Horde, repairing incompatible saved choices
+           with their faction equivalents
+ [CHANGED] Twist success and failure text now appears in a dedicated row above
+           the swing bar instead of covering the timer content
+ [FIX] Twist feedback now detects seal changes from successful casts when aura
+       events arrive without a usable spell ID or in an unexpected order
+ [FIX] The managed SealTwist macro now recognizes older generated formats and
+       updates when either configured seal is changed; combat-locked updates
+       are applied after combat
+ [CHANGED] Alert border is thicker and displays a stronger red pulse when an
+           active GCD makes it too late to twist before the next swing
+
 v0.6.1 - Release
 --------------------------------------------------------------------------------
 
