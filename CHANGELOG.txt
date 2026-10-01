@@ -2,6 +2,18 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.6.4 - WoW Forever Twist of Light
+--------------------------------------------------------------------------------
+
+ [CHANGED] Reworked twist detection for Forever's Twist of Light talent: replacing
+           Command, Righteousness, Fury, or Justice with any different seal
+           between melee attacks now reports a successful Echo
+ [CHANGED] The swing bar no longer presents the obsolete pre-swing twist window,
+           GCD markers, wrong-seal warnings, failure feedback, or timing pulses
+ [CHANGED] Seal-pair settings now configure only the optional SealTwist QoL macro
+ [NEW] Seal of Fury and Forever's modern talent-tree API are supported
+ [NEW] iRC: Guild Connect is available from the Other Addons tab
+
 v0.6.3 - Release
 --------------------------------------------------------------------------------
 

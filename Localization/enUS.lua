@@ -52,7 +52,6 @@ L["DebugError"] = Colors.iST .. "[iST]: " .. Colors.Red .. "ERROR: " .. Colors.R
 
 L["AddonLoaded"] = Msg(Colors.iST .. "iSealTwist " .. Colors.Green .. "v%s" .. Colors.Reset .. " Loaded.")
 L["NotPaladin"] = Msg("Only active for Paladins. Disable 'Only As Paladin' in settings to override.")
-L["UnsupportedVersion"] = "iSealTwist is designed for Anniversary TBC only. Detected: %s. Some features may not work correctly."
 L["BarEnabled"] = Msg("Swing timer " .. Colors.Green .. "enabled" .. Colors.iST .. ".")
 L["BarDisabled"] = Msg("Swing timer " .. Colors.Red .. "disabled" .. Colors.iST .. ".")
 L["BarLocked"] = Msg("Bar " .. Colors.Green .. "locked" .. Colors.iST .. ".")
@@ -95,13 +94,9 @@ L["SectionBarAppearance"] = Colors.iST .. "Bar Size"
 L["BarWidth"] = "Bar Width"
 L["BarHeight"] = "Bar Height"
 
--- Twist Timing
-L["SectionTwistTiming"] = Colors.iST .. "Twist Timing"
-L["TwistWindow"] = "Twist Window (ms)"
-L["TwistWindowDesc"] = Colors.Gray .. "Time before swing to start the twist. Default: 400ms.|r"
 L["ShowLatency"] = "Show Latency"
 L["ShowLatencyDesc"] = Colors.Gray .. "Display current home latency on the bar.|r"
-L["SectionTimingGuides"] = Colors.iST .. "Timing Guides"
+L["SectionTimingGuides"] = Colors.iST .. "Swing Timer"
 
 -- Display
 L["ShowSealIcon"] = "Show Seal Icon"
@@ -112,39 +107,19 @@ L["OnlyInCombat"] = "Only Show In Combat"
 L["OnlyInCombatDesc"] = Colors.Gray .. "Hide the bar when out of combat.|r"
 L["OnlyAsPaladin"] = "Only Active As Paladin"
 L["OnlyAsPaladinDesc"] = Colors.Gray .. "Only activate the addon on Paladin characters.|r"
-L["OnlyInRetSpec"] = "Only Active In Retribution Spec"
-L["OnlyInRetSpecDesc"] = Colors.Gray .. "Automatically hide the bar when you are in Holy or Protection spec. Detected by which talent tree has the most points.|r"
 L["ShowTwistSuccess"] = "Show 'Seal Twisted!' Text"
-L["ShowTwistSuccessDesc"] = Colors.Gray .. "Show green text on the bar when a twist is successful.|r"
-L["ShowTwistFail"] = "Show 'Fail Twist!' Text"
-L["ShowTwistFailDesc"] = Colors.Gray .. "Show red text on the bar when a twist fails (too late).|r"
+L["ShowTwistSuccessDesc"] = Colors.Gray .. "Show green text when Twist of Light creates an Echo between melee attacks.|r"
 
 -- Indicator sub-sections
 L["SectionBarInformation"] = Colors.iST .. "Bar Information"
-L["SectionWarnings"] = Colors.iST .. "Warnings"
 L["SectionTwistFeedback"] = Colors.iST .. "Twist Feedback"
 L["SectionSealPair"] = Colors.iST .. "Seal Pair"
 
 -- Seal pair dropdowns
 L["TwistFromSeal"] = "Seal to Twist"
-L["TwistFromSealDesc"] = Colors.Gray .. "The seal you normally have active (the one you cast FROM). Must be Seal of Command or Seal of Righteousness.|r"
+L["TwistFromSealDesc"] = Colors.Gray .. "The eligible seal your QoL macro replaces. Twist of Light supports Command, Righteousness, Fury, and Justice.|r"
 L["TwistIntoSeal"] = "Seal to Twist Into"
-L["TwistIntoSealDesc"] = Colors.Gray .. "The seal you switch to inside the twist window (e.g. Seal of Blood / Seal of the Martyr).|r"
-
--- GCD indicator & wrong seal warning
-L["ShowGCDIndicator"] = "Show GCD Indicator"
-L["ShowGCDIndicatorDesc"] = Colors.Gray .. "Show a gold marker line on the bar one global cooldown before the twist window opens — this is when to press your twist macro.|r"
-L["ShowWrongSealWarning"] = "Show Wrong Seal Warning"
-L["ShowWrongSealWarningDesc"] = Colors.Gray .. "Highlight the bar in red when you are not on either of your configured twist seals.|r"
-
--- Pulse indicators
-L["SectionPulseIndicators"] = Colors.iST .. "Pulse Indicators"
-L["ShowGreenPulse"] = "Green Pulse — Seal1 + Twist Window + GCD Free"
-L["ShowGreenPulseDesc"] = Colors.Gray .. "Pulse green when Seal1 is active, you are inside the twist window, and GCD is available — cast Seal2 now.|r"
-L["ShowOrangePulse"] = "Orange Pulse — Seal2 Active"
-L["ShowOrangePulseDesc"] = Colors.Gray .. "Pulse orange when Seal2 (twist into seal) is active — twist completed, waiting for swing.|r"
-L["ShowRedPulse"] = "Red Pulse — GCD Runs Past Swing"
-L["ShowRedPulseDesc"] = Colors.Gray .. "Pulse red when Seal1 is active but the active GCD will not expire before the swing — too late to twist.|r"
+L["TwistIntoSealDesc"] = Colors.Gray .. "The different seal your QoL macro switches into. This pair only configures the macro; detection accepts every valid replacement.|r"
 
 -- Twist text customization
 L["SectionTextAppearance"] = Colors.iST .. "Text"
@@ -157,13 +132,10 @@ L["BarFont"] = "Bar Font"
 -- Sound effects and optional iSoundPlayer integration
 L["SectionSoundEffects"] = Colors.iST .. "Sound Effects"
 L["SoundEffectsWIP"] = Colors.Yellow .. "Work in Progress — sound triggers and available effects may change during development.|r"
-L["SoundEffectsIntro"] = Colors.Gray .. "Choose from short built-in WoW sounds for twist results and timing warnings. Custom sounds can be added to iST through iSoundPlayer.|r"
+L["SoundEffectsIntro"] = Colors.Gray .. "Choose the sound played when Twist of Light creates an Echo. Custom sounds can be added through iSoundPlayer.|r"
 L["EnableSoundEffects"] = "Enable Sound Effects"
-L["EnableSoundEffectsDesc"] = Colors.Gray .. "Play the selected sounds for twist results and timing warnings.|r"
+L["EnableSoundEffectsDesc"] = Colors.Gray .. "Play the selected sound when a seal twist succeeds.|r"
 L["TwistSuccessSound"] = "Twist Success Sound"
-L["TwistFailSound"] = "Twist Fail Sound"
-L["WrongSealWarningSound"] = "Wrong Seal Near Swing Sound"
-L["WrongSealSoundLeadTime"] = "Wrong Seal Warning Lead Time"
 L["TestSound"] = "Test"
 L["None"] = "None"
 L["CustomSoundsAvailable"] = Colors.Gray .. "Custom sounds registered in iSoundPlayer are included in the selectors above with an [iSP] label.|r"
@@ -173,14 +145,8 @@ L["CustomSoundsViaISP"] = Colors.Gray .. "Want custom sound effects? Install iSo
 L["SectionBarColors"]   = Colors.iST .. "Bar Colors"
 L["DefaultColors"]      = "Default Colors"
 L["ColorBar"]           = "Fill"
-L["ColorTwistZone"]     = "Twist Zone Fill"
-L["ColorAlert"]         = "Alert (Wrong Seal)"
-L["ColorGCDZone"]       = "GCD Zone"
-L["ColorTwistMarker"]   = "Twist Marker Line"
-L["ColorGCDMarker"]     = "GCD Marker Line"
 L["ColorBorderNormal"]  = "Border"
 L["ColorTwistSuccess"]  = "Twist Success Text"
-L["ColorTwistFail"]     = "Twist Fail Text"
 
 -- Position
 L["SectionPosition"] = Colors.iST .. "Position"
@@ -190,7 +156,7 @@ L["ResetPosition"] = "Reset Position"
 L["TestBar"] = "Test Bar"
 
 -- About
-L["AboutText"] = Colors.iST .. "iSealTwist " .. Colors.Reset .. "is a seal twist timing helper for TBC Paladins. It tracks your weapon swing timer and shows the optimal window to twist seals for maximum DPS."
+L["AboutText"] = Colors.iST .. "iSealTwist " .. Colors.Reset .. "is a WoW Forever Paladin weapon-swing timer. With Twist of Light learned, it reports successful Echo creation when an eligible seal is replaced between melee attacks."
 L["CreatedBy"] = "Created by: "
 L["ISTCurseForgeLink"] = "Available on CurseForge: curseforge.com/wow/addons/isealtwist"
 
@@ -203,6 +169,8 @@ L["TabISP"] = "iSP Settings"
 L["TabISPPromo"] = "iSoundPlayer"
 L["TabINIF"] = "iNIF Settings"
 L["TabINIFPromo"] = "iNeedIfYouNeed"
+L["TabIRC"] = "iRC Panel"
+L["TabIRCPromo"] = "iRC: Guild Connect"
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                              Other Addon Promos                                │
@@ -213,3 +181,5 @@ L["ISPPromoDesc"] = Colors.iST .. "iSoundPlayer " .. Colors.Reset .. "is a custo
 L["ISPPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/isoundplayer"
 L["INIFPromoDesc"] = Colors.iST .. "iNeedIfYouNeed " .. Colors.Reset .. "is a smart loot addon. Automatic need/greed rolling with party coordination. Don't let them ninja without needing back."
 L["INIFPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/ineedifyouneed"
+L["IRCPromoDesc"] = Colors.iST .. "iRC: Guild Connect " .. Colors.Reset .. "connects guild members through shared rules, verification, guild statistics, professions, and community tools."
+L["IRCPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/ircguildconnect"

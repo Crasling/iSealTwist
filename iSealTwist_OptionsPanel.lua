@@ -7,7 +7,7 @@ local L = iST.L or {}
 local Colors = iST.Colors or {}
 local print = function(...) iST:PrintToChat(...) end
 
-local BACKDROP_TEMPLATE = BackdropTemplateMixin and "BackdropTemplate" or nil
+local BACKDROP_TEMPLATE = "BackdropTemplate"
 local CHECKBOX_TEMPLATE = InterfaceOptionsCheckButtonTemplate and "InterfaceOptionsCheckButtonTemplate" or "UICheckButtonTemplate"
 local iconPath = iST.AddonPath .. "Images\\Logo_iST.blp"
 
@@ -515,6 +515,7 @@ function iST:CreateOptionsPanel()
     local iWRContainer, iWRContent = CreateTabContent()
     local iSPContainer, iSPContent = CreateTabContent()
     local iNIFContainer, iNIFContent = CreateTabContent()
+    local iRCContainer, iRCContent = CreateTabContent()
 
     local tabContents = {
         generalContainer,
@@ -526,6 +527,7 @@ function iST:CreateOptionsPanel()
         iWRContainer,
         iSPContainer,
         iNIFContainer,
+        iRCContainer,
     }
 
     -- ═══════════════════════════════════════════════════════════
@@ -565,6 +567,7 @@ function iST:CreateOptionsPanel()
         { type = "tab", label = L["TabIWRPromo"], index = 7 },
         { type = "tab", label = L["TabISPPromo"], index = 8 },
         { type = "tab", label = L["TabINIFPromo"], index = 9 },
+        { type = "tab", label = L["TabIRCPromo"], index = 10 },
     }
 
     local sidebarY = -8
@@ -613,11 +616,6 @@ function iST:CreateOptionsPanel()
             function(v) iSTSettings.onlyAsPaladin = v iST:UpdateBarVisibility() end
         )
 
-        _, y = CreateSettingsCheckbox(generalContent, L["OnlyInRetSpec"], L["OnlyInRetSpecDesc"], y,
-            function() return iSTSettings.onlyInRetSpec end,
-            function(v) iSTSettings.onlyInRetSpec = v iST:UpdateBarVisibility() end
-        )
-
         _, y = CreateSettingsCheckbox(generalContent, L["OnlyInCombat"], L["OnlyInCombatDesc"], y,
             function() return iSTSettings.onlyInCombat end,
             function(v) iSTSettings.onlyInCombat = v iST:UpdateBarVisibility() end
@@ -625,8 +623,11 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSectionHeader(generalContent, L["SectionSealPair"], y)
 
-        -- Seal to Twist (restricted: SoC or SoR)
-        local fromOptions = { "Seal of Command", "Seal of Righteousness" }
+        -- These are the four seals which Twist of Light can turn into an Echo.
+        local fromOptions = {
+            "Seal of Command", "Seal of Righteousness", "Seal of Fury", "Seal of Justice",
+        }
+        local intoOptions, intoDropdown
 
         local fromLabel = generalContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         fromLabel:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
@@ -645,6 +646,16 @@ function iST:CreateOptionsPanel()
                     UIDropDownMenu_SetSelectedValue(fromDropdown, btn.value)
                     UIDropDownMenu_SetText(fromDropdown, btn.value)
                     iSTSettings.twistFromSeal = btn.value
+                    if iSTSettings.twistIntoSeal == btn.value then
+                        for _, replacement in ipairs(intoOptions or {}) do
+                            if replacement ~= btn.value then
+                                iSTSettings.twistIntoSeal = replacement
+                                UIDropDownMenu_SetSelectedValue(intoDropdown, replacement)
+                                UIDropDownMenu_SetText(intoDropdown, replacement)
+                                break
+                            end
+                        end
+                    end
                     if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
                 end
                 UIDropDownMenu_AddButton(info, level)
@@ -662,10 +673,10 @@ function iST:CreateOptionsPanel()
         y = y - fromDesc:GetStringHeight() - 10
 
         -- Seal to Twist Into (all seals)
-        local intoOptions = {}
+        intoOptions = {}
         local seenNames = {}
         for _, name in pairs(iST.SEALS) do
-            if not seenNames[name] and iST:IsSealAvailableForPlayerFaction(name) then
+            if not seenNames[name] then
                 seenNames[name] = true
                 table.insert(intoOptions, name)
             end
@@ -677,7 +688,7 @@ function iST:CreateOptionsPanel()
         intoLabel:SetText(L["TwistIntoSeal"])
         y = y - 20
 
-        local intoDropdown = CreateFrame("Frame", "iSTIntoSealDropdown", generalContent, "UIDropDownMenuTemplate")
+        intoDropdown = CreateFrame("Frame", "iSTIntoSealDropdown", generalContent, "UIDropDownMenuTemplate")
         intoDropdown:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 10, y)
         UIDropDownMenu_SetWidth(intoDropdown, 200)
         UIDropDownMenu_Initialize(intoDropdown, function(self, level)
@@ -685,6 +696,7 @@ function iST:CreateOptionsPanel()
                 local info = UIDropDownMenu_CreateInfo()
                 info.text = option
                 info.value = option
+                info.disabled = option == iSTSettings.twistFromSeal
                 info.func = function(btn)
                     UIDropDownMenu_SetSelectedValue(intoDropdown, btn.value)
                     UIDropDownMenu_SetText(intoDropdown, btn.value)
@@ -713,26 +725,7 @@ function iST:CreateOptionsPanel()
     -- ═══════════════════════════════════════════════════════════
     do
         local y = -10
-        _, y = CreateSectionHeader(timingContent, L["SectionTwistTiming"], y)
-
-        _, y = CreateCustomSlider(timingContent, L["TwistWindow"], y, 200, 600, 10,
-            function() return iSTSettings.twistWindow * 1000 end,
-            function(v) iSTSettings.twistWindow = v / 1000 end,
-            function(v) return v .. "ms" end
-        )
-
-        local twistDesc = timingContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        twistDesc:SetPoint("TOPLEFT", timingContent, "TOPLEFT", 25, y)
-        twistDesc:SetWidth(350)
-        twistDesc:SetText(L["TwistWindowDesc"])
-        y = y - 16
-
         _, y = CreateSectionHeader(timingContent, L["SectionTimingGuides"], y)
-
-        _, y = CreateSettingsCheckbox(timingContent, L["ShowGCDIndicator"], L["ShowGCDIndicatorDesc"], y,
-            function() return iSTSettings.showGCDIndicator end,
-            function(v) iSTSettings.showGCDIndicator = v end
-        )
 
         _, y = CreateSettingsCheckbox(timingContent, L["ShowLatency"], L["ShowLatencyDesc"], y,
             function() return iSTSettings.showLatency end,
@@ -762,40 +755,11 @@ function iST:CreateOptionsPanel()
             function(v) iSTSettings.showWeaponSpeed = v end
         )
 
-        _, y = CreateSectionHeader(indicatorsContent, L["SectionWarnings"], y)
-
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowWrongSealWarning"], L["ShowWrongSealWarningDesc"], y,
-            function() return iSTSettings.showWrongSealWarning end,
-            function(v) iSTSettings.showWrongSealWarning = v end
-        )
-
-        _, y = CreateSectionHeader(indicatorsContent, L["SectionPulseIndicators"], y)
-
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowGreenPulse"], L["ShowGreenPulseDesc"], y,
-            function() return iSTSettings.showGreenPulse end,
-            function(v) iSTSettings.showGreenPulse = v end
-        )
-
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowOrangePulse"], L["ShowOrangePulseDesc"], y,
-            function() return iSTSettings.showOrangePulse end,
-            function(v) iSTSettings.showOrangePulse = v end
-        )
-
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowRedPulse"], L["ShowRedPulseDesc"], y,
-            function() return iSTSettings.showRedPulse end,
-            function(v) iSTSettings.showRedPulse = v end
-        )
-
         _, y = CreateSectionHeader(indicatorsContent, L["SectionTwistFeedback"], y)
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowTwistSuccess"], L["ShowTwistSuccessDesc"], y,
             function() return iSTSettings.showTwistSuccess end,
             function(v) iSTSettings.showTwistSuccess = v end
-        )
-
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowTwistFail"], L["ShowTwistFailDesc"], y,
-            function() return iSTSettings.showTwistFail end,
-            function(v) iSTSettings.showTwistFail = v end
         )
 
         scrollChildren[3]:SetHeight(math.abs(y) + 10)
@@ -903,47 +867,17 @@ function iST:CreateOptionsPanel()
         AddColorEditor(L["ColorBar"],
             function() return iSTSettings.barColor end, nil)
 
-        AddColorEditor(L["ColorTwistZone"],
-            function() return iSTSettings.twistZoneColor end, nil)
-
-        AddColorEditor(L["ColorAlert"],
-            function() return iSTSettings.alertColor end, nil)
-
-        AddColorEditor(L["ColorGCDZone"],
-            function() return iSTSettings.gcdZoneColor end, nil)
-
-        AddColorEditor(L["ColorTwistMarker"],
-            function() return iSTSettings.twistMarkerColor end,
-            function()
-                if iST.BarFrame and iST.BarFrame.twistMarker then
-                    local c = iSTSettings.twistMarkerColor
-                    iST.BarFrame.twistMarker:SetVertexColor(c.r, c.g, c.b, c.a)
-                end
-            end)
-
-        AddColorEditor(L["ColorGCDMarker"],
-            function() return iSTSettings.gcdMarkerColor end, nil)
-
         AddColorEditor(L["ColorBorderNormal"],
             function() return iSTSettings.borderNormalColor end, nil)
 
         AddColorEditor(L["ColorTwistSuccess"],
             function() return iSTSettings.twistSuccessColor end, nil)
 
-        AddColorEditor(L["ColorTwistFail"],
-            function() return iSTSettings.twistFailColor end, nil)
-
         _, y = CreateSettingsButton(customizationContent, L["DefaultColors"], 140, y - 4, function()
             local colorKeys = {
                 "barColor",
-                "twistZoneColor",
-                "alertColor",
-                "gcdZoneColor",
-                "twistMarkerColor",
-                "gcdMarkerColor",
                 "borderNormalColor",
                 "twistSuccessColor",
-                "twistFailColor",
             }
 
             for _, key in ipairs(colorKeys) do
@@ -1037,20 +971,6 @@ function iST:CreateOptionsPanel()
             function() return iSTSettings.twistSuccessSound end,
             function(value) iSTSettings.twistSuccessSound = value end)
 
-        AddSoundSelector(L["TwistFailSound"],
-            function() return iSTSettings.twistFailSound end,
-            function(value) iSTSettings.twistFailSound = value end)
-
-        _, y = CreateCustomSlider(soundContent, L["WrongSealSoundLeadTime"], y, 0.2, 1.5, 0.1,
-            function() return iSTSettings.wrongSealSoundLeadTime end,
-            function(v) iSTSettings.wrongSealSoundLeadTime = v end,
-            function(v) return string.format("%.1fs", v) end
-        )
-
-        AddSoundSelector(L["WrongSealWarningSound"],
-            function() return iSTSettings.wrongSealWarningSound end,
-            function(value) iSTSettings.wrongSealWarningSound = value end)
-
         y = y - 4
         if iST:IsISPLoaded() then
             _, y = CreateInfoText(soundContent, L["CustomSoundsAvailable"], y, "GameFontDisableSmall")
@@ -1107,7 +1027,7 @@ function iST:CreateOptionsPanel()
     end
 
     -- ═══════════════════════════════════════════════════════════
-    -- Tabs 7-9: Other Addons (Installed + Promo dual frames)
+    -- Tabs 7-10: Other Addons (Installed + Promo dual frames)
     -- ═══════════════════════════════════════════════════════════
     local promoData = {
         { content = iWRContent, scrollIdx = 7, name = "iWillRemember", addonName = "iWillRemember", tabIdx = 7,
@@ -1129,6 +1049,19 @@ function iST:CreateOptionsPanel()
           buttonText = "Open iNIF Settings",
           tabLabel = L["TabINIF"], tabLabelPromo = L["TabINIFPromo"],
           getFrame = function() return _G["iNIFSettingsFrame"] end },
+        { content = iRCContent, scrollIdx = 10, name = "iRC: Guild Connect", addonName = "iRC", tabIdx = 10,
+          desc = L["IRCPromoDesc"], link = L["IRCPromoLink"],
+          installedDesc = Colors.iST .. "iRC: Guild Connect" .. Colors.Reset .. " is installed. Open its panel to manage guild connections, rules, verification, and community tools.",
+          buttonText = "Open iRC Panel",
+          tabLabel = L["TabIRC"], tabLabelPromo = L["TabIRCPromo"],
+          getFrame = function()
+              local aceAddon = LibStub("AceAddon-3.0", true)
+              local addon = aceAddon and aceAddon:GetAddon("iRCGuildConnect", true)
+              if addon and addon.MainUI then
+                  addon.MainUI:Open()
+                  return addon.MainUI.frame
+              end
+          end },
     }
 
     local installedFrames = {}
@@ -1185,12 +1118,7 @@ function iST:CreateOptionsPanel()
     -- ═══════════════════════════════════════════════════════════
     settingsFrame:HookScript("OnShow", function()
         for _, promo in ipairs(promoData) do
-            local loaded = false
-            if C_AddOns and C_AddOns.IsAddOnLoaded then
-                loaded = C_AddOns.IsAddOnLoaded(promo.addonName)
-            elseif IsAddOnLoaded then
-                loaded = IsAddOnLoaded(promo.addonName)
-            end
+            local loaded = C_AddOns.IsAddOnLoaded(promo.addonName)
             if installedFrames[promo.tabIdx] then
                 installedFrames[promo.tabIdx]:SetShown(loaded)
             end

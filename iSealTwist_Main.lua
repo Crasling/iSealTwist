@@ -1,7 +1,7 @@
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                                                                                │
 -- │                              iSealTwist                                        │
--- │                        Seal Twist Helper for TBC                               │
+-- │                    Seal Twist Helper for WoW Forever                           │
 -- │                            by Crasling                                         │
 -- │                                                                                │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
@@ -11,19 +11,12 @@
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 local addonName, iST = ...
 
--- API compat for TBC Classic (C_AddOns may not exist)
-local GetAddOnMetadata = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
-local GetAddOnInfo = C_AddOns and C_AddOns.GetAddOnInfo or GetAddOnInfo
-local IsAddOnLoadedAPI = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
+local GetAddOnMetadata = C_AddOns.GetAddOnMetadata
+local IsAddOnLoadedAPI = C_AddOns.IsAddOnLoaded
 
 local function GetLocalizedSpellName(spellID, fallback)
     local localizedName
-    if C_Spell and C_Spell.GetSpellName then
-        localizedName = C_Spell.GetSpellName(spellID)
-    end
-    if not localizedName and GetSpellInfo then
-        localizedName = GetSpellInfo(spellID)
-    end
+    localizedName = C_Spell.GetSpellName(spellID)
     return localizedName or fallback
 end
 
@@ -63,43 +56,16 @@ iST.AddonPath = "Interface\\AddOns\\iSealTwist\\"
 
 -- Game version info
 iST.GameVersion, iST.GameBuild, iST.GameBuildDate, iST.GameTocVersion = GetBuildInfo()
-iST.GameVersionName = ""
-
--- Game version detection
-local gameTocNumber = tonumber(iST.GameTocVersion) or 0
-if gameTocNumber >= 20500 and gameTocNumber < 30000 then
-    iST.GameVersionName = "Anniversary TBC"
-    iST.SupportedVersion = true
-else
-    iST.SupportedVersion = false
-    if gameTocNumber >= 120000 then
-        iST.GameVersionName = "Retail WoW"
-    elseif gameTocNumber > 50000 and gameTocNumber < 59999 then
-        iST.GameVersionName = "Classic MoP"
-    elseif gameTocNumber > 40000 and gameTocNumber < 49999 then
-        iST.GameVersionName = "Classic Cata"
-    elseif gameTocNumber > 30000 and gameTocNumber < 39999 then
-        iST.GameVersionName = "Classic WotLK"
-    elseif gameTocNumber >= 20000 and gameTocNumber < 20500 then
-        iST.GameVersionName = "Classic TBC"
-    elseif gameTocNumber > 10000 and gameTocNumber < 19999 then
-        iST.GameVersionName = "Classic Era"
-    else
-        iST.GameVersionName = "Unknown Version"
-    end
-end
+iST.GameVersionName = "Forever"
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                                  Constants                                     │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 iST.CONSTANTS = {
-    DEFAULT_TWIST_WINDOW = 0.400,   -- 400ms
-    MIN_TWIST_WINDOW = 0.200,       -- 200ms
-    MAX_TWIST_WINDOW = 0.600,       -- 600ms
     LATENCY_UPDATE_INTERVAL = 5,    -- seconds between latency polls
     BAR_UPDATE_RATE = 0.016,        -- ~60fps
     BAR_STALE_THRESHOLD = 0.5,      -- hide bar this long after expected swing
-    GCD_DURATION = 1.5,            -- TBC GCD in seconds
+    SEAL_DURATION = 30,            -- Forever seals are tracked from successful casts
 }
 
 iST.FONT_CHOICES = {
@@ -119,7 +85,7 @@ iST.BUILTIN_SOUNDS = {
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                               Seal Spell IDs                                   │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
--- TBC Seal spellIDs — covers all ranks for UnitBuff matching
+-- Forever Seal spell IDs used to identify successful player casts.
 iST.SEALS = {
     -- Seal of Command (ranks)
     [20375] = "Seal of Command",
@@ -127,14 +93,6 @@ iST.SEALS = {
     [20918] = "Seal of Command",
     [20919] = "Seal of Command",
     [20920] = "Seal of Command",
-    [27170] = "Seal of Command",
-    -- Seal of Blood (Horde)
-    [31892] = "Seal of Blood",
-    [38008] = "Seal of Blood",
-    [41459] = "Seal of Blood",
-    -- Seal of the Martyr (Alliance)
-    [53720] = "Seal of the Martyr",
-    [348700] = "Seal of the Martyr",
     -- Seal of Righteousness (ranks)
     [20154] = "Seal of Righteousness",
     [20287] = "Seal of Righteousness",
@@ -144,22 +102,33 @@ iST.SEALS = {
     [20291] = "Seal of Righteousness",
     [20292] = "Seal of Righteousness",
     [20293] = "Seal of Righteousness",
-    [27155] = "Seal of Righteousness",
-    -- Seal of Vengeance / Corruption
-    [31801] = "Seal of Vengeance",
-    [53736] = "Seal of Corruption",
     -- Seal of Wisdom (ranks)
     [20166] = "Seal of Wisdom",
     [20356] = "Seal of Wisdom",
-    [27166] = "Seal of Wisdom",
+    [20357] = "Seal of Wisdom",
+    [20358] = "Seal of Wisdom",
     -- Seal of Light (ranks)
     [20165] = "Seal of Light",
     [20347] = "Seal of Light",
     [20348] = "Seal of Light",
     [20349] = "Seal of Light",
-    [27160] = "Seal of Light",
+    [20350] = "Seal of Light",
     -- Seal of Justice
     [20164] = "Seal of Justice",
+    -- Seal of Fury (Forever ranks)
+    [20418] = "Seal of Fury",
+    [20419] = "Seal of Fury",
+    [20420] = "Seal of Fury",
+    [20421] = "Seal of Fury",
+    [20422] = "Seal of Fury",
+    [20423] = "Seal of Fury",
+    -- Seal of the Crusader (ranks)
+    [21082] = "Seal of the Crusader",
+    [20162] = "Seal of the Crusader",
+    [20305] = "Seal of the Crusader",
+    [20306] = "Seal of the Crusader",
+    [20307] = "Seal of the Crusader",
+    [20308] = "Seal of the Crusader",
 }
 
 -- Reverse lookup: name -> true (for name-based fallback matching)
@@ -173,39 +142,69 @@ for spellID, name in pairs(iST.SEALS) do
     end
 end
 
-function iST:IsSealAvailableForPlayerFaction(sealName)
-    local _, playerFaction = UnitFactionGroup("player")
-    if playerFaction == "Alliance" then
-        return sealName ~= "Seal of Blood" and sealName ~= "Seal of Corruption"
-    end
-    if playerFaction == "Horde" then
-        return sealName ~= "Seal of the Martyr" and sealName ~= "Seal of Vengeance"
-    end
-    return true
+-- Successful casts can teach the addon new beta spell IDs by localized name.
+iST.KNOWN_SEAL_NAMES = {
+    ["Seal of Command"] = true,
+    ["Seal of Righteousness"] = true,
+    ["Seal of Wisdom"] = true,
+    ["Seal of Light"] = true,
+    ["Seal of Justice"] = true,
+    ["Seal of Fury"] = true,
+    ["Seal of the Crusader"] = true,
+}
+
+-- Twist of Light only creates an Echo when one of these four seals is
+-- replaced. The replacement seal may be any different seal.
+iST.TWIST_OF_LIGHT_FROM_SEALS = {
+    ["Seal of Command"] = true,
+    ["Seal of Righteousness"] = true,
+    ["Seal of Fury"] = true,
+    ["Seal of Justice"] = true,
+}
+iST.SEAL_NAME_ALIASES = {}
+for knownSpellID, canonicalName in pairs(iST.SEALS) do
+    local localizedName = GetLocalizedSpellName(knownSpellID)
+    if localizedName then iST.SEAL_NAME_ALIASES[localizedName] = canonicalName end
+end
+for canonicalName in pairs(iST.KNOWN_SEAL_NAMES) do
+    iST.SEAL_NAME_ALIASES[canonicalName] = canonicalName
 end
 
-function iST:GetFactionSealEquivalent(sealName)
-    local _, playerFaction = UnitFactionGroup("player")
-    if playerFaction == "Alliance" then
-        if sealName == "Seal of Blood" then return "Seal of the Martyr" end
-        if sealName == "Seal of Corruption" then return "Seal of Vengeance" end
-    elseif playerFaction == "Horde" then
-        if sealName == "Seal of the Martyr" then return "Seal of Blood" end
-        if sealName == "Seal of Vengeance" then return "Seal of Corruption" end
+function iST:ResolveSealCast(...)
+    local fallbackSpellID, eventSpellName
+    for index = 1, select("#", ...) do
+        local value = select(index, ...)
+        if type(value) == "number" then
+            if self.SEALS[value] then return value, self.SEALS[value] end
+            if not fallbackSpellID and value > 100 then fallbackSpellID = value end
+        elseif type(value) == "string" and self.SEAL_NAME_ALIASES[value] then
+            eventSpellName = self.SEAL_NAME_ALIASES[value]
+        end
     end
-    return sealName
+
+    if fallbackSpellID then
+        local spellName = GetLocalizedSpellName(fallbackSpellID)
+        if spellName and self.SEAL_NAME_ALIASES[spellName] then
+            eventSpellName = self.SEAL_NAME_ALIASES[spellName]
+        end
+    end
+
+    if fallbackSpellID and eventSpellName then
+        self.SEALS[fallbackSpellID] = eventSpellName
+        self.SEAL_NAMES[eventSpellName] = true
+        self.SEAL_SPELL_IDS[eventSpellName] = self.SEAL_SPELL_IDS[eventSpellName] or fallbackSpellID
+        return fallbackSpellID, eventSpellName
+    end
 end
 
 -- Spells that reset the swing timer (credits: https://github.com/IvanRL22)
--- NOTE: Crusader Strike (35395) does NOT reset the auto-attack swing timer in TBC —
--- it is a special attack on its own cooldown and must NOT be listed here.
+-- Holy Strike and other special attacks do not reset the Forever swing timer.
 iST.SWING_RESET_SPELLS = {
     -- Repentance
     [20066] = "Repentance",
     -- Holy Wrath
     [2812]  = "Holy Wrath", -- Rank 1
     [10318] = "Holy Wrath", -- Rank 2
-    [27139] = "Holy Wrath", -- Rank 3
     -- Hammer of Justice
     [853]   = "Hammer of Justice", -- Rank 1
     [5588]  = "Hammer of Justice", -- Rank 2
@@ -215,7 +214,6 @@ iST.SWING_RESET_SPELLS = {
     [24275] = "Hammer of Wrath", -- Rank 1
     [24274] = "Hammer of Wrath", -- Rank 2
     [24239] = "Hammer of Wrath", -- Rank 3
-    [27180] = "Hammer of Wrath", -- Rank 4
     -- Holy Light
     [635]   = "Holy Light", -- Rank 1
     [639]   = "Holy Light", -- Rank 2
@@ -226,8 +224,6 @@ iST.SWING_RESET_SPELLS = {
     [10328] = "Holy Light", -- Rank 7
     [10329] = "Holy Light", -- Rank 8
     [25292] = "Holy Light", -- Rank 9
-    [27135] = "Holy Light", -- Rank 10
-    [27136] = "Holy Light", -- Rank 11
     -- Flash of Light
     [19750] = "Flash of Light", -- Rank 1
     [19939] = "Flash of Light", -- Rank 2
@@ -235,7 +231,6 @@ iST.SWING_RESET_SPELLS = {
     [19941] = "Flash of Light", -- Rank 4
     [19942] = "Flash of Light", -- Rank 5
     [19943] = "Flash of Light", -- Rank 6
-    [27137] = "Flash of Light", -- Rank 7
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -246,6 +241,7 @@ iST.State = {
     LastSwingTime = 0,
     WeaponSpeed = 0,
     NextSwingTime = 0,
+    SwingCycleActive = false,
     CurrentSealID = nil,
     CurrentSealName = nil,
     CurrentSealIcon = nil,
@@ -253,20 +249,19 @@ iST.State = {
     BarVisible = false,
     TestMode = false,
     Initialized = false,
-    InTwistZone = false,
-    SealChangedInTwistZone = false,
-    PendingSealChange = false,
     PreviousSealID = nil,
     PreviousSealName = nil,
     TwistResultStart = 0,
     TwistResultDuration = 0,
-    GCDStartTime = 0,
-    GCDEndTime = 0,
-    GCDDuration = 1.5,
     Idle = false,
-    WrongSealSoundPlayed = false,
-    WrongSealSince = nil,
     PendingMacroRefresh = false,
+    SealCastTime = 0,
+    SealExpiresAt = 0,
+    SealGeneration = 0,
+    TwistOfLightKnown = nil,
+    EchoPending = false,
+    EchoSealName = nil,
+    SealAtLastSwing = nil,
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -278,41 +273,24 @@ iST.SettingsDefault = {
     barHeight = 25,
     sealIconSize = 25,
     barLocked = false,
-    twistWindow = 0.400,
     showLatency = true,
     showSealIcon = true,
     showWeaponSpeed = true,
     onlyInCombat = true,
     onlyAsPaladin = true,
-    onlyInRetSpec = false,
     barPoint = { "CENTER", nil, "CENTER", 0, -200 },
     showTwistSuccess = true,
-    showTwistFail = true,
     twistTextSize     = 16,
     sealTextSize      = 10,
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
     enableSoundEffects = false,
     twistSuccessSound = "wow:856",
-    twistFailSound    = "wow:857",
-    wrongSealWarningSound = "wow:3339",
-    wrongSealSoundLeadTime = 0.5,
     twistSuccessColor = { r = 0.2, g = 1.0, b = 0.2, a = 1.0 },
-    twistFailColor    = { r = 1.0, g = 0.2, b = 0.2, a = 1.0 },
     barColor          = { r = 1,    g = 0.59, b = 0.09, a = 0.9 },
-    twistZoneColor    = { r = 0.2,  g = 1,    b = 0.2,  a = 0.7 },
-    alertColor        = { r = 0.9,  g = 0.1,  b = 0.1,  a = 0.9 },
-    gcdZoneColor      = { r = 0.55, g = 0.55, b = 0.55, a = 0.35 },
-    twistMarkerColor  = { r = 1,    g = 1,    b = 0,    a = 0.9 },
-    gcdMarkerColor    = { r = 1,    g = 0.85, b = 0.3,  a = 0.85 },
     borderNormalColor = { r = 0.3,  g = 0.3,  b = 0.3,  a = 0.8 },
-    showGCDIndicator  = true,
-    showWrongSealWarning = true,
-    showGreenPulse    = true,   -- Seal1 + in twist window + GCD free  → green pulse
-    showOrangePulse   = true,   -- Seal2 active (twist done)           → orange pulse
-    showRedPulse      = true,   -- Seal1 + GCD runs past swing         → red pulse
-    twistFromSeal     = "Seal of Command",  -- the seal you cast FROM (SoC or SoR)
-    twistIntoSeal     = "",  -- the seal you twist INTO (faction-aware on first load)
+    twistFromSeal     = "Seal of Command",
+    twistIntoSeal     = "Seal of Justice",
     MinimapButton = { hide = false, minimapPos = 220 },
 }
 
@@ -321,9 +299,6 @@ iST.SettingsDefault = {
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 function iST:InitializeSettings()
     if not iSTSettings then iSTSettings = {} end
-    if iSTSettings.enableSoundEffects == nil and iSTSettings.enableISPSounds ~= nil then
-        iSTSettings.enableSoundEffects = iSTSettings.enableISPSounds
-    end
     for key, value in pairs(self.SettingsDefault) do
         if iSTSettings[key] == nil then
             if type(value) == "table" then
@@ -387,7 +362,7 @@ function iST:CreateSwingBar()
     local CONTENT_INSET = 3
 
     -- Main bar frame
-    local bar = CreateFrame("Frame", "iSealTwistBar", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    local bar = CreateFrame("Frame", "iSealTwistBar", UIParent, "BackdropTemplate")
     bar:SetSize(barWidth, barHeight)
     bar.contentInset = CONTENT_INSET
     bar:SetClampedToScreen(true)
@@ -436,73 +411,6 @@ function iST:CreateSwingBar()
     fill:SetVertexColor(bc.r, bc.g, bc.b, bc.a)
     bar.fill = fill
 
-    -- Twist zone overlay (semi-transparent green area from twist point to end)
-    local twistZone = bar:CreateTexture(nil, "ARTWORK", nil, 1)
-    twistZone:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -CONTENT_INSET, -CONTENT_INSET)
-    twistZone:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -CONTENT_INSET, CONTENT_INSET)
-    twistZone:SetWidth(1)
-    twistZone:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-    local tc = iSTSettings.twistZoneColor
-    twistZone:SetVertexColor(tc.r, tc.g, tc.b, tc.a)
-    bar.twistZone = twistZone
-
-    -- Twist marker line (vertical line at twist point)
-    local marker = bar:CreateTexture(nil, "OVERLAY")
-    marker:SetWidth(2)
-    marker:SetPoint("TOP", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
-    marker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", CONTENT_INSET, CONTENT_INSET)
-    marker:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-    local tm = iSTSettings.twistMarkerColor
-    marker:SetVertexColor(tm.r, tm.g, tm.b, tm.a)
-    bar.twistMarker = marker
-
-    -- Seal switch zone (amber block from GCD marker to twist window — the "cast twistFromSeal here" window)
-    local sealSwitchZone = bar:CreateTexture(nil, "ARTWORK", nil, 3)
-    sealSwitchZone:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-    sealSwitchZone:SetVertexColor(1, 0.55, 0.0, 0.35)
-    sealSwitchZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    CONTENT_INSET, -CONTENT_INSET)
-    sealSwitchZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", CONTENT_INSET,  CONTENT_INSET)
-    sealSwitchZone:SetWidth(1)
-    sealSwitchZone:Hide()
-    bar.sealSwitchZone = sealSwitchZone
-
-    -- Continuous rounded alert halo. Keep it broad enough to remain clearly
-    -- visible around the modern rounded bar at every supported bar height.
-    local alertGlow = CreateFrame("Frame", nil, bar, BackdropTemplateMixin and "BackdropTemplate" or nil)
-    alertGlow:SetPoint("TOPLEFT", bar, "TOPLEFT", -7, 7)
-    alertGlow:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 7, -7)
-    alertGlow:SetFrameLevel(bar:GetFrameLevel() + 4)
-    if alertGlow.SetBackdrop then
-        alertGlow:SetBackdrop({
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 20,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        alertGlow:SetBackdropBorderColor(1, 0.1, 0.1, 0)
-    end
-    bar.alertGlow = alertGlow
-
-    -- GCD active zone (gray block showing current GCD duration on bar)
-    local gcdZone = bar:CreateTexture(nil, "ARTWORK", nil, 2)
-    gcdZone:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-    local gz = iSTSettings.gcdZoneColor
-    gcdZone:SetVertexColor(gz.r, gz.g, gz.b, gz.a)
-    gcdZone:SetPoint("TOPLEFT", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
-    gcdZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", CONTENT_INSET, CONTENT_INSET)
-    gcdZone:SetWidth(1)
-    gcdZone:Hide()
-    bar.gcdZone = gcdZone
-
-    -- GCD indicator line (vertical — marks where to press SoC)
-    local gcdMarker = bar:CreateTexture(nil, "OVERLAY")
-    gcdMarker:SetWidth(2)
-    gcdMarker:SetPoint("TOP", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
-    gcdMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", CONTENT_INSET, CONTENT_INSET)
-    gcdMarker:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-    local gm = iSTSettings.gcdMarkerColor
-    gcdMarker:SetVertexColor(gm.r, gm.g, gm.b, gm.a)
-    gcdMarker:Hide()
-    bar.gcdMarker = gcdMarker
 
     -- Circular seal icon (left of bar)
     local sealIconFrame = CreateFrame("Frame", nil, bar)
@@ -573,14 +481,12 @@ function iST:CreateSwingBar()
     sealText:SetTextColor(1, 0.59, 0.09, 0.9)
     bar.sealText = sealText
 
-    -- Twist result text in a dedicated feedback row above the bar. Keeping this
-    -- outside the timer content makes it readable without covering the swing,
-    -- seal, GCD, or alert indicators.
+    -- Keep Echo confirmation above the bar so it never covers the swing timer.
     local resultOverlay = CreateFrame("Frame", nil, bar)
     resultOverlay:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 8)
     resultOverlay:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", 0, 8)
     resultOverlay:SetHeight(24)
-    resultOverlay:SetFrameLevel(alertGlow:GetFrameLevel() + 1)
+    resultOverlay:SetFrameLevel(bar:GetFrameLevel() + 5)
     resultOverlay:EnableMouse(false)
     resultOverlay:Hide()
     bar.resultOverlay = resultOverlay
@@ -636,315 +542,68 @@ function iST:OnBarUpdate(elapsed)
     if not bar then return end
 
     bar.updateAccum = bar.updateAccum + elapsed
-    if bar.updateAccum < iST.CONSTANTS.BAR_UPDATE_RATE then return end
+    if bar.updateAccum < self.CONSTANTS.BAR_UPDATE_RATE then return end
     bar.updateAccum = 0
 
-    local state = self.State
-    local now = GetTime()
-
-    -- Test mode: use simulated values
-    if state.TestMode then
-        if now >= state.NextSwingTime then
-            -- Test swing "landed" — reset for another cycle
-            state.LastSwingTime = now
-            state.WeaponSpeed = 3.6
-            state.NextSwingTime = now + 3.6
-        end
+    local state, now = self.State, GetTime()
+    if state.TestMode and now >= state.NextSwingTime then
+        self:ResetSwingTimer(3.6, true)
     end
 
-    -- Check if swing timer is active or stale
-    local noSwing = (state.NextSwingTime <= 0 or state.WeaponSpeed <= 0)
-    local stale   = (not noSwing) and (not state.TestMode) and
-                    (now > state.NextSwingTime + iST.CONSTANTS.BAR_STALE_THRESHOLD)
-
+    local noSwing = state.NextSwingTime <= 0 or state.WeaponSpeed <= 0
+    local stale = not noSwing and not state.TestMode
+        and now > state.NextSwingTime + self.CONSTANTS.BAR_STALE_THRESHOLD
     if noSwing or stale then
-        -- The idle appearance and visibility only need updating when entering
-        -- the idle state. Visibility changes are otherwise driven by events
-        -- and settings callbacks.
-        if state.Idle then
-            return
+        if stale then state.SwingCycleActive = false end
+        if not state.Idle then
+            state.Idle = true
+            self:UpdateBarVisibility()
+            local inset = bar.contentInset or 1
+            bar.fill:SetWidth(math.max(1, bar:GetWidth() - inset * 2))
+            local color = iSTSettings.barColor
+            bar.fill:SetVertexColor(color.r, color.g, color.b, 0.18)
+            bar.timeText:SetText("")
+            bar.speedText:Hide()
+            bar.latencyText:SetShown(iSTSettings.showLatency)
         end
-        state.Idle = true
-
-        self:UpdateBarVisibility()
-
-        -- Stop here if enabled/spec/combat settings require the bar to be hidden
-        if not self.State.BarVisible then
-            return
-        end
-
-        -- Idle state while waiting for the next valid swing
-        local contentInset = bar.contentInset or 1
-        local idleWidth = math.max(1, bar:GetWidth() - contentInset * 2)
-        bar.fill:SetWidth(idleWidth)
-
-        local bc = iSTSettings.barColor
-        bar.fill:SetVertexColor(bc.r, bc.g, bc.b, 0.18)
-
-        bar.twistZone:Hide()
-        bar.twistMarker:Hide()
-
-        if bar.gcdZone then
-            bar.gcdZone:Hide()
-        end
-
-        if bar.gcdMarker then
-            bar.gcdMarker:Hide()
-        end
-
-        if bar.sealSwitchZone then
-            bar.sealSwitchZone:Hide()
-        end
-
-        if bar.alertGlow and bar.alertGlow.SetBackdropBorderColor then
-            bar.alertGlow:SetBackdropBorderColor(0, 0, 0, 0)
-        end
-
-        local borderColor = iSTSettings.borderNormalColor
+    else
+        state.Idle = false
+        local inset = bar.contentInset or 1
+        local width = bar:GetWidth() - inset * 2
+        local progress = math.max(0, math.min((now - state.LastSwingTime) / state.WeaponSpeed, 1))
+        local color = iSTSettings.barColor
+        local border = iSTSettings.borderNormalColor
+        bar.fill:SetWidth(math.max(1, progress * width))
+        bar.fill:SetVertexColor(color.r, color.g, color.b, color.a)
         if bar.SetBackdropBorderColor then
-            bar:SetBackdropBorderColor(
-                borderColor.r,
-                borderColor.g,
-                borderColor.b,
-                borderColor.a
-            )
+            bar:SetBackdropBorderColor(border.r, border.g, border.b, border.a)
         end
-
-        bar.timeText:SetText("")
-        bar.speedText:Hide()
-        bar.latencyText:SetShown(iSTSettings.showLatency)
-
-        return
-    end
-
-    state.Idle = false
-
-    local contentInset = bar.contentInset or 1
-    local barWidth = bar:GetWidth() - contentInset * 2
-    local progress = (now - state.LastSwingTime) / state.WeaponSpeed
-    progress = math.max(0, math.min(progress, 1))
-
-    -- Calculate twist point (fraction of bar where twist zone starts)
-    local twistWindowSec = iSTSettings.twistWindow
-    local lagCompensation = state.HomeLag * 0.002 -- double lag for round-trip, convert ms to sec
-    local twistStart = 1.0 - (twistWindowSec + lagCompensation) / state.WeaponSpeed
-    twistStart = math.max(0.1, math.min(twistStart, 0.95))
-
-    -- Update fill width
-    local fillWidth = math.max(1, progress * barWidth)
-    bar.fill:SetWidth(fillWidth)
-
-    -- Determine seal state for visual feedback
-    local bc = iSTSettings.barColor
-    local tc = iSTSettings.twistZoneColor
-    local onFromSeal = (state.CurrentSealName == iSTSettings.twistFromSeal)
-    local onIntoSeal = (state.CurrentSealName == iSTSettings.twistIntoSeal)
-    local gcdFree = (state.GCDEndTime == 0 or state.GCDEndTime <= now)
-    local gcdRunsPastSwing = (state.GCDEndTime > 0 and state.GCDEndTime >= state.NextSwingTime)
-    local gcdDuration = state.GCDDuration or iST.CONSTANTS.GCD_DURATION
-    local gcdStartFrac = twistStart - gcdDuration / state.WeaponSpeed
-
-    -- Three pulsing states (mutually exclusive, priority order):
-    -- ORANGE: Seal2 is active — twist completed, waiting for swing
-    local orangeMode = iSTSettings.showOrangePulse and onIntoSeal
-    -- GREEN:  Seal1 active + inside twist window + GCD free — cast Seal2 now!
-    local greenMode  = iSTSettings.showGreenPulse and
-                       (not orangeMode) and onFromSeal and (progress >= twistStart) and gcdFree
-    -- RED: wrong seal, or Seal1 with a GCD that makes the twist impossible
-    -- before the next swing lands.
-    local hasWrongSeal = (not onFromSeal) and (not onIntoSeal)
-    if hasWrongSeal then
-        state.WrongSealSince = state.WrongSealSince or now
-    else
-        state.WrongSealSince = nil
-    end
-    local wrongSealMode = iSTSettings.showWrongSealWarning and hasWrongSeal
-    local tooLateToTwist = (not orangeMode) and onFromSeal and gcdRunsPastSwing
-    local missedWindowMode = iSTSettings.showRedPulse and tooLateToTwist
-    local redMode = wrongSealMode or missedWindowMode
-
-    local ac  = iSTSettings.alertColor
-    local bnc = iSTSettings.borderNormalColor
-    local pulse = math.sin(now * 6) * 0.35 + 0.65
-
-    -- Fill color
-    if redMode then
-        local redAlpha = missedWindowMode and (ac.a * pulse) or ac.a
-        bar.fill:SetVertexColor(ac.r, ac.g, ac.b, redAlpha)
-    elseif greenMode then
-        bar.fill:SetVertexColor(0.2, 1.0, 0.2, tc.a * pulse)
-    elseif orangeMode then
-        bar.fill:SetVertexColor(1.0, 0.55, 0.1, tc.a * pulse)
-    elseif progress >= twistStart then
-        bar.fill:SetVertexColor(tc.r, tc.g, tc.b, tc.a)
-    else
-        bar.fill:SetVertexColor(bc.r, bc.g, bc.b, bc.a)
-    end
-
-    -- Main border + softly pulsing rounded alert halo
-    local glowAlpha = missedWindowMode and (0.82 + pulse * 0.18) or
-                      (wrongSealMode and (0.76 + pulse * 0.22) or
-                      ((greenMode or orangeMode) and (0.55 + pulse * 0.35) or 0))
-    local gr, gg, gb
-    if redMode then
-        gr, gg, gb = ac.r, ac.g, ac.b
-    elseif greenMode then
-        gr, gg, gb = 0.2, 1.0, 0.2
-    elseif orangeMode then
-        gr, gg, gb = 1.0, 0.55, 0.1
-    else
-        gr, gg, gb = bnc.r, bnc.g, bnc.b
-    end
-
-    if bar.SetBackdropBorderColor then
-        if redMode or greenMode or orangeMode then
-            bar:SetBackdropBorderColor(gr, gg, gb, glowAlpha)
-        elseif progress >= twistStart then
-            bar:SetBackdropBorderColor(tc.r, tc.g, tc.b, 0.9)
+        bar.timeText:SetText(string.format("%.1fs", math.max(0, state.NextSwingTime - now)))
+        if iSTSettings.showWeaponSpeed then
+            bar.speedText:SetText(string.format("%.2f", state.WeaponSpeed))
+            bar.speedText:Show()
         else
-            bar:SetBackdropBorderColor(bnc.r, bnc.g, bnc.b, bnc.a)
+            bar.speedText:Hide()
         end
-    end
-    if bar.alertGlow and bar.alertGlow.SetBackdropBorderColor then
-        local haloAlpha = (missedWindowMode and glowAlpha) or
-                          (wrongSealMode and glowAlpha * 0.9) or
-                          (greenMode and glowAlpha * 0.42) or
-                          (orangeMode and glowAlpha * 0.36) or 0
-        bar.alertGlow:SetBackdropBorderColor(gr, gg, gb, haloAlpha)
-    end
-
-    -- GCD zone color (update each frame in case settings changed)
-    if bar.gcdZone then
-        local gz = iSTSettings.gcdZoneColor
-        bar.gcdZone:SetVertexColor(gz.r, gz.g, gz.b, gz.a)
-    end
-
-    -- Update twist zone overlay position
-    local twistZoneWidth = math.max(1, (1.0 - twistStart) * barWidth)
-    bar.twistZone:SetWidth(twistZoneWidth)
-
-    -- Update twist marker line position + color
-    local markerX = contentInset + (twistStart * barWidth)
-    bar.twistMarker:ClearAllPoints()
-    bar.twistMarker:SetPoint("TOP", bar, "TOPLEFT", markerX, -contentInset)
-    bar.twistMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", markerX, contentInset)
-    local tm = iSTSettings.twistMarkerColor
-    bar.twistMarker:SetVertexColor(tm.r, tm.g, tm.b, tm.a)
-
-    -- GCD active zone: gray block from GCD start to GCD end
-    if bar.gcdZone then
-        local gcdEnd = state.GCDEndTime
-        if gcdEnd > now and state.WeaponSpeed > 0 then
-            local startFrac = (state.GCDStartTime - state.LastSwingTime) / state.WeaponSpeed
-            local endFrac   = (gcdEnd           - state.LastSwingTime) / state.WeaponSpeed
-            startFrac = math.max(0, math.min(startFrac, 1))
-            endFrac   = math.max(0, math.min(endFrac, 1))
-            local zoneWidth = math.max(1, (endFrac - startFrac) * barWidth)
-            local startX = contentInset + startFrac * barWidth
-            bar.gcdZone:ClearAllPoints()
-            bar.gcdZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    startX, -contentInset)
-            bar.gcdZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", startX,  contentInset)
-            bar.gcdZone:SetWidth(zoneWidth)
-            bar.gcdZone:Show()
+        if iSTSettings.showLatency then
+            bar.latencyText:SetText(state.HomeLag .. "ms")
+            bar.latencyText:Show()
         else
-            bar.gcdZone:Hide()
+            bar.latencyText:Hide()
         end
     end
 
-    -- GCD indicator: position one GCD before the twist window opens
-    if bar.gcdMarker then
-        if iSTSettings.showGCDIndicator and state.WeaponSpeed > 0 then
-            local gcdStart = twistStart - gcdDuration / state.WeaponSpeed
-            if gcdStart > 0.02 then
-                local gcdX = contentInset + (gcdStart * barWidth)
-                bar.gcdMarker:ClearAllPoints()
-                bar.gcdMarker:SetPoint("TOP", bar, "TOPLEFT", gcdX, -contentInset)
-                bar.gcdMarker:SetPoint("BOTTOM", bar, "BOTTOMLEFT", gcdX, contentInset)
-                local gmColor = iSTSettings.gcdMarkerColor
-                bar.gcdMarker:SetVertexColor(gmColor.r, gmColor.g, gmColor.b, gmColor.a)
-                bar.gcdMarker:Show()
-            else
-                bar.gcdMarker:Hide()
-            end
-        else
-            bar.gcdMarker:Hide()
-        end
-    end
-
-    -- Seal switch zone: amber block from GCD marker to twist window ("press twistFromSeal here")
-    if bar.sealSwitchZone then
-        if iSTSettings.showGCDIndicator and gcdStartFrac > 0.02 and gcdStartFrac < twistStart then
-            local startX = contentInset + gcdStartFrac * barWidth
-            local zoneW  = math.max(1, (twistStart - gcdStartFrac) * barWidth)
-            bar.sealSwitchZone:ClearAllPoints()
-            bar.sealSwitchZone:SetPoint("TOPLEFT",    bar, "TOPLEFT",    startX, -contentInset)
-            bar.sealSwitchZone:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", startX,  contentInset)
-            bar.sealSwitchZone:SetWidth(zoneW)
-            bar.sealSwitchZone:Show()
-        else
-            bar.sealSwitchZone:Hide()
-        end
-    end
-
-    -- Time remaining text
-    local remaining = math.max(0, state.NextSwingTime - now)
-    bar.timeText:SetText(string.format("%.1fs", remaining))
-
-    -- Optional warning: fire once per swing when time is running out on a wrong seal.
-    local warningSound = iSTSettings.wrongSealWarningSound
-    local warningLeadTime = iSTSettings.wrongSealSoundLeadTime or 0.5
-    if not state.TestMode and iSTSettings.enableSoundEffects and hasWrongSeal and
-       not state.WrongSealSoundPlayed and warningSound and warningSound ~= "" and
-       state.WrongSealSince and (now - state.WrongSealSince) >= 0.1 and
-       remaining > 0 and remaining <= warningLeadTime then
-        state.WrongSealSoundPlayed = true
-        self:PlayConfiguredSound(warningSound)
-    end
-
-    -- Weapon speed text
-    if iSTSettings.showWeaponSpeed then
-        bar.speedText:SetText(string.format("%.2f", state.WeaponSpeed))
-        bar.speedText:Show()
-    else
-        bar.speedText:Hide()
-    end
-
-    -- Latency text
-    if iSTSettings.showLatency then
-        bar.latencyText:SetText(state.HomeLag .. "ms")
-        bar.latencyText:Show()
-    else
-        bar.latencyText:Hide()
-    end
-
-    -- Track twist zone state
-    state.InTwistZone = (progress >= twistStart)
-
-    -- Fade twist result text and fully hide its frame when finished.
     if bar.twistResultText and state.TwistResultDuration > 0 then
-        local elapsed = now - state.TwistResultStart
-        if elapsed < state.TwistResultDuration then
-            local alpha = 1.0 - (elapsed / state.TwistResultDuration)
-            bar.twistResultText:SetAlpha(alpha)
+        local resultElapsed = now - state.TwistResultStart
+        if resultElapsed < state.TwistResultDuration then
+            bar.twistResultText:SetAlpha(1.0 - resultElapsed / state.TwistResultDuration)
         else
             bar.twistResultText:SetAlpha(0)
             bar.twistResultText:SetText("")
             bar.twistResultText:Hide()
-            if bar.resultOverlay then
-                bar.resultOverlay:Hide()
-            end
+            if bar.resultOverlay then bar.resultOverlay:Hide() end
             state.TwistResultDuration = 0
         end
-    end
-end
-
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                           Show / Hide Bar                                      │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
-function iST:ShowBar()
-    if self.BarFrame and iSTSettings.enabled then
-        self.BarFrame:Show()
-        self.State.BarVisible = true
     end
 end
 
@@ -955,42 +614,6 @@ function iST:HideBar()
     end
 end
 
--- Returns true when player has the most talent points in Retribution (tab 3).
--- Falls back to true when no talents are spent or talent data is unavailable.
-function iST:IsRetSpec()
-    if not GetNumTalentTabs or not GetTalentTabInfo then
-        return true
-    end
-
-    local maxPoints = 0
-    local maxTab = 0
-
-    for tabIndex = 1, GetNumTalentTabs() do
-        local _, _, thirdValue, _, fifthValue = GetTalentTabInfo(tabIndex)
-
-        -- Older Classic clients return pointsSpent as the third value.
-        -- TBC AE returns pointsSpent as the fifth value.
-        local pointsSpent = 0
-
-        if type(thirdValue) == "number" then
-            pointsSpent = thirdValue
-        elseif type(fifthValue) == "number" then
-            pointsSpent = fifthValue
-        end
-
-        if pointsSpent > maxPoints then
-            maxPoints = pointsSpent
-            maxTab = tabIndex
-        end
-    end
-
-    if maxPoints == 0 then
-        return true
-    end
-
-    -- Paladin talent tab 3 is Retribution.
-    return maxTab == 3
-end
 
 -- Central visibility decision: respects enabled, class, spec, and combat settings.
 function iST:UpdateBarVisibility()
@@ -1003,10 +626,6 @@ function iST:UpdateBarVisibility()
             return
         end
     end
-    if iSTSettings.onlyInRetSpec and not self:IsRetSpec() then
-        self:HideBar()
-        return
-    end
     if iSTSettings.onlyInCombat and not self.State.InCombat and not self.State.TestMode then
         self:HideBar()
         return
@@ -1018,7 +637,7 @@ end
 -- │                          Twist Result Display                                  │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 function iST:IsISPLoaded()
-    return IsAddOnLoadedAPI and IsAddOnLoadedAPI("iSoundPlayer") and type(iSPSettings) == "table"
+    return IsAddOnLoadedAPI("iSoundPlayer") and type(iSPSettings) == "table"
 end
 
 function iST:IsBuiltinSound(soundName)
@@ -1068,20 +687,18 @@ function iST:PlayConfiguredSound(soundName)
     return false
 end
 
-function iST:PlayTwistSound(success)
+function iST:PlayTwistSound()
     if not iSTSettings.enableSoundEffects then return end
-    local soundName = success and iSTSettings.twistSuccessSound or iSTSettings.twistFailSound
-    self:PlayConfiguredSound(soundName)
+    self:PlayConfiguredSound(iSTSettings.twistSuccessSound)
 end
 
-function iST:ShowTwistResult(success)
-    self:PlayTwistSound(success)
+function iST:ShowTwistResult()
+    self:PlayTwistSound()
 
     if not self.BarFrame or not self.BarFrame.twistResultText then return end
 
     -- Check settings
-    if success and not iSTSettings.showTwistSuccess then return end
-    if not success and not iSTSettings.showTwistFail then return end
+    if not iSTSettings.showTwistSuccess then return end
 
     local text = self.BarFrame.twistResultText
     local state = self.State
@@ -1095,15 +712,9 @@ function iST:ShowTwistResult(success)
     local fontPath = text:GetFont()
     text:SetFont(fontPath, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
 
-    if success then
-        text:SetText("Seal Twisted!")
-        local c = iSTSettings.twistSuccessColor
-        text:SetTextColor(c.r, c.g, c.b, c.a)
-    else
-        text:SetText("Fail Twist!")
-        local c = iSTSettings.twistFailColor
-        text:SetTextColor(c.r, c.g, c.b, c.a)
-    end
+    text:SetText("Seal Twisted!")
+    local c = iSTSettings.twistSuccessColor
+    text:SetTextColor(c.r, c.g, c.b, c.a)
 
     -- Duration: min(1s, 50% of weapon speed)
     local fadeTime = math.min(1.0, state.WeaponSpeed > 0 and state.WeaponSpeed * 0.5 or 1.0)
@@ -1115,19 +726,21 @@ end
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                           Swing Timer Logic                                    │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
-function iST:ResetSwingTimer()
-    local speed = UnitAttackSpeed("player")
+function iST:ResetSwingTimer(swingDuration, isMeleeAttack)
+    if issecretvalue and issecretvalue(swingDuration) then swingDuration = nil end
+    local speed = type(swingDuration) == "number" and swingDuration or UnitAttackSpeed("player")
+    if issecretvalue and issecretvalue(speed) then return end
     if not speed or speed <= 0 then return end
 
-    -- Check for failed twist: seal changed AFTER the swing landed (too late)
-    if self.State.PendingSealChange and not self.State.SealChangedInTwistZone then
-        self:ShowTwistResult(false)
+    if isMeleeAttack then
+        -- Only a real melee attack consumes the Echo. Casts which merely reset
+        -- the weapon timer must not be mistaken for an attack.
+        self.State.EchoPending = false
+        self.State.EchoSealName = nil
+        self.State.SealAtLastSwing = self.State.CurrentSealName
+        self.State.SwingCycleActive = true
     end
-    self.State.PendingSealChange = false
-    self.State.SealChangedInTwistZone = false
-    self.State.InTwistZone = false
     self.State.Idle = false
-    self.State.WrongSealSoundPlayed = false
 
     local now = GetTime()
 
@@ -1142,6 +755,7 @@ function iST:OnAttackSpeedChanged()
     if state.NextSwingTime <= 0 or state.WeaponSpeed <= 0 then return end
 
     local newSpeed = UnitAttackSpeed("player")
+    if issecretvalue and issecretvalue(newSpeed) then return end
     if not newSpeed or newSpeed <= 0 then return end
 
     -- Preserve current progress fraction, recalculate with new speed
@@ -1163,77 +777,50 @@ function iST:InvalidateBarState()
     end
 end
 
--- Read the real global cooldown instead of assuming every spell cast triggers it.
-function iST:UpdateGCDState()
-    local startTime, duration
-
-    if C_Spell and C_Spell.GetSpellCooldown then
-        local cooldownInfo = C_Spell.GetSpellCooldown(61304)
-        if cooldownInfo then
-            startTime = cooldownInfo.startTime
-            duration = cooldownInfo.duration
-        end
-    end
-    if not startTime and GetSpellCooldown then
-        startTime, duration = GetSpellCooldown(61304)
-    end
-
-    if startTime and duration and startTime > 0 and duration > 0 then
-        self.State.GCDStartTime = startTime
-        self.State.GCDEndTime = startTime + duration
-        self.State.GCDDuration = duration
-    else
-        self.State.GCDStartTime = 0
-        self.State.GCDEndTime = 0
-    end
-end
-
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                         Combat Log Event Parsing                               │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
-function iST:OnCombatLogEvent()
-    local _, subevent, _, sourceGUID, _, _, _, destGUID, _, _, _, spellID = CombatLogGetCurrentEventInfo()
-    local playerGUID = UnitGUID("player")
-
-    -- Swing events (player as source)
-    if sourceGUID == playerGUID then
-        if subevent == "SWING_DAMAGE" or subevent == "SWING_MISSED" then
-            self:ResetSwingTimer()
-            return
-        end
-
-        -- Spells that reset the melee swing timer reset it when the cast succeeds.
-        if subevent == "SPELL_CAST_SUCCESS"
-            and spellID
-            and self.SWING_RESET_SPELLS[spellID] then
-
-            self:ResetSwingTimer()
-            return
-        end
-    end
-
-    -- Seal aura events (player as destination — separate from source check)
-    if destGUID == playerGUID and spellID then
-        if subevent == "SPELL_AURA_APPLIED" or subevent == "SPELL_AURA_REFRESH" then
-            if self.SEALS[spellID] then
-                self:SetCurrentSeal(spellID)
-            end
-            return
-        end
-
-        if subevent == "SPELL_AURA_REMOVED" then
-            if self.SEALS[spellID] and (self.State.CurrentSealID == spellID) then
-                self:ClearCurrentSeal()
-            end
-            return
-        end
-    end
-end
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                              Seal Tracking                                     │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
-function iST:SetCurrentSeal(spellID)
+function iST:HasTwistOfLight()
+    if self.State.TwistOfLightKnown ~= nil then return self.State.TwistOfLightKnown end
+
+    local learned = IsPlayerSpell and IsPlayerSpell(105692) == true or false
+    -- Discover the active Forever talent by spell name so beta data-ID changes
+    -- do not break detection.
+    if not learned and C_ClassTalents and C_ClassTalents.GetActiveConfigID
+        and C_Traits and C_Traits.GetConfigInfo and C_Traits.GetTreeNodes
+        and C_Traits.GetNodeInfo and C_Traits.GetEntryInfo
+        and C_Traits.GetDefinitionInfo then
+        pcall(function()
+            local configID = C_ClassTalents.GetActiveConfigID()
+            local config = configID and C_Traits.GetConfigInfo(configID)
+            for _, treeID in ipairs(config and config.treeIDs or {}) do
+                for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
+                    local node = C_Traits.GetNodeInfo(configID, nodeID)
+                    local activeRank = node and (node.activeRank or node.currentRank
+                        or (type(node.activeEntry) == "table" and node.activeEntry.rank))
+                    if node and (tonumber(activeRank) or 0) > 0 then
+                        local activeEntries = node.activeEntry and { node.activeEntry } or node.activeEntries or {}
+                        for _, activeEntry in ipairs(activeEntries) do
+                            local entryID = type(activeEntry) == "table" and activeEntry.entryID or activeEntry
+                            local entry = entryID and C_Traits.GetEntryInfo(configID, entryID)
+                            local definition = entry and C_Traits.GetDefinitionInfo(entry.definitionID)
+                            local spellID = definition and definition.spellID
+                            local spellName = spellID and C_Spell and C_Spell.GetSpellName
+                                and C_Spell.GetSpellName(spellID)
+                            if spellName == "Twist of Light" then learned = true return end
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    self.State.TwistOfLightKnown = learned
+    return learned
+end
+
+function iST:SetCurrentSeal(spellID, observedExpirationTime)
     local name = self.SEALS[spellID]
     if not name then return end
 
@@ -1245,49 +832,58 @@ function iST:SetCurrentSeal(spellID)
     self.State.PreviousSealID = nil -- clear once consumed
     self.State.PreviousSealName = nil
     self.State.CurrentSealName = name
-    self.State.CurrentSealIcon = GetSpellTexture(spellID)
+    self.State.CurrentSealIcon = C_Spell.GetSpellTexture(spellID)
+    self.State.SealCastTime = GetTime()
+    local remaining = self.CONSTANTS.SEAL_DURATION
+    if type(observedExpirationTime) == "number" and observedExpirationTime > self.State.SealCastTime then
+        remaining = observedExpirationTime - self.State.SealCastTime
+    end
+    self.State.SealExpiresAt = self.State.SealCastTime + remaining
+    self.State.SealGeneration = (self.State.SealGeneration or 0) + 1
+    local sealGeneration = self.State.SealGeneration
 
-    -- Only the configured FROM -> INTO transition is a twist attempt.
-    local isConfiguredTwist = previousSealName == iSTSettings.twistFromSeal and
-                              name == iSTSettings.twistIntoSeal
+    -- Forever does not expose readable aura state to addons. A successful seal
+    -- cast is authoritative; expire only that exact cast if it is not replaced.
+    C_Timer.After(remaining, function()
+        if iST.State.SealGeneration == sealGeneration
+            and iST.State.CurrentSealID == spellID then
+            iST:ClearCurrentSeal()
+        end
+    end)
+
     local sealChanged = previousSealName and previousSealName ~= name
 
-    if sealChanged and isConfiguredTwist then
-        if self.State.NextSwingTime > 0 and self.State.WeaponSpeed > 0 then
-            local now = GetTime()
-
-            -- Calculate twist zone inline (don't rely on OnUpdate cache)
-            local twistWindowSec = iSTSettings.twistWindow
-            local lagComp = self.State.HomeLag * 0.002
-            local twistStart = 1.0 - (twistWindowSec + lagComp) / self.State.WeaponSpeed
-            twistStart = math.max(0.1, math.min(twistStart, 0.95))
-            local progress = (now - self.State.LastSwingTime) / self.State.WeaponSpeed
-
-            if now >= self.State.NextSwingTime then
-                -- Seal changed after the swing should have landed — fail!
-                self.State.PendingSealChange = false
-                self:ShowTwistResult(false)
-            elseif progress >= twistStart then
-                -- Seal changed inside the twist window — success!
-                self.State.SealChangedInTwistZone = true
-                self.State.PendingSealChange = false
-                self:ShowTwistResult(true)
-            else
-                -- Seal changed before twist window — too early
-                self.State.PendingSealChange = true
-                self.State.SealChangedInTwistZone = false
-            end
-        else
-            self.State.PendingSealChange = false
-            self.State.SealChangedInTwistZone = false
-        end
-    elseif sealChanged then
-        -- An unrelated seal change cancels any pending configured attempt.
-        self.State.PendingSealChange = false
-        self.State.SealChangedInTwistZone = false
+    -- Twist of Light is not timing based. Replacing an eligible seal at any
+    -- point between two melee attacks creates an Echo for the next attack.
+    if sealChanged and self.TWIST_OF_LIGHT_FROM_SEALS[previousSealName]
+        and self:HasTwistOfLight() and self.State.SwingCycleActive then
+        self.State.EchoPending = true
+        self.State.EchoSealName = previousSealName
+        self:ShowTwistResult()
     end
 
     self:UpdateSealDisplay()
+end
+
+function iST:ScanForActiveSealOutOfCombat()
+    if (InCombatLockdown and InCombatLockdown())
+        or (UnitAffectingCombat and UnitAffectingCombat("player")) then return end
+    if not (C_UnitAuras and type(C_UnitAuras.GetPlayerAuraBySpellID) == "function") then return end
+
+    for spellID in pairs(self.SEALS) do
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
+        if not ok then return end
+        if aura ~= nil then
+            local expirationTime
+            local readable = pcall(function() expirationTime = aura.expirationTime end)
+            if not readable then return end
+            if issecretvalue and issecretvalue(expirationTime) then expirationTime = nil end
+            self:SetCurrentSeal(spellID, expirationTime)
+            return
+        end
+    end
+
+    self:ClearCurrentSeal()
 end
 
 function iST:ClearCurrentSeal()
@@ -1301,6 +897,9 @@ function iST:ClearCurrentSeal()
     self.State.CurrentSealID = nil
     self.State.CurrentSealName = nil
     self.State.CurrentSealIcon = nil
+    self.State.SealCastTime = 0
+    self.State.SealExpiresAt = 0
+    self.State.SealGeneration = (self.State.SealGeneration or 0) + 1
     self:UpdateSealDisplay()
 end
 
@@ -1322,32 +921,6 @@ function iST:UpdateSealDisplay()
     else
         bar.sealText:SetText("")
     end
-end
-
-function iST:ScanForActiveSeal()
-    -- Scan player buffs for an active seal
-    for i = 1, 40 do
-        local name, _, _, _, _, _, _, _, _, spellID = UnitBuff("player", i)
-        if not name then break end
-
-        -- Try spellID match first
-        if spellID and self.SEALS[spellID] then
-            self:SetCurrentSeal(spellID)
-            return
-        end
-
-        -- Fallback: name-based match
-        if name and self.SEAL_NAMES[name] then
-            local representativeSpellID = self.SEAL_SPELL_IDS[name]
-            if representativeSpellID then
-                self:SetCurrentSeal(representativeSpellID)
-            end
-            return
-        end
-    end
-
-    -- No seal found
-    self:ClearCurrentSeal()
 end
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -1415,7 +988,6 @@ end
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 local TWIST_MACRO_NAME = "SealTwist"
 local TWIST_MACRO_ICON = "INV_Hammer_04"
-local LEGACY_TWIST_MACRO_BODY = "#showtooltip\n/castsequence reset=30 Seal of Command, Seal of Righteousness\n/startattack"
 
 function iST:BuildTwistMacroBody(fromSeal, intoSeal)
     fromSeal = fromSeal or iSTSettings.twistFromSeal
@@ -1437,32 +1009,9 @@ local function NormalizeMacroBody(body)
     return body:gsub("\r\n", "\n"):gsub("%s+$", "")
 end
 
--- Recognize every exact macro body iST can generate, including the older
--- English-only format. This recovers management metadata lost by old releases
--- while still rejecting macros with custom commands or edits.
-function iST:IsGeneratedTwistMacroBody(body)
-    local normalizedBody = NormalizeMacroBody(body)
-    if not normalizedBody then return false end
-    if normalizedBody == NormalizeMacroBody(LEGACY_TWIST_MACRO_BODY) then return true end
-
-    for fromSeal in pairs(self.SEAL_SPELL_IDS) do
-        for intoSeal in pairs(self.SEAL_SPELL_IDS) do
-            local localizedBody = self:BuildTwistMacroBody(fromSeal, intoSeal)
-            local englishBody = "#showtooltip\n/castsequence reset=30 " ..
-                                fromSeal .. ", " .. intoSeal .. "\n/startattack"
-            if normalizedBody == NormalizeMacroBody(localizedBody) or
-               normalizedBody == NormalizeMacroBody(englishBody) then
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
--- Update only a macro whose body is still known to be addon-managed. This keeps
--- user edits intact while allowing seal-pair changes and the 0.4.2 migration.
-function iST:RefreshTwistMacro(allowLegacyMigration)
+-- Update only the exact macro body created by this Forever version. User edits
+-- and unrelated macros with the same name are never overwritten.
+function iST:RefreshTwistMacro()
     if not iSTSettings then return false end
     if InCombatLockdown and InCombatLockdown() then return false end
 
@@ -1471,12 +1020,8 @@ function iST:RefreshTwistMacro(allowLegacyMigration)
 
     local _, icon, currentBody = GetMacroInfo(macroIndex)
     local managedBody = iSTSettings.generatedMacroBody
-    local localizedLegacyBody = self:BuildTwistMacroBody("Seal of Command", "Seal of Righteousness")
-    local isManaged = (managedBody and NormalizeMacroBody(currentBody) == NormalizeMacroBody(managedBody)) or
-                      self:IsGeneratedTwistMacroBody(currentBody) or
-                      (allowLegacyMigration and
-                       (NormalizeMacroBody(currentBody) == NormalizeMacroBody(LEGACY_TWIST_MACRO_BODY) or
-                        NormalizeMacroBody(currentBody) == NormalizeMacroBody(localizedLegacyBody)))
+    local isManaged = managedBody
+        and NormalizeMacroBody(currentBody) == NormalizeMacroBody(managedBody)
     if not isManaged then return false end
 
     local desiredBody = self:BuildTwistMacroBody()
@@ -1529,17 +1074,15 @@ function iST:RequestTwistMacroRefresh()
     end
 
     self.State.PendingMacroRefresh = false
-    return self:RefreshTwistMacro(false)
+    return self:RefreshTwistMacro()
 end
 
 function iST:CreateTwistMacro()
     local _, playerClass = UnitClass("player")
     if playerClass ~= "PALADIN" then return end
 
-    -- Existing 0.4.2 users are migrated only when the old generated body is
-    -- untouched. Renamed, removed, or manually edited macros remain untouched.
     if iSTSettings.macroCreated then
-        self:RefreshTwistMacro(not iSTSettings.generatedMacroBody)
+        self:RefreshTwistMacro()
         return
     end
 
@@ -1549,14 +1092,10 @@ function iST:CreateTwistMacro()
     -- Respect an existing user-created macro with the same name.
     local existingIndex = GetMacroIndexByName(TWIST_MACRO_NAME)
     if existingIndex and existingIndex > 0 then
-        -- Recover addon ownership metadata only when the existing body exactly
-        -- matches the currently generated macro. Custom bodies remain untouched.
         local _, _, existingBody = GetMacroInfo(existingIndex)
-        if NormalizeMacroBody(existingBody) == NormalizeMacroBody(macroBody) or
-           self:IsGeneratedTwistMacroBody(existingBody) then
+        if NormalizeMacroBody(existingBody) == NormalizeMacroBody(macroBody) then
             iSTSettings.macroCreated = true
             iSTSettings.generatedMacroBody = existingBody
-            self:RefreshTwistMacro(true)
         end
         return
     end
@@ -1591,11 +1130,9 @@ end
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 function iST:StartTestMode()
     self.State.TestMode = true
-    self.State.WrongSealSoundPlayed = false
     self.State.WeaponSpeed = 3.6
     self.State.LastSwingTime = GetTime()
     self.State.NextSwingTime = GetTime() + 3.6
-    self:ScanForActiveSeal()
     self:ShowBar()
     print(L["TestStarted"])
 
@@ -1664,25 +1201,25 @@ local function OnEvent(self, event, ...)
 
     if event == "PLAYER_ENTERING_WORLD" then
         -- Macro creation must happen after UI is fully loaded, with a delay
-        eventFrame:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        if iST.State.EnteringWorldHandled then return end
+        iST.State.EnteringWorldHandled = true
         C_Timer.After(3, function()
             if not InCombatLockdown() then
                 iST:CreateTwistMacro()
             else
-                -- Retry after combat ends
-                local retryFrame = CreateFrame("Frame")
-                retryFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-                retryFrame:SetScript("OnEvent", function(self)
-                    self:UnregisterAllEvents()
-                    C_Timer.After(1, function() iST:CreateTwistMacro() end)
-                end)
+                -- PLAYER_REGEN_ENABLED is registered during initial loading;
+                -- let that safe event path perform the protected update.
+                iST.State.PendingMacroRefresh = true
             end
         end)
         return
     end
 
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        iST:OnCombatLogEvent()
+    if event == "PLAYER_SWING" then
+        local swingDuration, swingType = ...
+        if swingType == nil or swingType == Enum.PlayerSwingType.MainHand then
+            iST:ResetSwingTimer(swingDuration, true)
+        end
         return
     end
 
@@ -1702,8 +1239,11 @@ local function OnEvent(self, event, ...)
 
     if event == "PLAYER_REGEN_ENABLED" then
         iST.State.InCombat = false
+        iST.State.SwingCycleActive = false
+        iST.State.EchoPending = false
+        iST.State.EchoSealName = nil
         iST:UpdateBarVisibility()
-        iST:ScanForActiveSeal()
+        iST:ScanForActiveSealOutOfCombat()
         if iST.State.PendingMacroRefresh then
             iST:RequestTwistMacroRefresh()
         end
@@ -1712,9 +1252,7 @@ local function OnEvent(self, event, ...)
 
     if event == "UNIT_AURA" then
         local unit = ...
-        if unit == "player" then
-            iST:ScanForActiveSeal()
-        end
+        if unit == "player" then iST:ScanForActiveSealOutOfCombat() end
         return
     end
 
@@ -1726,36 +1264,58 @@ local function OnEvent(self, event, ...)
         return
     end
 
-    if event == "SPELL_UPDATE_COOLDOWN" then
-        iST:UpdateGCDState()
-        return
-    end
-
-    -- Fallback refresh for clients where the cooldown event arrives late.
-    if event == "UNIT_SPELLCAST_START" or event == "UNIT_SPELLCAST_SUCCEEDED" then
-        local unit, _, spellID = ...
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local unit, castGUID, spellID = ...
         if unit == "player" then
             -- A successful seal cast is a deterministic transition source on
             -- clients where aura updates arrive in an unexpected order.
-            if event == "UNIT_SPELLCAST_SUCCEEDED" and spellID and iST.SEALS[spellID] then
-                iST:SetCurrentSeal(spellID)
+            local sealSpellID = iST:ResolveSealCast(...)
+            if sealSpellID then iST:SetCurrentSeal(sealSpellID) end
+
+            -- The standard payload places spellID third. Keep a guarded scan
+            -- because Forever beta payloads have changed between builds.
+            local resetSpellID = type(spellID) == "number" and spellID or nil
+            if not (resetSpellID and iST.SWING_RESET_SPELLS[resetSpellID]) then
+                for index = 1, select("#", ...) do
+                    local value = select(index, ...)
+                    if type(value) == "number" and iST.SWING_RESET_SPELLS[value] then
+                        resetSpellID = value
+                        break
+                    end
+                end
             end
-            C_Timer.After(0, function()
-                iST:UpdateGCDState()
-            end)
+            if resetSpellID and iST.SWING_RESET_SPELLS[resetSpellID] then
+                iST:ResetSwingTimer(nil, false)
+            end
         end
         return
     end
 
     if event == "PLAYER_TALENT_UPDATE" then
+        iST.State.TwistOfLightKnown = nil
+        iST:HasTwistOfLight()
         iST:UpdateBarVisibility()
         return
     end
 end
 
 eventFrame:SetScript("OnEvent", OnEvent)
-eventFrame:RegisterEvent("ADDON_LOADED")
-eventFrame:RegisterEvent("PLAYER_LOGIN")
+for _, eventName in ipairs({
+    "ADDON_LOADED",
+    "PLAYER_LOGIN",
+    "PLAYER_ENTERING_WORLD",
+    "PLAYER_SWING",
+    "PLAYER_REGEN_DISABLED",
+    "PLAYER_REGEN_ENABLED",
+    "UNIT_AURA",
+    "UNIT_ATTACK_SPEED",
+    "UNIT_SPELLCAST_SUCCEEDED",
+    "PLAYER_TALENT_UPDATE",
+}) do
+    if C_EventUtils.IsEventValid(eventName) then
+        eventFrame:RegisterEvent(eventName)
+    end
+end
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                           Addon Loaded Handler                                 │
@@ -1764,21 +1324,9 @@ function iST:OnAddonLoaded()
     -- Initialize saved settings
     self:InitializeSettings()
 
-    -- Set and repair the faction-aware twist target. This also migrates saved
-    -- selections made before faction-specific seals were filtered.
-    local _, playerFaction = UnitFactionGroup("player")
-    if iSTSettings.twistIntoSeal == "" then
-        iSTSettings.twistIntoSeal = playerFaction == "Horde" and
-                                    "Seal of Blood" or "Seal of the Martyr"
-    elseif not self:IsSealAvailableForPlayerFaction(iSTSettings.twistIntoSeal) then
-        iSTSettings.twistIntoSeal = self:GetFactionSealEquivalent(iSTSettings.twistIntoSeal)
-    end
-
-    -- Version warning (non-blocking)
-    if not self.SupportedVersion then
-        C_Timer.After(2, function()
-            print(L["PrintPrefix"] .. Colors.Yellow .. string.format(L["UnsupportedVersion"], iST.GameVersionName) .. Colors.Reset)
-        end)
+    if iSTSettings.twistIntoSeal == iSTSettings.twistFromSeal then
+        iSTSettings.twistIntoSeal = iSTSettings.twistFromSeal == "Seal of Justice"
+            and "Seal of Righteousness" or "Seal of Justice"
     end
 
     -- Class gate
@@ -1796,33 +1344,17 @@ function iST:OnAddonLoaded()
     self:CreateSwingBar()
     self:RestoreBarPosition()
 
-    -- Apply initial visibility (respects onlyInRetSpec + onlyInCombat)
+    -- Apply initial visibility.
     self:UpdateBarVisibility()
 
     -- Start latency polling
     self:UpdateLatency()
 
-    -- Register combat events
-    eventFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-    eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    eventFrame:RegisterEvent("UNIT_AURA")
-    eventFrame:RegisterEvent("UNIT_ATTACK_SPEED")
-    eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-    eventFrame:RegisterEvent("UNIT_SPELLCAST_START")
-    eventFrame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-    eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
-
-    self:UpdateGCDState()
-
-    -- Initial seal scan
-    self:ScanForActiveSeal()
+    -- Aura details are readable here only when combat restrictions are absent.
+    self:ScanForActiveSealOutOfCombat()
 
     -- Register slash commands
     self:RegisterSlashCommands()
-
-    -- Register PLAYER_ENTERING_WORLD for macro creation (needs fully loaded UI)
-    eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
     self.State.Initialized = true
 end
@@ -1833,10 +1365,12 @@ function iST:OnPlayerLogin()
         self:CreateOptionsPanel()
     end
 
-    -- Re-scan for seals after a short delay — player buffs aren't available at ADDON_LOADED time
+    -- Refresh visibility after the player UI has settled.
     C_Timer.After(1, function()
         if iST.State.Initialized then
-            iST:ScanForActiveSeal()
+            iST.State.TwistOfLightKnown = nil
+            iST:HasTwistOfLight()
+            iST:ScanForActiveSealOutOfCombat()
             iST:UpdateBarVisibility()
         end
     end)
