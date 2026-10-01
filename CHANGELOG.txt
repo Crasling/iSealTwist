@@ -2,7 +2,7 @@
  iSealTwist - Changelog
 ================================================================================
 
-v0.6.4 - WoW Forever Twist of Light
+v0.7.1 - WoW Forever Twist of Light
 --------------------------------------------------------------------------------
 
  [CHANGED] Reworked twist detection for Forever's Twist of Light talent: replacing
