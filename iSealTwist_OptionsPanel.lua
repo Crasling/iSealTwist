@@ -623,50 +623,6 @@ function iST:CreateOptionsPanel()
         }
         local intoOptions, intoDropdown
 
-        local fromLabel = generalContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        fromLabel:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
-        fromLabel:SetText(L["TwistFromSeal"])
-        y = y - 20
-
-        local fromDropdown = CreateFrame("Frame", "iSTFromSealDropdown", generalContent, "UIDropDownMenuTemplate")
-        fromDropdown:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 10, y)
-        UIDropDownMenu_SetWidth(fromDropdown, 200)
-        UIDropDownMenu_Initialize(fromDropdown, function(self, level)
-            for _, option in ipairs(fromOptions) do
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = option
-                info.value = option
-                info.func = function(btn)
-                    UIDropDownMenu_SetSelectedValue(fromDropdown, btn.value)
-                    UIDropDownMenu_SetText(fromDropdown, btn.value)
-                    iSTSettings.twistFromSeal = btn.value
-                    if iSTSettings.twistIntoSeal == btn.value then
-                        for _, replacement in ipairs(intoOptions or {}) do
-                            if replacement ~= btn.value then
-                                iSTSettings.twistIntoSeal = replacement
-                                UIDropDownMenu_SetSelectedValue(intoDropdown, replacement)
-                                UIDropDownMenu_SetText(intoDropdown, replacement)
-                                break
-                            end
-                        end
-                    end
-                    if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
-                end
-                UIDropDownMenu_AddButton(info, level)
-            end
-        end)
-        UIDropDownMenu_SetSelectedValue(fromDropdown, iSTSettings.twistFromSeal)
-        UIDropDownMenu_SetText(fromDropdown, iSTSettings.twistFromSeal)
-        y = y - 32
-
-        local fromDesc = generalContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        fromDesc:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
-        fromDesc:SetWidth(350)
-        fromDesc:SetJustifyH("LEFT")
-        fromDesc:SetText(L["TwistFromSealDesc"])
-        y = y - fromDesc:GetStringHeight() - 10
-
-        -- Seal to Twist Into (all seals)
         intoOptions = {}
         local seenNames = {}
         for _, name in pairs(iST.SEALS) do
@@ -677,23 +633,91 @@ function iST:CreateOptionsPanel()
         end
         table.sort(intoOptions)
 
-        local intoLabel = generalContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-        intoLabel:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
-        intoLabel:SetText(L["TwistIntoSeal"])
-        y = y - 20
+        local function SealOptionText(name)
+            if iST.TWIST_OF_LIGHT_FROM_SEALS[name] then
+                return "|cff46e36d" .. name .. "|r"
+            end
+            return "|cffffb347" .. name .. "|r"
+        end
 
-        intoDropdown = CreateFrame("Frame", "iSTIntoSealDropdown", generalContent, "UIDropDownMenuTemplate")
-        intoDropdown:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 10, y)
-        UIDropDownMenu_SetWidth(intoDropdown, 200)
+        local function SealIcon(name)
+            local spellID = iST.SEAL_SPELL_IDS and iST.SEAL_SPELL_IDS[name]
+            return spellID and C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID) or nil
+        end
+
+        local pairCard = CreateFrame("Frame", nil, generalContent, BACKDROP_TEMPLATE)
+        pairCard:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
+        pairCard:SetPoint("TOPRIGHT", generalContent, "TOPRIGHT", -20, y)
+        pairCard:SetHeight(112)
+        if pairCard.SetBackdrop then
+            pairCard:SetBackdrop({
+                bgFile = "Interface\\BUTTONS\\WHITE8X8",
+                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                edgeSize = 10,
+                insets = { left = 2, right = 2, top = 2, bottom = 2 },
+            })
+            pairCard:SetBackdropColor(0.035, 0.035, 0.055, 0.92)
+            pairCard:SetBackdropBorderColor(1, 0.59, 0.09, 0.45)
+        end
+
+        local fromLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fromLabel:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -12)
+        fromLabel:SetText(L["TwistFromSeal"])
+
+        local intoLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        intoLabel:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -42, -12)
+        intoLabel:SetText(L["TwistIntoSeal"])
+
+        local direction = pairCard:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+        direction:SetPoint("CENTER", pairCard, "CENTER", 0, 12)
+        direction:SetText(Colors.iST .. ">" .. Colors.Reset)
+
+        local fromDropdown = CreateFrame("Frame", "iSTFromSealDropdown", pairCard, "UIDropDownMenuTemplate")
+        fromDropdown:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 0, -28)
+        UIDropDownMenu_SetWidth(fromDropdown, 178)
+        UIDropDownMenu_Initialize(fromDropdown, function(self, level)
+            for _, option in ipairs(fromOptions) do
+                local info = UIDropDownMenu_CreateInfo()
+                info.text = SealOptionText(option)
+                info.value = option
+                info.icon = SealIcon(option)
+                info.checked = option == iSTSettings.twistFromSeal
+                info.func = function(btn)
+                    UIDropDownMenu_SetSelectedValue(fromDropdown, btn.value)
+                    UIDropDownMenu_SetText(fromDropdown, SealOptionText(btn.value))
+                    iSTSettings.twistFromSeal = btn.value
+                    if iSTSettings.twistIntoSeal == btn.value then
+                        for _, replacement in ipairs(intoOptions or {}) do
+                            if replacement ~= btn.value then
+                                iSTSettings.twistIntoSeal = replacement
+                                UIDropDownMenu_SetSelectedValue(intoDropdown, replacement)
+                                UIDropDownMenu_SetText(intoDropdown, SealOptionText(replacement))
+                                break
+                            end
+                        end
+                    end
+                    if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
+                end
+                UIDropDownMenu_AddButton(info, level)
+            end
+        end)
+        UIDropDownMenu_SetSelectedValue(fromDropdown, iSTSettings.twistFromSeal)
+        UIDropDownMenu_SetText(fromDropdown, SealOptionText(iSTSettings.twistFromSeal))
+
+        intoDropdown = CreateFrame("Frame", "iSTIntoSealDropdown", pairCard, "UIDropDownMenuTemplate")
+        intoDropdown:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", 0, -28)
+        UIDropDownMenu_SetWidth(intoDropdown, 178)
         UIDropDownMenu_Initialize(intoDropdown, function(self, level)
             for _, option in ipairs(intoOptions) do
                 local info = UIDropDownMenu_CreateInfo()
-                info.text = option
+                info.text = SealOptionText(option)
                 info.value = option
+                info.icon = SealIcon(option)
                 info.disabled = option == iSTSettings.twistFromSeal
+                info.checked = option == iSTSettings.twistIntoSeal
                 info.func = function(btn)
                     UIDropDownMenu_SetSelectedValue(intoDropdown, btn.value)
-                    UIDropDownMenu_SetText(intoDropdown, btn.value)
+                    UIDropDownMenu_SetText(intoDropdown, SealOptionText(btn.value))
                     iSTSettings.twistIntoSeal = btn.value
                     if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
                 end
@@ -701,14 +725,20 @@ function iST:CreateOptionsPanel()
             end
         end)
         UIDropDownMenu_SetSelectedValue(intoDropdown, iSTSettings.twistIntoSeal)
-        UIDropDownMenu_SetText(intoDropdown, iSTSettings.twistIntoSeal)
-        y = y - 32
+        UIDropDownMenu_SetText(intoDropdown, SealOptionText(iSTSettings.twistIntoSeal))
+
+        local legend = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        legend:SetPoint("BOTTOM", pairCard, "BOTTOM", 0, 12)
+        legend:SetText("|cff46e36dBoth ways|r  -  can create an Echo when replaced    "
+            .. "|cffffb347Into only|r  -  destination only")
+
+        y = y - pairCard:GetHeight() - 8
 
         local intoDesc = generalContent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         intoDesc:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
-        intoDesc:SetWidth(350)
+        intoDesc:SetWidth(450)
         intoDesc:SetJustifyH("LEFT")
-        intoDesc:SetText(L["TwistIntoSealDesc"])
+        intoDesc:SetText(L["SealPairDesc"])
         y = y - intoDesc:GetStringHeight() - 10
 
         scrollChildren[1]:SetHeight(math.abs(y) + 10)

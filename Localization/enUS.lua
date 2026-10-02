@@ -50,7 +50,6 @@ L["DebugInfo"] = Colors.iST .. "[iST]: " .. Colors.White .. "INFO: " .. Colors.R
 L["DebugWarning"] = Colors.iST .. "[iST]: " .. Colors.Yellow .. "WARNING: " .. Colors.Reset .. Colors.iST
 L["DebugError"] = Colors.iST .. "[iST]: " .. Colors.Red .. "ERROR: " .. Colors.Reset .. Colors.iST
 
-L["AddonLoaded"] = Msg(Colors.iST .. "iSealTwist " .. Colors.Green .. "v%s" .. Colors.Reset .. " Loaded.")
 L["NotPaladin"] = Msg("Only active for Paladins. Disable 'Only As Paladin' in settings to override.")
 L["BarEnabled"] = Msg("Swing timer " .. Colors.Green .. "enabled" .. Colors.iST .. ".")
 L["BarDisabled"] = Msg("Swing timer " .. Colors.Red .. "disabled" .. Colors.iST .. ".")
@@ -116,10 +115,11 @@ L["SectionTwistFeedback"] = Colors.iST .. "Twist Feedback"
 L["SectionSealPair"] = Colors.iST .. "Seal Pair"
 
 -- Seal pair dropdowns
-L["TwistFromSeal"] = "Seal to Twist"
+L["TwistFromSeal"] = "Echo Seal (From)"
 L["TwistFromSealDesc"] = Colors.Gray .. "The eligible seal your QoL macro replaces. Twist of Light supports Command, Righteousness, Fury, and Justice.|r"
-L["TwistIntoSeal"] = "Seal to Twist Into"
+L["TwistIntoSeal"] = "Replacement Seal (Into)"
 L["TwistIntoSealDesc"] = Colors.Gray .. "The different seal your QoL macro switches into. This pair only configures the macro; detection accepts every valid replacement.|r"
+L["SealPairDesc"] = Colors.Gray .. "Green seals can create an Echo when replaced, so a pair of two green seals works in either direction. Orange seals can only be used as the destination. This pair configures the optional SealTwist macro.|r"
 
 -- Twist text customization
 L["SectionTextAppearance"] = Colors.iST .. "Text"

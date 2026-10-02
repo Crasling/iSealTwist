@@ -2,6 +2,21 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.7.3 - Swing Timer & Seal Pair
+--------------------------------------------------------------------------------
+
+ [FIX] Without Twist of Light learned, iST now stays a normal weapon swing timer
+       using its configured bar colors instead of showing failed swings in red
+ [FIX] Seal replacement and twist-result tracking only run while Twist of Light
+       is active, and existing twist feedback clears when the talent is removed
+ [FIX] The active talent tree now determines whether Twist of Light is enabled;
+       merely knowing its spell can no longer make the swing timer turn red
+ [CHANGED] Seal-pair dropdowns now use spell icons and color labels: green seals
+           support twisting in both directions, while orange seals are destinations only
+ [FIX] Twist of Light detection refreshes when talents, loadouts, specializations,
+       or dual-spec groups change
+ [REMOVED] Removed the addon-loaded welcome message
+
 v0.7.2 - Release
 --------------------------------------------------------------------------------
 

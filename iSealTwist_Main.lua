@@ -562,10 +562,15 @@ function iST:OnBarUpdate(elapsed)
         local inset = bar.contentInset or 1
         local width = bar:GetWidth() - inset * 2
         local progress = math.max(0, math.min((now - state.LastSwingTime) / state.WeaponSpeed, 1))
-        -- A new melee cycle begins red. A valid Twist of Light seal
-        -- replacement during that cycle turns both the fill and border green.
+        -- Twist feedback only applies while the talent is active. Without it,
+        -- iST remains a neutral weapon-swing timer using the configured colors.
         local r, g, b, a, borderR, borderG, borderB, borderA
-        if state.TwistSucceededThisSwing then
+        if not self:HasTwistOfLight() then
+            local color = iSTSettings.barColor
+            local border = iSTSettings.borderNormalColor
+            r, g, b, a = color.r, color.g, color.b, color.a
+            borderR, borderG, borderB, borderA = border.r, border.g, border.b, border.a
+        elseif state.TwistSucceededThisSwing then
             r, g, b, a = 0.18, 0.9, 0.28, 0.95
             borderR, borderG, borderB, borderA = 0.12, 0.75, 0.2, 1
         else
@@ -733,16 +738,18 @@ end
 function iST:HasTwistOfLight()
     if self.State.TwistOfLightKnown ~= nil then return self.State.TwistOfLightKnown end
 
-    local learned = IsPlayerSpell and IsPlayerSpell(105692) == true or false
-    -- Discover the active Forever talent by spell name so beta data-ID changes
-    -- do not break detection.
-    if not learned and C_ClassTalents and C_ClassTalents.GetActiveConfigID
+    local learned = false
+    local activeTalentAPIAvailable = C_ClassTalents and C_ClassTalents.GetActiveConfigID
         and C_Traits and C_Traits.GetConfigInfo and C_Traits.GetTreeNodes
         and C_Traits.GetNodeInfo and C_Traits.GetEntryInfo
-        and C_Traits.GetDefinitionInfo then
+        and C_Traits.GetDefinitionInfo
+    -- The active Forever talent tree is authoritative. IsPlayerSpell can report
+    -- a talent spell as known even when its node is not currently selected.
+    if activeTalentAPIAvailable then
         pcall(function()
             local configID = C_ClassTalents.GetActiveConfigID()
             local config = configID and C_Traits.GetConfigInfo(configID)
+            if not config then return end
             for _, treeID in ipairs(config and config.treeIDs or {}) do
                 for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
                     local node = C_Traits.GetNodeInfo(configID, nodeID)
@@ -765,8 +772,31 @@ function iST:HasTwistOfLight()
         end)
     end
 
+    -- Retain a guarded fallback only for clients without the active-trait API.
+    -- If Forever's tree is temporarily unreadable, stay neutral until refreshed.
+    if not activeTalentAPIAvailable then
+        learned = IsPlayerSpell and IsPlayerSpell(105692) == true or false
+    end
+
     self.State.TwistOfLightKnown = learned
     return learned
+end
+
+function iST:RefreshTwistOfLightState()
+    self.State.TwistOfLightKnown = nil
+    if not self:HasTwistOfLight() then
+        self.State.EchoPending = false
+        self.State.EchoSealName = nil
+        self.State.TwistSucceededThisSwing = false
+        self.State.TwistResultDuration = 0
+        if self.BarFrame and self.BarFrame.twistResultText then
+            self.BarFrame.twistResultText:SetText("")
+            self.BarFrame.twistResultText:Hide()
+            if self.BarFrame.resultOverlay then self.BarFrame.resultOverlay:Hide() end
+        end
+    end
+    self:InvalidateBarState()
+    self:UpdateBarVisibility()
 end
 
 function iST:SetCurrentSeal(spellID, observedExpirationTime)
@@ -804,8 +834,9 @@ function iST:SetCurrentSeal(spellID, observedExpirationTime)
 
     -- Twist of Light is not timing based. Replacing an eligible seal at any
     -- point between two melee attacks creates an Echo for the next attack.
-    if sealChanged and self.TWIST_OF_LIGHT_FROM_SEALS[previousSealName]
-        and self:HasTwistOfLight() and self.State.SwingCycleActive then
+    if self:HasTwistOfLight() and sealChanged
+        and self.TWIST_OF_LIGHT_FROM_SEALS[previousSealName]
+        and self.State.SwingCycleActive then
         self.State.EchoPending = true
         self.State.EchoSealName = previousSealName
         self.State.TwistSucceededThisSwing = true
@@ -1271,10 +1302,16 @@ local function OnEvent(self, event, ...)
         return
     end
 
-    if event == "PLAYER_TALENT_UPDATE" then
-        iST.State.TwistOfLightKnown = nil
-        iST:HasTwistOfLight()
-        iST:UpdateBarVisibility()
+    if event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED"
+        or event == "ACTIVE_TALENT_GROUP_CHANGED" or event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED"
+        or event == "PLAYER_SPECIALIZATION_CHANGED" then
+        if event == "PLAYER_SPECIALIZATION_CHANGED" and (...) ~= "player" then return end
+        iST:RefreshTwistOfLightState()
+        -- Spec/loadout events can arrive just before the new active config is
+        -- readable. Recheck once after Blizzard finishes applying the tree.
+        C_Timer.After(0.25, function()
+            if iST.State.Initialized then iST:RefreshTwistOfLightState() end
+        end)
         return
     end
 end
@@ -1291,6 +1328,10 @@ for _, eventName in ipairs({
     "UNIT_ATTACK_SPEED",
     "UNIT_SPELLCAST_SUCCEEDED",
     "PLAYER_TALENT_UPDATE",
+    "TRAIT_CONFIG_UPDATED",
+    "ACTIVE_TALENT_GROUP_CHANGED",
+    "ACTIVE_PLAYER_SPECIALIZATION_CHANGED",
+    "PLAYER_SPECIALIZATION_CHANGED",
 }) do
     if C_EventUtils.IsEventValid(eventName) then
         eventFrame:RegisterEvent(eventName)
@@ -1348,15 +1389,9 @@ function iST:OnPlayerLogin()
     -- Refresh visibility after the player UI has settled.
     C_Timer.After(1, function()
         if iST.State.Initialized then
-            iST.State.TwistOfLightKnown = nil
-            iST:HasTwistOfLight()
+            iST:RefreshTwistOfLightState()
             iST:ScanForActiveSealOutOfCombat()
-            iST:UpdateBarVisibility()
         end
     end)
 
-    -- Login message
-    C_Timer.After(2, function()
-        print(string.format(L["AddonLoaded"], iST.Version))
-    end)
 end
