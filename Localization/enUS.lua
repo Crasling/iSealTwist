@@ -82,9 +82,9 @@ L["TabGeneral"] = "General"
 L["TabTiming"] = "Timing"
 L["TabIndicators"] = "Indicators"
 L["TabCustomization"] = "Customization"
-L["TabSoundEffects"] = "Sound Effects"
 L["TabAbout"] = "About"
 L["SidebarOtherAddons"] = "Other Addons"
+L["None"] = "None"
 
 -- General
 L["SectionActivation"] = Colors.iST .. "Activation"
@@ -129,18 +129,6 @@ L["CurrentSealTextSize"] = "Current Seal Text Size"
 L["LatencyTextSize"] = "Latency Text Size"
 L["BarFont"] = "Bar Font"
 
--- Sound effects and optional iSoundPlayer integration
-L["SectionSoundEffects"] = Colors.iST .. "Sound Effects"
-L["SoundEffectsWIP"] = Colors.Yellow .. "Work in Progress — sound triggers and available effects may change during development.|r"
-L["SoundEffectsIntro"] = Colors.Gray .. "Choose the sound played when Twist of Light creates an Echo. Custom sounds can be added through iSoundPlayer.|r"
-L["EnableSoundEffects"] = "Enable Sound Effects"
-L["EnableSoundEffectsDesc"] = Colors.Gray .. "Play the selected sound when a seal twist succeeds.|r"
-L["TwistSuccessSound"] = "Twist Success Sound"
-L["TestSound"] = "Test"
-L["None"] = "None"
-L["CustomSoundsAvailable"] = Colors.Gray .. "Custom sounds registered in iSoundPlayer are included in the selectors above with an [iSP] label.|r"
-L["CustomSoundsViaISP"] = Colors.Gray .. "Want custom sound effects? Install iSoundPlayer, register your MP3/OGG sounds there, and they will automatically appear in this tab.|r"
-
 -- Bar colors section
 L["SectionBarColors"]   = Colors.iST .. "Bar Colors"
 L["DefaultColors"]      = "Default Colors"
@@ -165,8 +153,6 @@ L["ISTCurseForgeLink"] = "Available on CurseForge: curseforge.com/wow/addons/ise
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 L["TabIWR"] = "iWR Settings"
 L["TabIWRPromo"] = "iWillRemember"
-L["TabISP"] = "iSP Settings"
-L["TabISPPromo"] = "iSoundPlayer"
 L["TabINIF"] = "iNIF Settings"
 L["TabINIFPromo"] = "iNeedIfYouNeed"
 L["TabIRC"] = "iRC Panel"
@@ -177,8 +163,6 @@ L["TabIRCPromo"] = "iRC: Guild Connect"
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
 L["IWRPromoDesc"] = Colors.iST .. "iWillRemember " .. Colors.Reset .. "is a player notes addon. Track, rate, and share notes about players with your friends. Never forget a ninja looter again."
 L["IWRPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/iwillremember"
-L["ISPPromoDesc"] = Colors.iST .. "iSoundPlayer " .. Colors.Reset .. "is a custom sound addon. Play your own sounds on game events, spell cooldowns, and buff changes. Your game, your sounds."
-L["ISPPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/isoundplayer"
 L["INIFPromoDesc"] = Colors.iST .. "iNeedIfYouNeed " .. Colors.Reset .. "is a smart loot addon. Automatic need/greed rolling with party coordination. Don't let them ninja without needing back."
 L["INIFPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/ineedifyouneed"
 L["IRCPromoDesc"] = Colors.iST .. "iRC: Guild Connect " .. Colors.Reset .. "connects guild members through shared rules, verification, guild statistics, professions, and community tools."

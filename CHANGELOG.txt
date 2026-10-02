@@ -2,6 +2,17 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.7.2 - Release
+--------------------------------------------------------------------------------
+
+ [NEW] Each melee swing starts a red timer; successfully replacing an eligible
+       seal with Twist of Light learned turns the current swing timer green
+ [FIX] Restored the swing bar's missing show handler, preventing a Lua error when
+       the bar is made visible during addon startup or after changing settings
+ [CHANGED] Removed sound effects, iSoundPlayer integration, and its Other Addons entry
+ [FIX] SealTwist is recreated when its saved creation flag remains after the
+       macro was deleted, and macro slots now use the current client limits
+
 v0.7.1 - WoW Forever Twist of Light
 --------------------------------------------------------------------------------
 

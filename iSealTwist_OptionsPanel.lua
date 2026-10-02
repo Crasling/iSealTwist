@@ -510,10 +510,8 @@ function iST:CreateOptionsPanel()
     local timingContainer, timingContent = CreateTabContent()
     local indicatorsContainer, indicatorsContent = CreateTabContent()
     local customizationContainer, customizationContent = CreateTabContent()
-    local soundContainer, soundContent = CreateTabContent()
     local aboutContainer, aboutContent = CreateTabContent()
     local iWRContainer, iWRContent = CreateTabContent()
-    local iSPContainer, iSPContent = CreateTabContent()
     local iNIFContainer, iNIFContent = CreateTabContent()
     local iRCContainer, iRCContent = CreateTabContent()
 
@@ -522,10 +520,8 @@ function iST:CreateOptionsPanel()
         timingContainer,
         indicatorsContainer,
         customizationContainer,
-        soundContainer,
         aboutContainer,
         iWRContainer,
-        iSPContainer,
         iNIFContainer,
         iRCContainer,
     }
@@ -561,13 +557,11 @@ function iST:CreateOptionsPanel()
         { type = "tab", label = L["TabTiming"], index = 2 },
         { type = "tab", label = L["TabIndicators"], index = 3 },
         { type = "tab", label = L["TabCustomization"], index = 4 },
-        { type = "tab", label = L["TabSoundEffects"], index = 5 },
-        { type = "tab", label = L["TabAbout"], index = 6 },
+        { type = "tab", label = L["TabAbout"], index = 5 },
         { type = "header", label = Colors.iST .. L["SidebarOtherAddons"] },
-        { type = "tab", label = L["TabIWRPromo"], index = 7 },
-        { type = "tab", label = L["TabISPPromo"], index = 8 },
-        { type = "tab", label = L["TabINIFPromo"], index = 9 },
-        { type = "tab", label = L["TabIRCPromo"], index = 10 },
+        { type = "tab", label = L["TabIWRPromo"], index = 6 },
+        { type = "tab", label = L["TabINIFPromo"], index = 7 },
+        { type = "tab", label = L["TabIRCPromo"], index = 8 },
     }
 
     local sidebarY = -8
@@ -915,74 +909,9 @@ function iST:CreateOptionsPanel()
     end
 
     -- ═══════════════════════════════════════════════════════════
-    -- Tab 5: Sound Effects
     -- ═══════════════════════════════════════════════════════════
-    do
-        local y = -10
-        _, y = CreateSectionHeader(soundContent, L["SectionSoundEffects"], y)
-        _, y = CreateInfoText(soundContent, L["SoundEffectsWIP"], y, "GameFontNormalSmall")
-        _, y = CreateInfoText(soundContent, L["SoundEffectsIntro"], y, "GameFontHighlight")
-        y = y - 6
-
-        _, y = CreateSettingsCheckbox(soundContent, L["EnableSoundEffects"], L["EnableSoundEffectsDesc"], y,
-            function() return iSTSettings.enableSoundEffects end,
-            function(v) iSTSettings.enableSoundEffects = v end
-        )
-
-        local function GetSoundOptions()
-            local options = { { value = "", text = L["None"] } }
-            local seen = { [""] = true }
-
-            for _, sound in ipairs(iST.BUILTIN_SOUNDS) do
-                table.insert(options, { value = sound.value, text = "[WoW] " .. sound.label })
-                seen[sound.value] = true
-            end
-
-            if iST:IsISPLoaded() then
-                for _, soundName in ipairs(iSPSettings.SoundFiles or {}) do
-                    if not seen[soundName] then
-                        local displayName = soundName
-                        if iSPSettings.SoundNames and iSPSettings.SoundNames[soundName] and iSPSettings.SoundNames[soundName] ~= "" then
-                            displayName = iSPSettings.SoundNames[soundName]
-                        end
-                        table.insert(options, { value = soundName, text = "[iSP] " .. displayName })
-                        seen[soundName] = true
-                    end
-                end
-            end
-
-            return options
-        end
-
-        local function AddSoundSelector(label, getValue, setValue)
-            local rowY = y
-            _, y = CreateSettingsDropdown(soundContent, label, y, 250, GetSoundOptions, getValue, setValue)
-
-            local testButton = CreateFrame("Button", nil, soundContent, "UIPanelButtonTemplate")
-            testButton:SetSize(70, 22)
-            testButton:SetPoint("TOPLEFT", soundContent, "TOPLEFT", 330, rowY - 20)
-            testButton:SetText(L["TestSound"])
-            testButton:SetScript("OnClick", function()
-                iST:PlayConfiguredSound(getValue())
-            end)
-        end
-
-        AddSoundSelector(L["TwistSuccessSound"],
-            function() return iSTSettings.twistSuccessSound end,
-            function(value) iSTSettings.twistSuccessSound = value end)
-
-        y = y - 4
-        if iST:IsISPLoaded() then
-            _, y = CreateInfoText(soundContent, L["CustomSoundsAvailable"], y, "GameFontDisableSmall")
-        else
-            _, y = CreateInfoText(soundContent, L["CustomSoundsViaISP"], y, "GameFontDisableSmall")
-        end
-
-        scrollChildren[5]:SetHeight(math.abs(y) + 10)
-    end
-
     -- ═══════════════════════════════════════════════════════════
-    -- Tab 6: About
+    -- Tab 5: About
     -- ═══════════════════════════════════════════════════════════
     do
         local y = -15
@@ -1023,33 +952,27 @@ function iST:CreateOptionsPanel()
             L["ISTCurseForgeLink"],
             y, "GameFontDisableSmall")
 
-        scrollChildren[6]:SetHeight(math.abs(y) + 10)
+        scrollChildren[5]:SetHeight(math.abs(y) + 10)
     end
 
     -- ═══════════════════════════════════════════════════════════
-    -- Tabs 7-10: Other Addons (Installed + Promo dual frames)
+    -- Tabs 6-8: Other Addons (Installed + Promo dual frames)
     -- ═══════════════════════════════════════════════════════════
     local promoData = {
-        { content = iWRContent, scrollIdx = 7, name = "iWillRemember", addonName = "iWillRemember", tabIdx = 7,
+        { content = iWRContent, scrollIdx = 6, name = "iWillRemember", addonName = "iWillRemember", tabIdx = 6,
           tabLoaded = "iWillRemember", tabLabel = "iWillRemember",
           desc = L["IWRPromoDesc"], link = L["IWRPromoLink"],
           installedDesc = Colors.iST .. "iWillRemember" .. Colors.Reset .. " is installed. Open its settings to manage player notes and sync.",
           buttonText = "Open iWR Settings",
           tabLabel = L["TabIWR"], tabLabelPromo = L["TabIWRPromo"],
           getFrame = function() return _G.iWR and _G.iWR.SettingsFrame end },
-        { content = iSPContent, scrollIdx = 8, name = "iSoundPlayer", addonName = "iSoundPlayer", tabIdx = 8,
-          desc = L["ISPPromoDesc"], link = L["ISPPromoLink"],
-          installedDesc = Colors.iST .. "iSoundPlayer" .. Colors.Reset .. " is installed. Open its settings to configure sounds and triggers.",
-          buttonText = "Open iSP Settings",
-          tabLabel = L["TabISP"], tabLabelPromo = L["TabISPPromo"],
-          getFrame = function() return _G["iSPSettingsFrame"] end },
-        { content = iNIFContent, scrollIdx = 9, name = "iNeedIfYouNeed", addonName = "iNeedIfYouNeed", tabIdx = 9,
+        { content = iNIFContent, scrollIdx = 7, name = "iNeedIfYouNeed", addonName = "iNeedIfYouNeed", tabIdx = 7,
           desc = L["INIFPromoDesc"], link = L["INIFPromoLink"],
           installedDesc = Colors.iST .. "iNeedIfYouNeed" .. Colors.Reset .. " is installed. Open its settings to configure loot options.",
           buttonText = "Open iNIF Settings",
           tabLabel = L["TabINIF"], tabLabelPromo = L["TabINIFPromo"],
           getFrame = function() return _G["iNIFSettingsFrame"] end },
-        { content = iRCContent, scrollIdx = 10, name = "iRC: Guild Connect", addonName = "iRC", tabIdx = 10,
+        { content = iRCContent, scrollIdx = 8, name = "iRC: Guild Connect", addonName = "iRC", tabIdx = 8,
           desc = L["IRCPromoDesc"], link = L["IRCPromoLink"],
           installedDesc = Colors.iST .. "iRC: Guild Connect" .. Colors.Reset .. " is installed. Open its panel to manage guild connections, rules, verification, and community tools.",
           buttonText = "Open iRC Panel",
@@ -1146,8 +1069,6 @@ end
 local function CloseOtherAddonSettings()
     local iWRFrame = _G.iWR and _G.iWR.SettingsFrame
     if iWRFrame and iWRFrame:IsShown() then iWRFrame:Hide() end
-    local iSPFrame = _G["iSPSettingsFrame"]
-    if iSPFrame and iSPFrame:IsShown() then iSPFrame:Hide() end
     local iNIFFrame = _G["iNIFSettingsFrame"]
     if iNIFFrame and iNIFFrame:IsShown() then iNIFFrame:Hide() end
 end

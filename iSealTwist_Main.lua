@@ -12,7 +12,6 @@
 local addonName, iST = ...
 
 local GetAddOnMetadata = C_AddOns.GetAddOnMetadata
-local IsAddOnLoadedAPI = C_AddOns.IsAddOnLoaded
 
 local function GetLocalizedSpellName(spellID, fallback)
     local localizedName
@@ -73,13 +72,6 @@ iST.FONT_CHOICES = {
     { value = "ARIALN",   label = "Arial Narrow",   path = "Fonts\\ARIALN.TTF" },
     { value = "MORPHEUS", label = "Morpheus",       path = "Fonts\\MORPHEUS.TTF" },
     { value = "SKURRI",   label = "Skurri",         path = "Fonts\\SKURRI.TTF" },
-}
-
-iST.BUILTIN_SOUNDS = {
-    { value = "wow:856",  label = "Soft Confirm" },
-    { value = "wow:857",  label = "Soft Warning" },
-    { value = "wow:3339", label = "Map Ping" },
-    { value = "wow:8959", label = "Raid Warning" },
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -262,6 +254,7 @@ iST.State = {
     EchoPending = false,
     EchoSealName = nil,
     SealAtLastSwing = nil,
+    TwistSucceededThisSwing = false,
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -284,8 +277,6 @@ iST.SettingsDefault = {
     sealTextSize      = 10,
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
-    enableSoundEffects = false,
-    twistSuccessSound = "wow:856",
     twistSuccessColor = { r = 0.2, g = 1.0, b = 0.2, a = 1.0 },
     barColor          = { r = 1,    g = 0.59, b = 0.09, a = 0.9 },
     borderNormalColor = { r = 0.3,  g = 0.3,  b = 0.3,  a = 0.8 },
@@ -571,12 +562,20 @@ function iST:OnBarUpdate(elapsed)
         local inset = bar.contentInset or 1
         local width = bar:GetWidth() - inset * 2
         local progress = math.max(0, math.min((now - state.LastSwingTime) / state.WeaponSpeed, 1))
-        local color = iSTSettings.barColor
-        local border = iSTSettings.borderNormalColor
+        -- A new melee cycle begins red. A valid Twist of Light seal
+        -- replacement during that cycle turns both the fill and border green.
+        local r, g, b, a, borderR, borderG, borderB, borderA
+        if state.TwistSucceededThisSwing then
+            r, g, b, a = 0.18, 0.9, 0.28, 0.95
+            borderR, borderG, borderB, borderA = 0.12, 0.75, 0.2, 1
+        else
+            r, g, b, a = 0.95, 0.18, 0.18, 0.9
+            borderR, borderG, borderB, borderA = 0.75, 0.1, 0.1, 1
+        end
         bar.fill:SetWidth(math.max(1, progress * width))
-        bar.fill:SetVertexColor(color.r, color.g, color.b, color.a)
+        bar.fill:SetVertexColor(r, g, b, a)
         if bar.SetBackdropBorderColor then
-            bar:SetBackdropBorderColor(border.r, border.g, border.b, border.a)
+            bar:SetBackdropBorderColor(borderR, borderG, borderB, borderA)
         end
         bar.timeText:SetText(string.format("%.1fs", math.max(0, state.NextSwingTime - now)))
         if iSTSettings.showWeaponSpeed then
@@ -614,6 +613,13 @@ function iST:HideBar()
     end
 end
 
+function iST:ShowBar()
+    if self.BarFrame then
+        self.BarFrame:Show()
+        self.State.BarVisible = true
+    end
+end
+
 
 -- Central visibility decision: respects enabled, class, spec, and combat settings.
 function iST:UpdateBarVisibility()
@@ -636,65 +642,7 @@ end
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                          Twist Result Display                                  │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
-function iST:IsISPLoaded()
-    return IsAddOnLoadedAPI("iSoundPlayer") and type(iSPSettings) == "table"
-end
-
-function iST:IsBuiltinSound(soundName)
-    for _, sound in ipairs(self.BUILTIN_SOUNDS) do
-        if sound.value == soundName then return true end
-    end
-    return false
-end
-
-function iST:PlayConfiguredSound(soundName)
-    if not soundName or soundName == "" then return false end
-
-    local soundKitID = soundName:match("^wow:(%d+)$")
-    if soundKitID and self:IsBuiltinSound(soundName) then
-        local ok, willPlay = pcall(PlaySound, tonumber(soundKitID), "Master")
-        return ok and willPlay and true or false
-    end
-
-    if not self:IsISPLoaded() or iSPSettings.Enabled == false then return false end
-
-    local registered = false
-    for _, registeredSound in ipairs(iSPSettings.SoundFiles or {}) do
-        if registeredSound == soundName then
-            registered = true
-            break
-        end
-    end
-    if not registered then return false end
-
-    local channel = iSPSettings.SoundChannel or "Master"
-    if channel == "Dialog" then channel = "Master" end
-
-    soundKitID = soundName:match("^wow:(%d+)$")
-    if soundKitID then
-        local ok, willPlay = pcall(PlaySound, tonumber(soundKitID), channel)
-        return ok and willPlay and true or false
-    end
-
-    local paths = {
-        "Interface\\AddOns\\iSoundPlayer_Sounds\\" .. soundName,
-        "Interface\\AddOns\\iSoundPlayer\\sounds\\" .. soundName,
-    }
-    for _, path in ipairs(paths) do
-        local ok, willPlay = pcall(PlaySoundFile, path, channel)
-        if ok and willPlay then return true end
-    end
-    return false
-end
-
-function iST:PlayTwistSound()
-    if not iSTSettings.enableSoundEffects then return end
-    self:PlayConfiguredSound(iSTSettings.twistSuccessSound)
-end
-
 function iST:ShowTwistResult()
-    self:PlayTwistSound()
-
     if not self.BarFrame or not self.BarFrame.twistResultText then return end
 
     -- Check settings
@@ -738,6 +686,7 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack)
         self.State.EchoPending = false
         self.State.EchoSealName = nil
         self.State.SealAtLastSwing = self.State.CurrentSealName
+        self.State.TwistSucceededThisSwing = false
         self.State.SwingCycleActive = true
     end
     self.State.Idle = false
@@ -859,6 +808,7 @@ function iST:SetCurrentSeal(spellID, observedExpirationTime)
         and self:HasTwistOfLight() and self.State.SwingCycleActive then
         self.State.EchoPending = true
         self.State.EchoSealName = previousSealName
+        self.State.TwistSucceededThisSwing = true
         self:ShowTwistResult()
     end
 
@@ -1074,20 +1024,19 @@ function iST:RequestTwistMacroRefresh()
     end
 
     self.State.PendingMacroRefresh = false
-    return self:RefreshTwistMacro()
+    return self:CreateTwistMacro()
 end
 
 function iST:CreateTwistMacro()
     local _, playerClass = UnitClass("player")
-    if playerClass ~= "PALADIN" then return end
-
-    if iSTSettings.macroCreated then
-        self:RefreshTwistMacro()
-        return
+    if playerClass ~= "PALADIN" then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        self.State.PendingMacroRefresh = true
+        return false
     end
 
     local macroBody = self:BuildTwistMacroBody()
-    if not macroBody then return end
+    if not macroBody then return false end
 
     -- Respect an existing user-created macro with the same name.
     local existingIndex = GetMacroIndexByName(TWIST_MACRO_NAME)
@@ -1096,33 +1045,63 @@ function iST:CreateTwistMacro()
         if NormalizeMacroBody(existingBody) == NormalizeMacroBody(macroBody) then
             iSTSettings.macroCreated = true
             iSTSettings.generatedMacroBody = existingBody
+            return true
         end
-        return
+
+        -- A body previously written by iST remains safe to update. Any other
+        -- same-named macro belongs to the player and must not be overwritten.
+        if iSTSettings.generatedMacroBody
+            and NormalizeMacroBody(existingBody) == NormalizeMacroBody(iSTSettings.generatedMacroBody) then
+            return self:RefreshTwistMacro()
+        end
+        print(L["PrintPrefix"] .. Colors.Red .. "A macro named " .. TWIST_MACRO_NAME
+            .. " already exists and was not changed." .. Colors.Reset)
+        return false
     end
+
+    -- The saved flag may outlive a deleted macro. Missing macros are recreated.
+    iSTSettings.macroCreated = nil
+    iSTSettings.generatedMacroBody = nil
 
     local numGlobal, numPerChar = GetNumMacros()
-    local created = false
-    local ok, err = pcall(function()
-        if numGlobal < 36 then
-            CreateMacro(TWIST_MACRO_NAME, TWIST_MACRO_ICON, macroBody, false)
-            print(L["PrintPrefix"] .. Colors.Green .. "Created macro: " .. Colors.Yellow .. TWIST_MACRO_NAME .. Colors.Reset)
-            created = true
-        elseif numPerChar < 18 then
-            CreateMacro(TWIST_MACRO_NAME, TWIST_MACRO_ICON, macroBody, true)
-            print(L["PrintPrefix"] .. Colors.Green .. "Created character macro: " .. Colors.Yellow .. TWIST_MACRO_NAME .. Colors.Reset)
-            created = true
-        else
-            print(L["PrintPrefix"] .. Colors.Red .. "No macro slots available for " .. TWIST_MACRO_NAME .. ". Create it manually." .. Colors.Reset)
+    local macroConstants = Constants and Constants.MacroConsts
+    local globalLimit = MAX_ACCOUNT_MACROS or (macroConstants and macroConstants.MAX_ACCOUNT_MACROS) or 120
+    local characterLimit = MAX_CHARACTER_MACROS or (macroConstants and macroConstants.MAX_CHARACTER_MACROS) or 18
+    local perCharacter = false
+
+    if numGlobal >= globalLimit then
+        if numPerChar >= characterLimit then
+            print(L["PrintPrefix"] .. Colors.Red .. "No macro slots available for " .. TWIST_MACRO_NAME .. "." .. Colors.Reset)
+            return false
         end
-    end)
-    if not ok then
-        print(L["PrintPrefix"] .. Colors.Red .. "Failed to create macro " .. TWIST_MACRO_NAME .. ": " .. tostring(err) .. Colors.Reset)
+        perCharacter = true
     end
 
-    if created then
-        iSTSettings.macroCreated = true
-        iSTSettings.generatedMacroBody = macroBody
+    local ok, result = pcall(CreateMacro, TWIST_MACRO_NAME, TWIST_MACRO_ICON, macroBody, perCharacter)
+    if not ok then
+        print(L["PrintPrefix"] .. Colors.Red .. "Failed to create macro " .. TWIST_MACRO_NAME .. ": " .. tostring(result) .. Colors.Reset)
+        return false
     end
+
+    local createdIndex = type(result) == "number" and result or GetMacroIndexByName(TWIST_MACRO_NAME)
+    if not createdIndex or createdIndex == 0 then
+        print(L["PrintPrefix"] .. Colors.Red .. "Failed to create macro " .. TWIST_MACRO_NAME .. "." .. Colors.Reset)
+        return false
+    end
+
+    local _, _, createdBody = GetMacroInfo(createdIndex)
+    if NormalizeMacroBody(createdBody) ~= NormalizeMacroBody(macroBody) then
+        print(L["PrintPrefix"] .. Colors.Red .. "The created macro could not be verified." .. Colors.Reset)
+        return false
+    end
+
+    iSTSettings.macroCreated = true
+    iSTSettings.generatedMacroBody = createdBody
+    self.State.PendingMacroRefresh = false
+    local scope = perCharacter and "character macro" or "macro"
+    print(L["PrintPrefix"] .. Colors.Green .. "Created " .. scope .. ": "
+        .. Colors.Yellow .. TWIST_MACRO_NAME .. Colors.Reset)
+    return true
 end
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -1242,6 +1221,7 @@ local function OnEvent(self, event, ...)
         iST.State.SwingCycleActive = false
         iST.State.EchoPending = false
         iST.State.EchoSealName = nil
+        iST.State.TwistSucceededThisSwing = false
         iST:UpdateBarVisibility()
         iST:ScanForActiveSealOutOfCombat()
         if iST.State.PendingMacroRefresh then
