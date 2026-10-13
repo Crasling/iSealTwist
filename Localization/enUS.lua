@@ -57,6 +57,7 @@ L["BarLocked"] = Msg("Bar " .. Colors.Green .. "locked" .. Colors.iST .. ".")
 L["BarUnlocked"] = Msg("Bar " .. Colors.Yellow .. "unlocked" .. Colors.iST .. ". Drag to reposition.")
 L["BarReset"] = Msg("Bar position reset to center.")
 L["TestStarted"] = Msg("Test mode: simulating a " .. Colors.Yellow .. "3.6s" .. Colors.iST .. " swing.")
+L["WarningTestStarted"] = Msg("Test mode: previewing the configured no-Echo warning bar.")
 L["MacroUpdated"] = "Macro updated with %s, %s."
 L["MinimapLeftClick"] = (Colors.Yellow .. "Left Click: " .. Colors.Orange .. "Enable/Disable")
 L["MinimapShiftLeftClick"] = (Colors.Yellow .. "Shift-Left Click: " .. Colors.Orange .. "Toggle Bar Lock")
@@ -120,6 +121,8 @@ L["TwistFromSealDesc"] = Colors.Gray .. "The eligible seal your QoL macro replac
 L["TwistIntoSeal"] = "Replacement Seal (Into)"
 L["TwistIntoSealDesc"] = Colors.Gray .. "The different seal your QoL macro switches into. This pair only configures the macro; detection accepts every valid replacement.|r"
 L["SealPairDesc"] = Colors.Gray .. "Green seals can create an Echo when replaced, so a pair of two green seals works in either direction. Orange seals can only be used as the destination. This pair configures the optional SealTwist macro.|r"
+L["OpenMacros"] = "Open Macros"
+L["MacroWindowCombatBlocked"] = Msg("The macro window cannot be opened during combat.")
 
 -- Twist text customization
 L["SectionTextAppearance"] = Colors.iST .. "Text"
@@ -135,13 +138,22 @@ L["DefaultColors"]      = "Default Colors"
 L["ColorBar"]           = "Fill"
 L["ColorBorderNormal"]  = "Border"
 L["ColorTwistSuccess"]  = "Twist Success Text"
+L["ColorTwistWarning"]  = "No Echo Warning"
 
 -- Position
 L["SectionPosition"] = Colors.iST .. "Position"
+L["SectionPreview"] = Colors.iST .. "Bar Preview"
+L["PreviewSequenceDesc"] = Colors.Gray .. "Preview each bar state in its normal gameplay order.|r"
 L["LockBar"] = "Lock Bar Position"
 L["LockBarDesc"] = Colors.Gray .. "Prevent the bar from being dragged.|r"
+L["CenterHorizontally"] = "Center Horizontally"
 L["ResetPosition"] = "Reset Position"
 L["TestBar"] = "Test Bar"
+L["TestWarningBar"] = "Test Warning Bar"
+L["TestTwistSuccess"] = "Test Twist Success"
+L["PreviewNormal"] = "1. Normal"
+L["PreviewWarning"] = "2. No Echo"
+L["PreviewSuccess"] = "3. Twist Success"
 
 -- About
 L["AboutText"] = Colors.iST .. "iSealTwist " .. Colors.Reset .. "is a WoW Forever Paladin weapon-swing timer. With Twist of Light learned, it reports successful Echo creation when an eligible seal is replaced between melee attacks."

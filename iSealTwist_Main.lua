@@ -240,6 +240,8 @@ iST.State = {
     HomeLag = 0,
     BarVisible = false,
     TestMode = false,
+    WarningTestMode = false,
+    TestModeGeneration = 0,
     Initialized = false,
     PreviousSealID = nil,
     PreviousSealName = nil,
@@ -247,6 +249,7 @@ iST.State = {
     TwistResultDuration = 0,
     Idle = false,
     PendingMacroRefresh = false,
+    MacroCheckGeneration = 0,
     SealCastTime = 0,
     SealExpiresAt = 0,
     SealGeneration = 0,
@@ -278,6 +281,7 @@ iST.SettingsDefault = {
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
     twistSuccessColor = { r = 0.2, g = 1.0, b = 0.2, a = 1.0 },
+    twistWarningColor = { r = 0.95, g = 0.18, b = 0.18, a = 0.9 },
     barColor          = { r = 1,    g = 0.59, b = 0.09, a = 0.9 },
     borderNormalColor = { r = 0.3,  g = 0.3,  b = 0.3,  a = 0.8 },
     twistFromSeal     = "Seal of Command",
@@ -525,6 +529,18 @@ function iST:ResetBarPosition()
     print(L["BarReset"])
 end
 
+-- Align the bar to the screen's horizontal center without changing its height.
+function iST:CenterBarHorizontally()
+    if not self.BarFrame then return end
+    local _, barCenterY = self.BarFrame:GetCenter()
+    local _, screenCenterY = UIParent:GetCenter()
+    if not barCenterY or not screenCenterY then return end
+
+    local yOffset = barCenterY - screenCenterY
+    iSTSettings.barPoint = { "CENTER", nil, "CENTER", 0, yOffset }
+    self:RestoreBarPosition()
+end
+
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                            Bar Update (OnUpdate)                               │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
@@ -565,7 +581,7 @@ function iST:OnBarUpdate(elapsed)
         -- Twist feedback only applies while the talent is active. Without it,
         -- iST remains a neutral weapon-swing timer using the configured colors.
         local r, g, b, a, borderR, borderG, borderB, borderA
-        if not self:HasTwistOfLight() then
+        if not state.WarningTestMode and not self:HasTwistOfLight() then
             local color = iSTSettings.barColor
             local border = iSTSettings.borderNormalColor
             r, g, b, a = color.r, color.g, color.b, color.a
@@ -574,8 +590,10 @@ function iST:OnBarUpdate(elapsed)
             r, g, b, a = 0.18, 0.9, 0.28, 0.95
             borderR, borderG, borderB, borderA = 0.12, 0.75, 0.2, 1
         else
-            r, g, b, a = 0.95, 0.18, 0.18, 0.9
-            borderR, borderG, borderB, borderA = 0.75, 0.1, 0.1, 1
+            local warning = iSTSettings.twistWarningColor
+            r, g, b, a = warning.r, warning.g, warning.b, warning.a
+            borderR, borderG, borderB = warning.r * 0.78, warning.g * 0.78, warning.b * 0.78
+            borderA = math.max(warning.a or 1, 0.9)
         end
         bar.fill:SetWidth(math.max(1, progress * width))
         bar.fill:SetVertexColor(r, g, b, a)
@@ -685,9 +703,11 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack)
     if issecretvalue and issecretvalue(speed) then return end
     if not speed or speed <= 0 then return end
 
+    local consumedEcho = isMeleeAttack and self.State.EchoPending == true
     if isMeleeAttack then
         -- Only a real melee attack consumes the Echo. Casts which merely reset
-        -- the weapon timer must not be mistaken for an attack.
+        -- the weapon timer must not be mistaken for an attack. Preserve whether
+        -- an Echo was ready so success feedback can fire on the consuming swing.
         self.State.EchoPending = false
         self.State.EchoSealName = nil
         self.State.SealAtLastSwing = self.State.CurrentSealName
@@ -701,6 +721,7 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack)
     self.State.WeaponSpeed = speed
     self.State.LastSwingTime = now
     self.State.NextSwingTime = now + speed
+    if consumedEcho then self:ShowTwistResult() end
     self:UpdateBarVisibility()
 end
 
@@ -840,7 +861,6 @@ function iST:SetCurrentSeal(spellID, observedExpirationTime)
         self.State.EchoPending = true
         self.State.EchoSealName = previousSealName
         self.State.TwistSucceededThisSwing = true
-        self:ShowTwistResult()
     end
 
     self:UpdateSealDisplay()
@@ -928,6 +948,7 @@ function iST:CreateMinimapButton()
         type = "data source",
         text = "iSealTwist",
         icon = "Interface\\AddOns\\iSealTwist\\Images\\Logo_iST",
+        iconCoords = { 0.14, 0.86, 0.10, 0.82 },
         OnClick = function(_, button)
             if button == "LeftButton" and IsShiftKeyDown() then
                 iSTSettings.barLocked = not iSTSettings.barLocked
@@ -1135,26 +1156,65 @@ function iST:CreateTwistMacro()
     return true
 end
 
+-- Macro deletion and other macro-list changes are reported asynchronously.
+-- Coalesce bursts, then recreate SealTwist only when its slot is truly gone.
+function iST:ScheduleTwistMacroCheck()
+    self.State.MacroCheckGeneration = (self.State.MacroCheckGeneration or 0) + 1
+    local generation = self.State.MacroCheckGeneration
+    C_Timer.After(0.20, function()
+        if generation ~= iST.State.MacroCheckGeneration or not iST.State.Initialized then return end
+        local _, playerClass = UnitClass("player")
+        if playerClass ~= "PALADIN" then return end
+        local macroIndex = GetMacroIndexByName(TWIST_MACRO_NAME)
+        if macroIndex and macroIndex > 0 then return end
+        if InCombatLockdown and InCombatLockdown() then
+            iST.State.PendingMacroRefresh = true
+            return
+        end
+        iST:CreateTwistMacro()
+    end)
+end
+
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
 -- │                              Test Mode                                         │
 -- ╰────────────────────────────────────────────────────────────────────────────────╯
-function iST:StartTestMode()
-    self.State.TestMode = true
-    self.State.WeaponSpeed = 3.6
-    self.State.LastSwingTime = GetTime()
-    self.State.NextSwingTime = GetTime() + 3.6
-    self:ShowBar()
-    print(L["TestStarted"])
+local function StartBarTest(warningPreview)
+    local state = iST.State
+    state.TestModeGeneration = (state.TestModeGeneration or 0) + 1
+    local generation = state.TestModeGeneration
+    state.WarningTestMode = warningPreview == true
+    state.TwistSucceededThisSwing = false
+    state.TestMode = true
+    state.WeaponSpeed = 3.6
+    state.LastSwingTime = GetTime()
+    state.NextSwingTime = GetTime() + 3.6
+    iST:ShowBar()
+    print(warningPreview and L["WarningTestStarted"] or L["TestStarted"])
 
     -- Auto-stop test after 30 seconds
     C_Timer.After(30, function()
-        if self.State.TestMode then
-            self.State.TestMode = false
-            if not self.State.InCombat then
-                self:UpdateBarVisibility()
+        if state.TestMode and state.TestModeGeneration == generation then
+            state.TestMode = false
+            state.WarningTestMode = false
+            if not state.InCombat then
+                iST:UpdateBarVisibility()
             end
         end
     end)
+end
+
+function iST:StartTestMode()
+    StartBarTest(false)
+end
+
+function iST:StartWarningTestMode()
+    StartBarTest(true)
+end
+
+function iST:StartTwistSuccessTestMode()
+    StartBarTest(false)
+    self.State.TwistSucceededThisSwing = true
+    self:ShowTwistResult()
 end
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -1236,6 +1296,7 @@ local function OnEvent(self, event, ...)
     if event == "PLAYER_REGEN_DISABLED" then
         iST.State.InCombat = true
         iST.State.TestMode = false
+        iST.State.WarningTestMode = false
 
         -- Immediately update visibility when entering combat
         iST:UpdateBarVisibility()
@@ -1244,6 +1305,11 @@ local function OnEvent(self, event, ...)
         if iST.SettingsFrame and iST.SettingsFrame:IsShown() then
             iST.SettingsFrame:Hide()
         end
+        return
+    end
+
+    if event == "UPDATE_MACROS" then
+        iST:ScheduleTwistMacroCheck()
         return
     end
 
@@ -1324,6 +1390,7 @@ for _, eventName in ipairs({
     "PLAYER_SWING",
     "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED",
+    "UPDATE_MACROS",
     "UNIT_AURA",
     "UNIT_ATTACK_SPEED",
     "UNIT_SPELLCAST_SUCCEEDED",

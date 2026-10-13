@@ -2,6 +2,26 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.7.4 - Interface & Twist Feedback
+--------------------------------------------------------------------------------
+
+ [CHANGED] Updated the addon logo and adjusted its minimap framing so the mark
+           fills the button and remains vertically centered
+ [CHANGED] Rebuilt the settings window with iRC-style panels, navigation,
+           buttons, dropdowns, color rows, and wider circular-handle sliders
+ [CHANGED] Reorganized Customization with grouped positioning tools and an
+           ordered Normal -> No Echo -> Twist Success preview panel
+ [ADDED]   Added a configurable no-Echo warning color and a horizontal-centering
+           control that preserves the bar's vertical position
+ [CHANGED] Twist success text now appears when the next weapon swing consumes a
+           prepared Echo instead of appearing immediately when seals are changed
+ [CHANGED] Refined the Seal Pair card with centered columns, contextual one-way
+           or green two-way arrows, and disabled duplicate seal choices
+ [ADDED]   Added an Open Macros shortcut that selects the generated SealTwist
+           macro on either the account or character tab
+ [FIXED]   Deleting the generated SealTwist macro now recreates it automatically;
+           Open Macros also restores a missing macro before selecting it
+
 v0.7.3 - Swing Timer & Seal Pair
 --------------------------------------------------------------------------------
 
