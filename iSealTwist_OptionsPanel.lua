@@ -603,6 +603,8 @@ function iST:CreateOptionsPanel()
     -- Main Frame
     -- ═══════════════════════════════════════════════════════════
     local settingsFrame = CreateFrame("Frame", "iSTSettingsFrame", UIParent, BACKDROP_TEMPLATE)
+    -- Let WoW close the settings panel through its normal Escape-key handling.
+    table.insert(UISpecialFrames, settingsFrame:GetName())
     settingsFrame:SetSize(750, 520)
     settingsFrame:SetPoint("CENTER", UIParent, "CENTER")
     settingsFrame:SetMovable(true)
@@ -1025,6 +1027,14 @@ function iST:CreateOptionsPanel()
             function(v)
                 iSTSettings.showSealIcon = v
                 iST:UpdateSealDisplay()
+            end
+        )
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowSealTimer"], L["ShowSealTimerDesc"], y,
+            function() return iSTSettings.showSealTimer end,
+            function(v)
+                iSTSettings.showSealTimer = v
+                iST:UpdateSealTimer()
             end
         )
 

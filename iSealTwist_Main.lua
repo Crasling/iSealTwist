@@ -271,6 +271,7 @@ iST.SettingsDefault = {
     barLocked = false,
     showLatency = true,
     showSealIcon = true,
+    showSealTimer = true,
     showWeaponSpeed = true,
     onlyInCombat = true,
     onlyAsPaladin = true,
@@ -286,7 +287,7 @@ iST.SettingsDefault = {
     borderNormalColor = { r = 0.3,  g = 0.3,  b = 0.3,  a = 0.8 },
     twistFromSeal     = "Seal of Command",
     twistIntoSeal     = "Seal of Justice",
-    MinimapButton = { hide = false, minimapPos = 220 },
+    MinimapButton = { hide = false, minimapPos = 220, showInCompartment = true },
 }
 
 -- ╭────────────────────────────────────────────────────────────────────────────────╮
@@ -342,6 +343,9 @@ function iST:ApplyBarTypography()
     ApplyFont(bar.speedText, speedSize or 11, "OUTLINE")
     ApplyFont(bar.latencyText, iSTSettings.latencyTextSize or 9, "OUTLINE")
     ApplyFont(bar.sealText, iSTSettings.sealTextSize or 10, "OUTLINE")
+    local sealTimerSize = math.max(9, math.min(18,
+        math.floor((iSTSettings.sealIconSize or iSTSettings.barHeight or 25) * 0.46 + 0.5)))
+    ApplyFont(bar.sealTimerText, sealTimerSize, "THICKOUTLINE")
     ApplyFont(bar.twistResultText, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
     bar.latencyText:SetScale(1)
 end
@@ -441,12 +445,26 @@ function iST:CreateSwingBar()
         sealIconRing:SetSize(iconSize + 6, iconSize + 6)
         sealIcon:SetSize(iconSize, iconSize)
         gloss:SetHeight(math.max(1, math.floor((height - CONTENT_INSET * 2) * 0.35)))
+        if self.sealTimerText then iST:ApplyBarTypography() end
     end
 
     bar:UpdateModernDimensions(barHeight)
     bar.sealIconFrame = sealIconFrame
     bar.sealIcon = sealIcon
+    bar.sealIconRing = sealIconRing
     bar.sealIconMask = sealIconMask
+
+    -- Active-seal duration, centered inside the circular seal icon.
+    local sealTimerText = sealIconFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    -- Leave the FontString at its intrinsic text size: its actual midpoint is
+    -- anchored to the icon midpoint instead of centering a larger fixed box.
+    sealTimerText:SetPoint("CENTER", sealIconFrame, "CENTER", 0, 0)
+    sealTimerText:SetText("")
+    sealTimerText:SetTextColor(1, 1, 1, 1)
+    sealTimerText:SetShadowOffset(1, -1)
+    sealTimerText:SetShadowColor(0, 0, 0, 1)
+    sealTimerText:Hide()
+    bar.sealTimerText = sealTimerText
 
     -- Time remaining text (right side)
     local timeText = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -553,6 +571,7 @@ function iST:OnBarUpdate(elapsed)
     bar.updateAccum = 0
 
     local state, now = self.State, GetTime()
+    self:UpdateSealTimer(now)
     if state.TestMode and now >= state.NextSwingTime then
         self:ResetSwingTimer(3.6, true)
     end
@@ -904,6 +923,37 @@ function iST:ClearCurrentSeal()
     self:UpdateSealDisplay()
 end
 
+function iST:UpdateSealTimer(now)
+    local bar = self.BarFrame
+    if not bar or not bar.sealTimerText then return end
+
+    now = now or GetTime()
+    local expiresAt = self.State.SealExpiresAt or 0
+    local remaining = expiresAt - now
+    local showTimer = iSTSettings.showSealTimer
+        and iSTSettings.showSealIcon
+        and self.State.CurrentSealIcon
+        and remaining > 0
+
+    if showTimer then
+        local displayedSeconds = math.ceil(remaining)
+        local urgent = displayedSeconds < 5
+        bar.sealTimerText:SetText(tostring(displayedSeconds))
+        if urgent then
+            bar.sealTimerText:SetTextColor(1, 0.12, 0.08, 1)
+            if bar.sealIconRing then bar.sealIconRing:SetVertexColor(1, 0.08, 0.05, 1) end
+        else
+            bar.sealTimerText:SetTextColor(1, 1, 1, 1)
+            if bar.sealIconRing then bar.sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95) end
+        end
+        bar.sealTimerText:Show()
+    else
+        bar.sealTimerText:SetText("")
+        bar.sealTimerText:Hide()
+        if bar.sealIconRing then bar.sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95) end
+    end
+end
+
 function iST:UpdateSealDisplay()
     if not self.BarFrame then return end
     local bar = self.BarFrame
@@ -916,6 +966,8 @@ function iST:UpdateSealDisplay()
         bar.sealIcon:Hide()
         if bar.sealIconFrame then bar.sealIconFrame:Hide() end
     end
+
+    self:UpdateSealTimer()
 
     if self.State.CurrentSealName then
         bar.sealText:SetText(self.State.CurrentSealName)
@@ -980,8 +1032,9 @@ function iST:CreateMinimapButton()
     })
 
     if not iSTSettings.MinimapButton then
-        iSTSettings.MinimapButton = { hide = false, minimapPos = 220 }
+        iSTSettings.MinimapButton = { hide = false, minimapPos = 220, showInCompartment = true }
     end
+    iSTSettings.MinimapButton.showInCompartment = true
     LDBIcon:Register("iSealTwist", self.MinimapDataObject, iSTSettings.MinimapButton)
 end
 

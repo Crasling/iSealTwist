@@ -101,6 +101,8 @@ L["SectionTimingGuides"] = Colors.iST .. "Swing Timer"
 -- Display
 L["ShowSealIcon"] = "Show Seal Icon"
 L["ShowSealIconDesc"] = Colors.Gray .. "Display the active seal icon next to the bar.|r"
+L["ShowSealTimer"] = "Show Seal Timer"
+L["ShowSealTimerDesc"] = Colors.Gray .. "Display the active seal's remaining 30-second duration inside its icon.|r"
 L["ShowWeaponSpeed"] = "Show Weapon Speed"
 L["ShowWeaponSpeedDesc"] = Colors.Gray .. "Display weapon speed on the bar.|r"
 L["OnlyInCombat"] = "Only Show In Combat"
