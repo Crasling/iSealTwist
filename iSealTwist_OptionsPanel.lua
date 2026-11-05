@@ -1,6 +1,4 @@
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                         iSealTwist — Options Panel                             │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Settings window and shared controls.
 
 local addonName, iST = ...
 local L = iST.L or {}
@@ -20,9 +18,7 @@ local PANEL_BACKDROP = {
     insets = { left = 3, right = 3, top = 3, bottom = 3 },
 }
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                              Helper Functions                                  │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Layout helpers return the next free row so descriptions can wrap naturally.
 
 local function CreateSectionHeader(parent, text, yOffset)
     local header = CreateFrame("Frame", nil, parent, BACKDROP_TEMPLATE)
@@ -102,7 +98,6 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
         end
     end
 
-    -- Track (thin bar)
     local track = CreateFrame("Frame", nil, parent, BACKDROP_TEMPLATE)
     track:SetSize(TRACK_WIDTH, TRACK_HEIGHT)
     track:SetPoint("TOPLEFT", parent, "TOPLEFT", 25, yOffset - 18)
@@ -115,12 +110,10 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
     track:SetBackdropColor(0.025, 0.022, 0.018, 1)
     track:SetBackdropBorderColor(0.52, 0.33, 0.09, 0.95)
 
-    -- Track background with rounded look
     local trackBg = track:CreateTexture(nil, "BACKGROUND")
     trackBg:SetAllPoints()
     trackBg:SetColorTexture(0.055, 0.045, 0.032, 0.96)
 
-    -- Subtle top/bottom edges for depth
     local trackEdgeTop = track:CreateTexture(nil, "BACKGROUND", nil, 1)
     trackEdgeTop:SetHeight(1)
     trackEdgeTop:SetPoint("TOPLEFT", track, "TOPLEFT", 0, 0)
@@ -133,33 +126,28 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
     trackEdgeBottom:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, 0)
     trackEdgeBottom:SetColorTexture(0, 0, 0, 0.80)
 
-    -- Fill bar (orange, follows value)
     local fill = track:CreateTexture(nil, "ARTWORK")
     fill:SetPoint("TOPLEFT", track, "TOPLEFT", 0, 0)
     fill:SetPoint("BOTTOMLEFT", track, "BOTTOMLEFT", 0, 0)
     fill:SetWidth(1)
     fill:SetColorTexture(ORANGE[1], ORANGE[2], ORANGE[3], 0.78)
 
-    -- Thumb (circular knob using the round minimap texture)
     local thumb = CreateFrame("Frame", nil, track)
     thumb:SetSize(THUMB_SIZE, THUMB_SIZE)
     thumb:EnableMouse(true)
 
-    -- Outer circle (dark border)
     local thumbOuter = thumb:CreateTexture(nil, "OVERLAY", nil, 1)
     thumbOuter:SetSize(THUMB_SIZE, THUMB_SIZE)
     thumbOuter:SetPoint("CENTER")
     thumbOuter:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
     thumbOuter:SetVertexColor(0.18, 0.11, 0.035, 1)
 
-    -- Inner circle (orange fill, slightly smaller)
     local thumbInner = thumb:CreateTexture(nil, "OVERLAY", nil, 2)
     thumbInner:SetSize(THUMB_SIZE - 3, THUMB_SIZE - 3)
     thumbInner:SetPoint("CENTER")
     thumbInner:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
     thumbInner:SetVertexColor(1, 0.59, 0.09, 1)
 
-    -- Highlight on hover
     thumb:SetScript("OnEnter", function()
         thumbInner:SetVertexColor(1, 0.75, 0.3, 1)
     end)
@@ -182,6 +170,7 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
     end
 
     local function ValueFromMouse()
+        -- Convert screen pixels to UI coordinates before finding the slider value.
         local cx = select(1, GetCursorPosition()) / UIParent:GetEffectiveScale()
         local left = track:GetLeft()
         local fraction = (cx - left) / TRACK_WIDTH
@@ -190,6 +179,7 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
         return SnapValue(raw)
     end
 
+    -- Dragging either the knob or the track updates the setting as it moves.
     local isDragging = false
     thumb:SetScript("OnMouseDown", function() isDragging = true end)
     thumb:SetScript("OnMouseUp", function() isDragging = false end)
@@ -268,6 +258,7 @@ local function CreateSettingsButtonAt(parent, text, width, xOffset, yOffset, onC
 end
 
 local function OpenMacroWindow()
+    -- Opening and changing macros is blocked during combat.
     if InCombatLockdown and InCombatLockdown() then
         print(L["MacroWindowCombatBlocked"])
         return
@@ -297,8 +288,8 @@ local function OpenMacroWindow()
         local macroIndex = GetMacroIndexByName("SealTwist")
         if not macroIndex or macroIndex == 0 or not MacroFrame then return end
 
-        -- Newer clients expose the macro frame as a mixin. Its selection index
-        -- is relative to the active account/character tab, not the global slot.
+        -- The current macro window numbers selections within each tab.
+        -- Convert the saved slot to its account or character tab first.
         if type(MacroFrame.ChangeTab) == "function" and type(MacroFrame.SelectMacro) == "function" then
             local macroConstants = Constants and Constants.MacroConsts
             local accountLimit = MAX_ACCOUNT_MACROS
@@ -310,13 +301,13 @@ local function OpenMacroWindow()
                 MacroFrame:SelectMacro(selectionIndex, true)
             end)
         elseif MacroFrame_SelectMacro then
-            -- Older Macro UIs select by the global macro slot directly.
+            -- This selector uses the full macro slot number instead.
             pcall(MacroFrame_SelectMacro, macroIndex)
         end
     end
 
-    -- MacroFrame's OnShow selects the first account macro, so run our selection
-    -- one frame later after Blizzard has completed its initial refresh.
+    -- Wait for the macro window to finish opening before selecting our macro.
+    -- Otherwise its own refresh selects the first account macro again.
     if C_Timer and C_Timer.After then
         C_Timer.After(0, SelectSealTwistMacro)
     else
@@ -342,6 +333,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
     dropdown.arrow:SetText("v")
     dropdown.arrow:SetTextColor(1, 0.72, 0.12)
 
+    -- Keep the menu outside the scrolling page so its rows are not clipped.
     dropdown.menu = CreateFrame("Frame", nil, UIParent, BACKDROP_TEMPLATE)
     dropdown.menu:SetWidth(width)
     dropdown.menu:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -365,8 +357,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
     end
 
     local function DisabledOptionText(option)
-        -- Embedded |c color markup wins over FontString:SetTextColor. Remove
-        -- only that markup so disabled seal choices can render visibly grey.
+        -- Text color codes override SetTextColor; remove them for greyed-out rows.
         return OptionText(option):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
     end
 
@@ -390,6 +381,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
             local value = OptionValue(option)
             local disabled = isDisabled and isDisabled(option) or false
             local button = self.menu.buttons[index]
+            -- Reuse the menu rows when the options or current choice change.
             if not button then
                 button = CreateFrame("Button", nil, self.menu, BACKDROP_TEMPLATE)
                 button:SetHeight(25)
@@ -451,6 +443,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
         openDropdown = self
         self:RefreshMenu()
         self.menu:ClearAllPoints()
+        -- Open upward if there is not enough room below the dropdown.
         local bottom = self:GetBottom() or 0
         if bottom > (self.menu:GetHeight() or 0) + 12 then
             self.menu:SetPoint("TOPRIGHT", self, "BOTTOMRIGHT", 0, -2)
@@ -489,7 +482,7 @@ local function CreateInfoText(parent, text, yOffset, fontObj)
     return fs, yOffset - height - 4
 end
 
-local function CreateColorEditor(parent, label, yOffset, getFunc, onChange)
+local function CreateColorEditor(parent, label, yOffset, getFunc, onChange, captureOriginal)
     local button = CreateFrame("Button", nil, parent, BACKDROP_TEMPLATE)
     button:SetSize(470, 26)
     button:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
@@ -531,13 +524,15 @@ local function CreateColorEditor(parent, label, yOffset, getFunc, onChange)
         color.b = b
         color.a = a or color.a or 1
         RefreshSwatch()
-        if onChange then onChange() end
+        if onChange then onChange(color) end
         if iST.InvalidateBarState then iST:InvalidateBarState() end
     end
 
     button:SetScript("OnClick", function()
         if not ColorPickerFrame then return end
 
+        -- Some editors need to restore more than one color when Cancel is used.
+        local restoreOriginal = captureOriginal and captureOriginal()
         local color = getFunc()
         local original = {
             r = color.r,
@@ -559,7 +554,14 @@ local function CreateColorEditor(parent, label, yOffset, getFunc, onChange)
         end
 
         local function PickerCancelled()
-            ApplyColor(original.r, original.g, original.b, original.a)
+            if restoreOriginal then
+                restoreOriginal()
+                RefreshSwatch()
+                if onChange then onChange() end
+                if iST.InvalidateBarState then iST:InvalidateBarState() end
+            else
+                ApplyColor(original.r, original.g, original.b, original.a)
+            end
         end
 
         if usesModernPicker then
@@ -590,18 +592,13 @@ local function CreateColorEditor(parent, label, yOffset, getFunc, onChange)
     return yOffset - 30, RefreshSwatch
 end
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                           Create Options Panel                                 │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Build the window once; opening it later reuses the same controls.
 function iST:CreateOptionsPanel()
     if self.SettingsFrame then return end
 
     local sidebarWidth = 150
     local contentWidth = 550
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Main Frame
-    -- ═══════════════════════════════════════════════════════════
     local settingsFrame = CreateFrame("Frame", "iSTSettingsFrame", UIParent, BACKDROP_TEMPLATE)
     -- Let WoW close the settings panel through its normal Escape-key handling.
     table.insert(UISpecialFrames, settingsFrame:GetName())
@@ -623,7 +620,6 @@ function iST:CreateOptionsPanel()
         settingsFrame:SetBackdropBorderColor(0.72, 0.44, 0.10, 0.95)
     end
 
-    -- Shadow
     local shadow = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
     shadow:SetPoint("TOPLEFT", settingsFrame, -1, 1)
     shadow:SetPoint("BOTTOMRIGHT", settingsFrame, 1, -1)
@@ -632,14 +628,10 @@ function iST:CreateOptionsPanel()
         shadow:SetBackdropBorderColor(0, 0, 0, 0.8)
     end
 
-    -- Drag
     settingsFrame:RegisterForDrag("LeftButton", "RightButton")
     settingsFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
     settingsFrame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Title Bar
-    -- ═══════════════════════════════════════════════════════════
     local titleBar = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
     titleBar:SetHeight(31)
     titleBar:SetPoint("TOPLEFT", settingsFrame, "TOPLEFT", 0, 0)
@@ -665,7 +657,6 @@ function iST:CreateOptionsPanel()
     titleAccent:SetPoint("BOTTOMRIGHT", titleBar, "BOTTOMRIGHT", -8, 2)
     titleAccent:SetColorTexture(ORANGE[1], ORANGE[2], ORANGE[3], 0.70)
 
-    -- Compact close control matching the dark-gold iRC buttons.
     local closeButton = CreateFrame("Button", nil, settingsFrame, BACKDROP_TEMPLATE)
     closeButton:SetSize(24, 22)
     closeButton:SetPoint("TOPRIGHT", settingsFrame, "TOPRIGHT", -7, -5)
@@ -673,9 +664,7 @@ function iST:CreateOptionsPanel()
     closeButton:SetText("X")
     closeButton:SetScript("OnClick", function() iST:SettingsClose() end)
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Sidebar
-    -- ═══════════════════════════════════════════════════════════
+    -- Page navigation sits beside a shared content area.
     local sidebar = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
     sidebar:SetWidth(sidebarWidth)
     sidebar:SetPoint("TOPLEFT", settingsFrame, "TOPLEFT", 10, -35)
@@ -691,9 +680,6 @@ function iST:CreateOptionsPanel()
         sidebar:SetBackdropBorderColor(0.48, 0.31, 0.10, 0.85)
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Content Area
-    -- ═══════════════════════════════════════════════════════════
     local contentArea = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
     contentArea:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 6, 0)
     contentArea:SetPoint("BOTTOMRIGHT", settingsFrame, "BOTTOMRIGHT", -10, 10)
@@ -708,9 +694,7 @@ function iST:CreateOptionsPanel()
         contentArea:SetBackdropColor(0.028, 0.025, 0.021, 0.98)
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Tab Content Factory
-    -- ═══════════════════════════════════════════════════════════
+    -- Each page keeps its own scroll position when switching tabs.
     local scrollChildren = {}
 
     local function CreateTabContent()
@@ -723,7 +707,7 @@ function iST:CreateOptionsPanel()
         scrollFrame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
         scrollFrame:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -22, 0)
 
-        -- Hide scrollbar
+        -- Keep wheel scrolling without showing the standard scrollbar.
         local sb = scrollFrame.ScrollBar
         if sb then sb:SetAlpha(0) sb:SetWidth(1) end
 
@@ -733,7 +717,6 @@ function iST:CreateOptionsPanel()
         scrollFrame:SetScrollChild(scrollChild)
         table.insert(scrollChildren, scrollChild)
 
-        -- Mousewheel
         container:EnableMouseWheel(true)
         container:SetScript("OnMouseWheel", function(_, delta)
             local current = scrollFrame:GetVerticalScroll()
@@ -746,9 +729,6 @@ function iST:CreateOptionsPanel()
         return container, scrollChild
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Create Tab Containers
-    -- ═══════════════════════════════════════════════════════════
     local generalContainer, generalContent = CreateTabContent()
     local timingContainer, timingContent = CreateTabContent()
     local indicatorsContainer, indicatorsContent = CreateTabContent()
@@ -769,9 +749,6 @@ function iST:CreateOptionsPanel()
         iRCContainer,
     }
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Tab Selection
-    -- ═══════════════════════════════════════════════════════════
     local sidebarButtons = {}
     local activeIndex = 1
 
@@ -795,9 +772,6 @@ function iST:CreateOptionsPanel()
         end
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Build Sidebar Items
-    -- ═══════════════════════════════════════════════════════════
     local sidebarItems = {
         { type = "header", label = Colors.iST .. "iSealTwist" },
         { type = "tab", label = L["TabGeneral"], index = 1 },
@@ -853,9 +827,7 @@ function iST:CreateOptionsPanel()
         end
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Tab 1: General
-    -- ═══════════════════════════════════════════════════════════
+    -- General: visibility and the two seals used by the optional macro.
     do
         local y = -10
         _, y = CreateSectionHeader(generalContent, L["SectionActivation"], y)
@@ -872,28 +844,16 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSectionHeader(generalContent, L["SectionSealPair"], y)
 
-        -- These are the four seals which Twist of Light can turn into an Echo.
-        local fromOptions = {
-            "Seal of Command", "Seal of Righteousness", "Seal of Fury", "Seal of Justice",
-        }
-        local intoOptions, intoDropdown
-
-        intoOptions = {}
+        -- The spell table contains every rank; list each seal only once.
+        local sealChoices, fromDropdown, intoDropdown = {}
         local seenNames = {}
         for _, name in pairs(iST.SEALS) do
             if not seenNames[name] then
                 seenNames[name] = true
-                table.insert(intoOptions, name)
+                table.insert(sealChoices, name)
             end
         end
-        table.sort(intoOptions)
-
-        local function SealOptionText(name)
-            if iST.TWIST_OF_LIGHT_FROM_SEALS[name] then
-                return "|cff46e36d" .. name .. "|r"
-            end
-            return "|cffffb347" .. name .. "|r"
-        end
+        table.sort(sealChoices)
 
         local function SealIcon(name)
             local spellID = iST.SEAL_SPELL_IDS and iST.SEAL_SPELL_IDS[name]
@@ -927,17 +887,14 @@ function iST:CreateOptionsPanel()
         direction:SetPoint("CENTER", pairCard, "TOP", 0, -47)
 
         local function UpdateSealDirection()
-            local bothWays = iST.TWIST_OF_LIGHT_FROM_SEALS[iSTSettings.twistFromSeal]
-                and iST.TWIST_OF_LIGHT_FROM_SEALS[iSTSettings.twistIntoSeal]
-            local color = bothWays and Colors.Green or Colors.iST
-            direction:SetText(color .. (bothWays and "< -- >" or "-->") .. Colors.Reset)
+            direction:SetText(Colors.Green .. "< -- >" .. Colors.Reset)
         end
 
         local function SealDropdownText(option)
             local name = type(option) == "table" and option.value or option
             local texture = SealIcon(name)
             local icon = texture and ("|T" .. tostring(texture) .. ":16:16:0:0|t ") or ""
-            return icon .. SealOptionText(name)
+            return icon .. name
         end
 
         local function SealOptions(values)
@@ -948,31 +905,26 @@ function iST:CreateOptionsPanel()
             return options
         end
 
-        local fromDropdown = CreateStyledDropdown(pairCard, 190,
-            function() return SealOptions(fromOptions) end,
+        -- Disable the other dropdown's seal so both choices stay different.
+        fromDropdown = CreateStyledDropdown(pairCard, 190,
+            function() return SealOptions(sealChoices) end,
             function() return iSTSettings.twistFromSeal end,
             function(value)
                 iSTSettings.twistFromSeal = value
-                if iSTSettings.twistIntoSeal == value then
-                    for _, replacement in ipairs(intoOptions or {}) do
-                        if replacement ~= value then
-                            iSTSettings.twistIntoSeal = replacement
-                            break
-                        end
-                    end
-                end
                 if intoDropdown then intoDropdown:Refresh() end
                 UpdateSealDirection()
                 if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
             end,
-            function(option) return option.text end)
+            function(option) return option.text end,
+            function(option) return option.value == iSTSettings.twistIntoSeal end)
         fromDropdown:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -32)
 
         intoDropdown = CreateStyledDropdown(pairCard, 190,
-            function() return SealOptions(intoOptions) end,
+            function() return SealOptions(sealChoices) end,
             function() return iSTSettings.twistIntoSeal end,
             function(value)
                 iSTSettings.twistIntoSeal = value
+                fromDropdown:Refresh()
                 UpdateSealDirection()
                 if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
             end,
@@ -983,8 +935,7 @@ function iST:CreateOptionsPanel()
 
         local legend = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         legend:SetPoint("BOTTOM", pairCard, "BOTTOM", 0, 44)
-        legend:SetText("|cff46e36dBoth ways|r  -  can create an Echo when replaced    "
-            .. "|cffffb347Into only|r  -  destination only")
+        legend:SetText(L["SealPairLegend"])
 
         CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -110, OpenMacroWindow)
 
@@ -1000,9 +951,7 @@ function iST:CreateOptionsPanel()
         scrollChildren[1]:SetHeight(math.abs(y) + 10)
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Tab 2: Timing
-    -- ═══════════════════════════════════════════════════════════
+    -- Timing guides.
     do
         local y = -10
         _, y = CreateSectionHeader(timingContent, L["SectionTimingGuides"], y)
@@ -1015,9 +964,7 @@ function iST:CreateOptionsPanel()
         scrollChildren[2]:SetHeight(math.abs(y) + 10)
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Tab 3: Indicators
-    -- ═══════════════════════════════════════════════════════════
+    -- Indicators: seal information and Unsealed Wrath cues.
     do
         local y = -10
         _, y = CreateSectionHeader(indicatorsContent, L["SectionBarInformation"], y)
@@ -1043,7 +990,55 @@ function iST:CreateOptionsPanel()
             function(v) iSTSettings.showWeaponSpeed = v end
         )
 
-        _, y = CreateSectionHeader(indicatorsContent, L["SectionTwistFeedback"], y)
+        _, y = CreateSectionHeader(indicatorsContent, L["SectionUnsealedWrath"], y)
+
+        _, y = CreateSettingsDropdown(indicatorsContent, L["WrathCueStyle"], y, 250,
+            function()
+                return {
+                    { value = "SWORD", text = L["WrathCueSword"] },
+                    { value = "SWORD_IMAGES", text = L["WrathCueSwordImages"] },
+                    { value = "CIRCLES", text = L["WrathCueCircles"] },
+                    { value = "COUNTER", text = L["WrathCueCounter"] },
+                    { value = "TEXT", text = L["WrathCueText"] },
+                    { value = "OFF", text = L["WrathCueOff"] },
+                }
+            end,
+            function() return iSTSettings.wrathCue end,
+            function(value)
+                iSTSettings.wrathCue = value
+                iST:UpdateWrathDisplay()
+            end
+        )
+
+        _, y = CreateInfoText(indicatorsContent, L["WrathCueDesc"], y, "GameFontDisableSmall")
+        y = y - 8
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowPlayerWrathBubbles"], L["ShowPlayerWrathBubblesDesc"], y,
+            function() return iSTSettings.showPlayerWrathBubbles end,
+            function(value)
+                iSTSettings.showPlayerWrathBubbles = value
+                iST:UpdateWrathDisplay()
+                iST:UpdateBarVisibility()
+            end
+        )
+
+        _, y = CreateSettingsDropdown(indicatorsContent, L["WrathReadyText"], y, 250,
+            function()
+                return {
+                    { value = "Switch now", text = "Switch now" },
+                    { value = "Unleash!", text = "Unleash!" },
+                    { value = "3 stacks ready", text = "3 stacks ready" },
+                }
+            end,
+            function() return iSTSettings.wrathReadyText end,
+            function(value)
+                iSTSettings.wrathReadyText = value
+                iST:UpdateWrathDisplay()
+            end
+        )
+
+        _, y = CreateInfoText(indicatorsContent, L["WrathTrackingDesc"], y, "GameFontDisableSmall")
+        y = y - 8
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowTwistSuccess"], L["ShowTwistSuccessDesc"], y,
             function() return iSTSettings.showTwistSuccess end,
@@ -1053,16 +1048,14 @@ function iST:CreateOptionsPanel()
         scrollChildren[3]:SetHeight(math.abs(y) + 10)
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Tab 4: Customization
-    -- ═══════════════════════════════════════════════════════════
+    -- Appearance, position, and previews.
     do
         local y = -10
         local colorRefreshers = {}
 
-        local function AddColorEditor(label, getFunc, onChange)
+        local function AddColorEditor(label, getFunc, onChange, captureOriginal)
             local refresh
-            y, refresh = CreateColorEditor(customizationContent, label, y, getFunc, onChange)
+            y, refresh = CreateColorEditor(customizationContent, label, y, getFunc, onChange, captureOriginal)
             table.insert(colorRefreshers, refresh)
         end
 
@@ -1161,15 +1154,66 @@ function iST:CreateOptionsPanel()
         AddColorEditor(L["ColorTwistSuccess"],
             function() return iSTSettings.twistSuccessColor end, nil)
 
-        AddColorEditor(L["ColorTwistWarning"],
-            function() return iSTSettings.twistWarningColor end, nil)
+        _, y = CreateSectionHeader(customizationContent, L["SectionStackColors"], y)
+
+        local schemeDropdown
+        local function RefreshStackColors()
+            if schemeDropdown then schemeDropdown:Refresh() end
+            for _, refresh in ipairs(colorRefreshers) do refresh() end
+            iST:UpdateWrathDisplay()
+        end
+
+        schemeDropdown, y = CreateSettingsDropdown(customizationContent, L["WrathColorScheme"], y, 250,
+            function()
+                return {
+                    { value = "GOLD", text = L["WrathSchemeGold"] },
+                    { value = "TRAFFIC", text = L["WrathSchemeTraffic"] },
+                    { value = "BLUE", text = L["WrathSchemeBlue"] },
+                    { value = "CUSTOM", text = L["WrathSchemeCustom"] },
+                }
+            end,
+            function() return iSTSettings.wrathColorScheme end,
+            function(value)
+                iST:SetWrathColorScheme(value)
+                RefreshStackColors()
+            end)
+
+        _, y = CreateInfoText(customizationContent, L["WrathStageColorsDesc"], y, "GameFontDisableSmall")
+        y = y - 8
+
+        -- Editing a preset can switch to custom colors. Cancel restores the
+        -- previous scheme and all four colors, not just the edited swatch.
+        local function CaptureStackColors()
+            local scheme, colors = iSTSettings.wrathColorScheme, {}
+            for stage = 0, 3 do
+                local color = iSTSettings["wrathColor" .. stage]
+                colors[stage] = { r = color.r, g = color.g, b = color.b, a = color.a }
+            end
+            return function()
+                for stage = 0, 3 do iSTSettings["wrathColor" .. stage] = colors[stage] end
+                iST:SetWrathColorScheme(scheme)
+            end
+        end
+
+        for stage = 0, 3 do
+            local stackStage = stage
+            AddColorEditor(string.format(L["WrathStageColor"], stackStage),
+                function()
+                    local color = iST:GetWrathCueColor(stackStage)
+                    return { r = color.r, g = color.g, b = color.b, a = color.a }
+                end,
+                function(color)
+                    if color then iST:SetWrathStageColor(stackStage, color) end
+                    RefreshStackColors()
+                end,
+                CaptureStackColors)
+        end
 
         _, y = CreateSettingsButton(customizationContent, L["DefaultColors"], 140, y - 4, function()
             local colorKeys = {
                 "barColor",
                 "borderNormalColor",
                 "twistSuccessColor",
-                "twistWarningColor",
             }
 
             for _, key in ipairs(colorKeys) do
@@ -1180,12 +1224,14 @@ function iST:CreateOptionsPanel()
                 color.b = default.b
                 color.a = default.a
             end
+            iST:ResetWrathColors()
 
             for _, refresh in ipairs(colorRefreshers) do
                 refresh()
             end
 
             if iST.InvalidateBarState then iST:InvalidateBarState() end
+            RefreshStackColors()
         end)
 
         _, y = CreateSectionHeader(customizationContent, L["SectionPosition"], y)
@@ -1219,11 +1265,12 @@ function iST:CreateOptionsPanel()
         previewDescription:SetJustifyH("LEFT")
         previewDescription:SetText(L["PreviewSequenceDesc"])
 
+        -- Previews use test state; they do not change the tracked combat stacks.
         CreateSettingsButtonAt(previewCard, L["PreviewNormal"], 140, 12, -34, function()
             iST:StartTestMode()
         end, true)
-        CreateSettingsButtonAt(previewCard, L["PreviewWarning"], 140, 159, -34, function()
-            iST:StartWarningTestMode()
+        CreateSettingsButtonAt(previewCard, L["PreviewStacks"], 140, 159, -34, function()
+            iST:StartStackTestMode()
         end, true)
         CreateSettingsButtonAt(previewCard, L["PreviewSuccess"], 140, 306, -34, function()
             iST:StartTwistSuccessTestMode()
@@ -1233,34 +1280,26 @@ function iST:CreateOptionsPanel()
         scrollChildren[4]:SetHeight(math.abs(y) + 10)
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- ═══════════════════════════════════════════════════════════
-    -- ═══════════════════════════════════════════════════════════
-    -- Tab 5: About
-    -- ═══════════════════════════════════════════════════════════
+    -- Addon information and testing settings.
     do
         local y = -15
 
-        -- Icon
         local aboutIcon = aboutContent:CreateTexture(nil, "ARTWORK")
         aboutIcon:SetSize(64, 64)
         aboutIcon:SetPoint("TOP", aboutContent, "TOP", 0, y)
         aboutIcon:SetTexture(iconPath)
         y = y - 70
 
-        -- Title
         local aboutTitle = aboutContent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         aboutTitle:SetPoint("TOP", aboutContent, "TOP", 0, y)
         aboutTitle:SetText(Colors.iST .. "iSealTwist" .. Colors.Reset .. " " .. Colors.Green .. "v" .. iST.Version .. Colors.Reset)
         y = y - 20
 
-        -- Author
         local aboutAuthor = aboutContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         aboutAuthor:SetPoint("TOP", aboutContent, "TOP", 0, y)
         aboutAuthor:SetText(L["CreatedBy"] .. Colors.Cyan .. iST.Author .. Colors.Reset)
         y = y - 25
 
-        -- Description
         local aboutDesc = aboutContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         aboutDesc:SetPoint("TOPLEFT", aboutContent, "TOPLEFT", 25, y)
         aboutDesc:SetWidth(370)
@@ -1269,7 +1308,26 @@ function iST:CreateOptionsPanel()
         aboutDesc:SetText(L["AboutText"])
         y = y - aboutDesc:GetStringHeight() - 15
 
-        -- CurseForge link
+        _, y = CreateSectionHeader(aboutContent, L["SectionTesting"], y)
+
+        CreateSettingsCheckbox(aboutContent, L["DebugMode"], nil, y,
+            function() return iSTSettings.debugMode end,
+            function(value)
+                iSTSettings.debugMode = value
+                if value then iST:DebugMsg("Debug mode enabled.", 3) end
+            end)
+
+        -- This overrides addon tracking only; it does not change the game talent.
+        local fakeTalent = CreateSettingsCheckbox(aboutContent, L["FakeUnsealedWrath"], nil, y,
+            function() return iSTSettings.fakeUnsealedWrath end,
+            function(value) iST:SetFakeUnsealedWrath(value) end)
+        fakeTalent:ClearAllPoints()
+        fakeTalent:SetPoint("TOPLEFT", aboutContent, "TOPLEFT", 245, y)
+        y = y - 30
+
+        _, y = CreateInfoText(aboutContent, L["TestingDesc"], y, "GameFontDisableSmall")
+        y = y - 12
+
         _, y = CreateSectionHeader(aboutContent, Colors.iST .. "Links", y)
 
         local linkText
@@ -1280,9 +1338,7 @@ function iST:CreateOptionsPanel()
         scrollChildren[5]:SetHeight(math.abs(y) + 10)
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Tabs 6-8: Other Addons (Installed + Promo dual frames)
-    -- ═══════════════════════════════════════════════════════════
+    -- Other addon pages show a settings shortcut when installed, or a link otherwise.
     local promoData = {
         { content = iWRContent, scrollIdx = 6, name = "iWillRemember", addonName = "iWillRemember", tabIdx = 6,
           tabLoaded = "iWillRemember", tabLabel = "iWillRemember",
@@ -1316,7 +1372,6 @@ function iST:CreateOptionsPanel()
     local promoFrames = {}
 
     for _, promo in ipairs(promoData) do
-        -- Installed frame
         local installedFrame = CreateFrame("Frame", nil, promo.content)
         installedFrame:SetAllPoints(promo.content)
         installedFrame:Hide()
@@ -1333,6 +1388,7 @@ function iST:CreateOptionsPanel()
             openBtn:SetText(promo.buttonText)
             openBtn:SetScript("OnClick", function()
                 local frame = promo.getFrame()
+                -- Open the other addon at this window's position.
                 if frame then
                     local point, _, relPoint, xOfs, yOfs = settingsFrame:GetPoint()
                     frame:ClearAllPoints()
@@ -1344,7 +1400,6 @@ function iST:CreateOptionsPanel()
         end
         installedFrames[promo.tabIdx] = installedFrame
 
-        -- Promo frame
         local promoFrame = CreateFrame("Frame", nil, promo.content)
         promoFrame:SetAllPoints(promo.content)
         promoFrame:Hide()
@@ -1362,9 +1417,7 @@ function iST:CreateOptionsPanel()
         scrollChildren[promo.scrollIdx]:SetHeight(400)
     end
 
-    -- ═══════════════════════════════════════════════════════════
-    -- OnShow: detect installed addons and toggle frames
-    -- ═══════════════════════════════════════════════════════════
+    -- Recheck when opening because another addon may have loaded since creation.
     settingsFrame:HookScript("OnShow", function()
         for _, promo in ipairs(promoData) do
             local loaded = C_AddOns.IsAddOnLoaded(promo.addonName)
@@ -1379,23 +1432,19 @@ function iST:CreateOptionsPanel()
             end
         end
     end)
+    -- Menus are parented to UIParent, so closing the window must hide them too.
     settingsFrame:HookScript("OnHide", function()
         if openDropdown and openDropdown.menu then openDropdown.menu:Hide() end
         openDropdown = nil
     end)
 
-    -- ═══════════════════════════════════════════════════════════
-    -- Show first tab
-    -- ═══════════════════════════════════════════════════════════
     ShowTab(1)
 
     settingsFrame:Hide()
     self.SettingsFrame = settingsFrame
 end
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                        Settings Toggle / Open / Close                          │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Keep the related settings windows from overlapping when opening iST.
 local function CloseOtherAddonSettings()
     local iWRFrame = _G.iWR and _G.iWR.SettingsFrame
     if iWRFrame and iWRFrame:IsShown() then iWRFrame:Hide() end

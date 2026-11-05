@@ -2,6 +2,15 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.1 - Unsealed Wrath (Unreleased)
+--------------------------------------------------------------------------------
+[CHANGED] Updated for the new Unsealed Wrath talent
+[ADDED] Show stacks with two sword styles, glowing circles, a counter, or a ready message
+[ADDED] Optional stack bubbles below your mana bar
+[ADDED] Stack previews, color themes, and custom colors
+[ADDED] Test Unsealed Wrath without learning the talent
+[ADDED] Debug Mode in the About tab
+
 v0.7.5 - Seal Timer & AddOn Access
 --------------------------------------------------------------------------------
 [ADDED] iSealTwist is available from Blizzard's AddOns button

@@ -1,0 +1,539 @@
+-- Run from the addon directory. These checks use no game or network access.
+local now, timers, frames, chatMessages = 100, {}, {}, {}
+local playerClass, playerDead = "PALADIN", false
+local function widget(parent)
+    local object = { parent = parent, widgetWidth = 250, widgetHeight = 25, shown = false, alpha = 1 }
+    local methods = {}
+    function methods:SetSize(w, h) self.widgetWidth, self.widgetHeight = w, h end
+    function methods:SetWidth(w) self.widgetWidth = w end
+    function methods:SetHeight(h) self.widgetHeight = h end
+    function methods:GetWidth() return self.widgetWidth end
+    function methods:GetHeight() return self.widgetHeight end
+    function methods:Show() self.shown = true end
+    function methods:Hide() self.shown = false end
+    function methods:IsShown() return self.shown end
+    function methods:IsVisible()
+        return self.shown and (not self.parent or self.parent:IsVisible())
+    end
+    function methods:SetShown(value) self.shown = value end
+    function methods:SetAlpha(value) self.alpha = value end
+    function methods:SetText(value) self.text = value end
+    function methods:SetTextColor(...) self.textColor = { ... } end
+    function methods:SetTexture(value) self.texture = value end
+    function methods:SetTexCoord(...) self.texCoord = { ... } end
+    function methods:SetDesaturated(value) self.desaturated = value end
+    function methods:GetText() return self.text or "" end
+    function methods:SetColorTexture(...) self.color = { ... } end
+    function methods:SetVertexColor(...) self.color = { ... } end
+    function methods:SetBackdropBorderColor(...) self.borderColor = { ... } end
+    function methods:SetPoint(...) self.point = { ... } end
+    function methods:GetPoint() return table.unpack(self.point or { "CENTER", nil, "CENTER", 0, 0 }) end
+    function methods:GetFrameLevel() return 1 end
+    function methods:GetEffectiveScale() return 1 end
+    function methods:GetScale() return 1 end
+    function methods:SetScript(event, callback) self[event] = callback end
+    function methods:CreateFontString() return widget(self) end
+    function methods:CreateTexture() return widget(self) end
+    function methods:CreateMaskTexture() return widget(self) end
+    function methods:CreateLine() return widget(self) end
+    function methods:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "OUTLINE" end
+    function methods:SetFont(path, size, flags) self.font = { path, size, flags } end
+    return setmetatable(object, { __index = function(_, key)
+        if methods[key] then return methods[key] end
+        if key:match("^[A-Z]") then return function() end end
+    end })
+end
+
+UIParent = widget()
+UIParent:Show()
+PlayerFrame = widget(UIParent)
+PlayerFrame:Show()
+PlayerFrame.PlayerFrameContent = false
+PlayerFrame.manabar = widget(PlayerFrame)
+PlayerFrame.manabar:Show()
+function PlayerFrame_GetManaBar() return PlayerFrame and PlayerFrame.manabar end
+ChatFrame1 = { AddMessage = function(_, message) chatMessages[#chatMessages + 1] = message end }
+function CreateFrame(_, _, parent)
+    local frame = widget(parent)
+    frames[#frames + 1] = frame
+    return frame
+end
+function GetTime() return now end
+function GetBuildInfo() return "1.60.1", "70753", "", 16001 end
+function UnitClass() return "Paladin", playerClass end
+function UnitIsDeadOrGhost() return playerDead end
+function UnitHealth() return playerDead and 0 or 100 end
+function UnitPowerType() return 0, "MANA" end
+function UnitAttackSpeed() return 3.6 end
+function InCombatLockdown() return false end
+function UnitAffectingCombat() return false end
+function LibStub() return nil end
+function tostringall(...) return ... end
+local secret = {}
+function issecretvalue(value) return rawequal(value, secret) end
+C_AddOns = { GetAddOnMetadata = function() return "0.8.1" end }
+C_EventUtils = { IsEventValid = function() return true end }
+C_Timer = { After = function(delay, callback)
+    timers[#timers + 1] = { at = now + delay, run = callback }
+end }
+Enum = { PlayerSwingType = { MainHand = 0, OffHand = 1, Ranged = 2 } }
+local talentName, talentRank, configAvailable = "Unsealed Wrath", 1, true
+C_ClassTalents = { GetActiveConfigID = function() return configAvailable and 1 or nil end }
+C_Traits = {
+    GetConfigInfo = function() return { treeIDs = { 1 } } end,
+    GetTreeNodes = function() return { 1 } end,
+    GetNodeInfo = function() return { activeRank = talentRank, activeEntry = { entryID = 1 } } end,
+    GetEntryInfo = function() return { definitionID = 1 } end,
+    GetDefinitionInfo = function() return { spellID = 999999 } end,
+}
+C_Spell = {
+    GetSpellName = function(id) return id == 999999 and talentName or nil end,
+    GetSpellTexture = function() return 1 end,
+}
+local auraResult
+C_UnitAuras = { GetAuraDataBySpellName = function(unit, spellName, filter)
+    assert(unit == "player" and spellName == "Unsealed Wrath" and filter == "HELPFUL",
+        "aura lookup uses the documented unit, spellName, filter argument order")
+    return auraResult
+end }
+
+local iST = {}
+for _, file in ipairs({ "Localization/enUS.lua", "iSealTwist_Stacks.lua",
+    "iSealTwist_Main.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua" }) do
+    assert(loadfile(file))("iSealTwist", iST)
+end
+local events = frames[1]
+iST:InitializeSettings()
+assert(iSTSettings.fakeUnsealedWrath == false and iSTSettings.debugMode == false,
+    "fake talent and debug diagnostics start disabled")
+iST:CreateSwingBar()
+iST:RefreshUnsealedWrathState()
+local function event(name, ...) events.OnEvent(events, name, ...) end
+local function attack()
+    now = now + 1
+    event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
+end
+local function count() return iST.WrathTracker:GetCount(now) end
+local function runDue()
+    local queued = timers
+    timers = {}
+    for _, timer in ipairs(queued) do
+        if timer.at <= now then timer.run() else timers[#timers + 1] = timer end
+    end
+end
+
+assert(iST:HasUnsealedWrath(), "selected replacement talent enables tracking")
+iST:SetCurrentSeal(20154)
+for expected = 1, 3 do attack(); assert(count() == expected, "three swings build three stacks") end
+attack(); assert(count() == 3, "stacks cap at three")
+local expiresAt = iST.WrathTracker.expiresAt
+assert(expiresAt == now + 15, "another buildup swing refreshes the fifteen-second window")
+iST:SetCurrentSeal(20375)
+assert(count() == 3, "casting a different seal alone preserves stacks")
+iST:SetCurrentSeal(20154)
+assert(count() == 3, "switching back before the attack preserves stacks")
+iST:SetCurrentSeal(20375)
+attack()
+assert(count() == 0, "the next attack with another seal consumes stored stacks")
+attack(); assert(count() == 1, "subsequent attacks build the replacement seal")
+iST:SetCurrentSeal(20154)
+attack(); assert(count() == 0, "switching early consumes partial stacks too")
+
+attack()
+local before = count()
+event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.OffHand)
+event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.Ranged)
+iST:ResetSwingTimer(3.6, false)
+assert(count() == before, "off-hand, ranged, and cast-based timer resets never add stacks")
+event("PLAYER_REGEN_ENABLED")
+assert(count() == before, "leaving combat does not erase a valid stored seal")
+now = iST.WrathTracker.expiresAt
+assert(count() == 0, "expiry works even while the bar is hidden")
+
+iST:SetCurrentSeal(20154)
+attack()
+auraResult = { applications = 3, expirationTime = now + 8, auraInstanceID = 99 }
+event("UNIT_AURA", "player", {})
+assert(count() == 3 and iST.WrathTracker.expiresAt == now + 8,
+    "public buff stacks and expiry correct the estimate")
+assert(not iST.WrathTracker.estimated, "readable buff state is identified as authoritative")
+event("UNIT_AURA", secret, secret)
+assert(count() == 3, "secret event tokens are ignored")
+for _, hidden in ipairs({ secret, { applications = secret, expirationTime = now + 5 },
+    { applications = 2, expirationTime = secret } }) do
+    auraResult = hidden
+    event("UNIT_AURA", "player", {})
+    assert(count() == 3, "secret aura fields never change stacks")
+end
+auraResult = nil
+event("UNIT_AURA", "player", {})
+assert(count() == 3, "an unavailable buff lookup is not treated as confirmed zero")
+event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 99 } })
+assert(count() == 0, "a public removal of the observed buff clears stacks")
+
+iST:SetCurrentSeal(20154)
+attack()
+local liveCount, liveExpiry = count(), iST.WrathTracker.expiresAt
+iST:StartStackTestMode()
+for _ = 1, 3 do
+    now = iST.State.NextSwingTime
+    iST:OnBarUpdate(1)
+end
+assert(iST.State.PreviewStacks == 3, "stack preview reaches three")
+assert(iST.WrathTracker.count == liveCount and iST.WrathTracker.expiresAt == liveExpiry,
+    "previews never alter live stack state")
+iSTSettings.wrathCue = "SWORD"
+iST:UpdateWrathDisplay()
+assert(iST.BarFrame.wrathSword.shown, "sword style appears in stack preview")
+assert(iST.BarFrame.borderColor[4] == 0, "sword replaces the normal border")
+for _, stroke in ipairs(iST.BarFrame.wrathSword.strokes) do
+    assert(stroke.edge.color[1] == iST:GetWrathCueColor(3).r, "all three sword sections illuminate at full stacks")
+end
+iST.State.PreviewStacks = 1
+iST:UpdateWrathDisplay()
+assert(iST.BarFrame.wrathSword.bladeTop[1].edge.color[1] >
+    iST.BarFrame.wrathSword.bladeTop[2].edge.color[1], "the sword fills from left to right")
+iSTSettings.wrathCue = "COUNTER"
+iST:UpdateWrathDisplay()
+assert(not iST.BarFrame.wrathSword.shown and iST.BarFrame.wrathCueText.text == "1 / 3",
+    "counter style replaces sword rendering")
+assert(iST.BarFrame.borderColor[1] == iSTSettings.borderNormalColor.r,
+    "counter style restores the configured normal border")
+iSTSettings.wrathCue = "TEXT"
+iST:UpdateWrathDisplay()
+assert(not iST.BarFrame.wrathCueFrame.shown, "ready text stays hidden before three")
+iST.State.PreviewStacks = 3
+iST:UpdateWrathDisplay()
+assert(iST.BarFrame.wrathCueText.text == "Switch now", "three stacks show the selected ready phrase")
+iSTSettings.wrathCue = "OFF"
+iST:UpdateWrathDisplay()
+assert(not iST.BarFrame.wrathSword.shown and not iST.BarFrame.wrathCueFrame.shown,
+    "off hides every stack cue")
+
+iSTSettings.wrathCue = "SWORD_IMAGES"
+iST:InitializeSettings()
+assert(iSTSettings.wrathCue == "SWORD_IMAGES", "the image sword remains a saved cue choice")
+local imageSword = assert(iST.BarFrame.wrathSwordImages, "the image sword cue is constructed")
+assert(imageSword.base.texture:find("Sword_Base", 1, true), "image cue uses the unlit sword asset")
+for stage = 0, 3 do
+    iST.State.PreviewStacks = stage
+    iST:UpdateWrathDisplay()
+    assert(imageSword.shown and imageSword.base.shown, "the image cue keeps its base visible")
+    assert(not iST.BarFrame.wrathSword.shown, "image cue does not overlap the drawn sword")
+    for index, piece in ipairs(imageSword.pieces) do
+        assert(#piece > 0, "each image stack has drawable textures")
+        for _, texture in ipairs(piece) do
+            assert(texture.shown == (index <= stage), "image sword sections light up left to right")
+            if texture.texCoord then
+                for _, coordinate in ipairs(texture.texCoord) do
+                    assert(coordinate >= 0 and coordinate <= 1, "image crops stay inside their texture")
+                end
+            end
+        end
+    end
+    if imageSword.fullGlow then
+        assert(imageSword.fullGlow.texture:find("Sword_Glow", 1, true),
+            "full-stack glow uses the glowing sword asset")
+    end
+end
+for _, style in ipairs({ "SWORD", "COUNTER", "CIRCLES", "OFF" }) do
+    iSTSettings.wrathCue = style
+    iST:UpdateWrathDisplay()
+    assert(not imageSword.shown, "other cues hide the sword images")
+end
+iSTSettings.wrathCue = "OFF"
+
+local function matchesColor(actual, expected, brightness, alpha)
+    brightness = brightness or 1
+    local tolerance = 0.000001
+    return math.abs(actual[1] - expected.r * brightness) < tolerance
+        and math.abs(actual[2] - expected.g * brightness) < tolerance
+        and math.abs(actual[3] - expected.b * brightness) < tolerance
+        and math.abs(actual[4] - (alpha or expected.a or 1)) < tolerance
+end
+
+-- The same stage palette drives the counter, sword, and ready text.
+iSTSettings.wrathCue = "CIRCLES"
+iST:InitializeSettings()
+assert(iSTSettings.wrathCue == "CIRCLES", "the circles cue survives saved-setting initialization")
+for _, scheme in ipairs({ "GOLD", "TRAFFIC", "BLUE" }) do
+    iST:SetWrathColorScheme(scheme)
+    for stage = 0, 3 do
+        iST.State.PreviewStacks = stage
+        local color = iST:GetWrathCueColor(stage)
+        assert(type(color) == "table" and type(color.r) == "number"
+            and type(color.g) == "number" and type(color.b) == "number",
+            "every preset supplies all four stack-stage colors")
+        iSTSettings.wrathCue = "COUNTER"
+        iST:UpdateWrathDisplay()
+        assert(matchesColor(iST.BarFrame.wrathCueText.textColor, color),
+            scheme .. " counter uses the configured " .. stage .. "/3 color")
+        assert(matchesColor(iST.BarFrame.borderColor, iSTSettings.borderNormalColor),
+            "stage-specific counter colors preserve the normal border")
+        iSTSettings.wrathCue = "SWORD"
+        iST:UpdateWrathDisplay()
+        for _, stroke in ipairs(iST.BarFrame.wrathSword.strokes) do
+            local filled = stage >= stroke.section
+            assert(matchesColor(stroke.edge.color, color, filled and 1 or 0.28,
+                filled and color.a or 0.55),
+                scheme .. " sword uses the same " .. stage .. "/3 color")
+        end
+        iSTSettings.wrathCue = "CIRCLES"
+        iST:UpdateWrathDisplay()
+        assert(iST.BarFrame.wrathCircles.shown and not iST.BarFrame.wrathSword.shown
+            and not iST.BarFrame.wrathCueFrame.shown,
+            "circles replace both the sword and counter")
+        assert(matchesColor(iST.BarFrame.borderColor, iSTSettings.borderNormalColor),
+            "the circles cue preserves the configured normal border")
+        for index, orb in ipairs(iST.BarFrame.wrathCircles.orbs) do
+            local filled = stage >= index
+            assert(matchesColor(orb.core.color, color, 1, color.a * (filled and 1 or 0.16)),
+                scheme .. " circles illuminate left to right at " .. stage .. "/3")
+            if not filled then assert(orb.glow.color[4] == 0, "empty circles never glow") end
+        end
+    end
+end
+
+iST:SetWrathColorScheme("TRAFFIC")
+local presetBefore = iST:GetWrathCueColor(2)
+local presetCopy = { r = presetBefore.r, g = presetBefore.g, b = presetBefore.b, a = presetBefore.a }
+local customColors = {
+    { r = 0.12, g = 0.23, b = 0.34, a = 0.45 },
+    { r = 0.26, g = 0.37, b = 0.48, a = 0.59 },
+    { r = 0.41, g = 0.52, b = 0.63, a = 0.74 },
+    { r = 0.67, g = 0.78, b = 0.89, a = 0.95 },
+}
+for stage = 0, 3 do
+    iST:SetWrathStageColor(stage, customColors[stage + 1])
+    assert(iSTSettings.wrathColorScheme == "CUSTOM", "editing a stage enables custom colors")
+end
+for stage = 0, 3 do
+    iST.State.PreviewStacks = stage
+    local color = iST:GetWrathCueColor(stage)
+    assert(matchesColor({ color.r, color.g, color.b, color.a }, customColors[stage + 1]),
+        "custom colors remain independent for all four stages")
+    assert(color ~= customColors[stage + 1], "saved colors do not alias the input color table")
+    iSTSettings.wrathCue = "COUNTER"
+    iST:UpdateWrathDisplay()
+    assert(matchesColor(iST.BarFrame.wrathCueText.textColor, color),
+        "each custom stack color reaches the counter renderer")
+    iSTSettings.wrathCue = "SWORD"
+    iST:UpdateWrathDisplay()
+    for _, stroke in ipairs(iST.BarFrame.wrathSword.strokes) do
+        local filled = stage >= stroke.section
+        assert(matchesColor(stroke.edge.color, color, filled and 1 or 0.28,
+            color.a * (filled and 1 or 0.55)),
+            "custom stack colors and opacity reach every sword stage")
+    end
+    iSTSettings.wrathCue = "CIRCLES"
+    iST:UpdateWrathDisplay()
+    for index, orb in ipairs(iST.BarFrame.wrathCircles.orbs) do
+        assert(matchesColor(orb.core.color, color, 1, color.a * (stage >= index and 1 or 0.16)),
+            "custom colors and opacity reach every circle stage")
+    end
+end
+assert(iSTSettings.wrathColor0 ~= iSTSettings.wrathColor1
+    and iSTSettings.wrathColor1 ~= iSTSettings.wrathColor2
+    and iSTSettings.wrathColor2 ~= iSTSettings.wrathColor3,
+    "custom stages use independent saved color tables")
+iST:InitializeSettings()
+assert(iSTSettings.wrathColorScheme == "CUSTOM"
+    and iSTSettings.wrathColor2.b == customColors[3].b,
+    "initializing an existing character preserves its custom palette")
+iSTSettings.wrathCue = "TEXT"
+iST.State.PreviewStacks = 3
+iST:UpdateWrathDisplay()
+assert(matchesColor(iST.BarFrame.wrathCueText.textColor, customColors[4]),
+    "ready text uses the custom three-stack color")
+iST:SetWrathColorScheme("TRAFFIC")
+local presetAfter = iST:GetWrathCueColor(2)
+assert(matchesColor({ presetAfter.r, presetAfter.g, presetAfter.b, presetAfter.a }, presetCopy),
+    "editing custom colors never mutates a preset")
+iST:SetWrathColorScheme("CUSTOM")
+for stage = 0, 3 do
+    local color = iST:GetWrathCueColor(stage)
+    assert(matchesColor({ color.r, color.g, color.b, color.a }, customColors[stage + 1]),
+        "returning to Custom restores the previous custom palette")
+end
+iST:SetWrathColorScheme("GOLD")
+local goldColors = {}
+for stage = 0, 3 do
+    local color = iST:GetWrathCueColor(stage)
+    goldColors[stage + 1] = { r = color.r, g = color.g, b = color.b, a = color.a }
+end
+iST:SetWrathStageColor(2, customColors[3])
+for stage = 0, 3 do
+    local expected = stage == 2 and customColors[3] or goldColors[stage + 1]
+    local color = iST:GetWrathCueColor(stage)
+    assert(matchesColor({ color.r, color.g, color.b, color.a }, expected),
+        "editing one preset stage keeps the other three displayed colors")
+end
+
+local savedSettings = iSTSettings
+local legacyColor = { r = 0.19, g = 0.38, b = 0.57, a = 0.76 }
+iSTSettings = { wrathCueColor = legacyColor }
+iST:InitializeSettings()
+assert(iSTSettings.wrathColorScheme == "CUSTOM", "a saved legacy cue color migrates to custom")
+for stage = 0, 3 do
+    local color = iST:GetWrathCueColor(stage)
+    assert(matchesColor({ color.r, color.g, color.b, color.a }, legacyColor),
+        "legacy custom color is preserved at every stage")
+    assert(color ~= legacyColor, "legacy migration copies rather than aliases its color")
+end
+iST:ResetWrathColors()
+assert(iSTSettings.wrathColorScheme == "GOLD", "reset restores the default color scheme")
+iSTSettings = { wrathCueColor = { r = 1, g = 0.78, b = 0.24, a = 1 } }
+iST:InitializeSettings()
+assert(iSTSettings.wrathColorScheme == "GOLD", "the old default gold uses the new default scheme")
+for stage = 0, 3 do
+    local key = "wrathColor" .. stage
+    assert(iSTSettings[key] ~= iST.SettingsDefault[key], "new color saves never alias the defaults")
+end
+iSTSettings = savedSettings
+iSTSettings.wrathCue = "OFF"
+iST:StopTestMode()
+assert(iST.WrathTracker.count == liveCount, "stopping preview preserves live tracking")
+
+iST:SetCurrentSeal(20154)
+iST.WrathTracker:Reset()
+for _ = 1, 3 do attack() end
+iSTSettings.wrathCue = "TEXT"
+iST.State.TwistResultDuration = 0
+iST:SetCurrentSeal(20375)
+iST:UpdateWrathDisplay()
+assert(iST.BarFrame.wrathCueText.text == "Attack now",
+    "a completed seal switch asks for an attack rather than another switch")
+
+local resynced = iST:NewWrathTracker()
+resynced:Attack("first seal", 0)
+assert(resynced:Observe(1, 31, "second seal", 16))
+assert(resynced:Attack("second seal", 17) == 0 and resynced.count == 2,
+    "authoritative data after expiry cannot inherit the previous stored seal")
+
+-- Player-frame bubbles update independently of the swing timer and its cue.
+iSTSettings.wrathCue = "OFF"
+iSTSettings.showPlayerWrathBubbles = true
+iST.State.InCombat = true
+iST.State.TwistResultDuration = 0
+iST.WrathTracker:Reset()
+iST:CreatePlayerWrathFrame()
+local playerBubbles = assert(iST.PlayerWrathFrame, "the player-frame bubbles are constructed")
+for stage = 0, 3 do
+    if stage > 0 then iST.WrathTracker:Attack("Seal of Righteousness", now) end
+    iST:UpdateWrathDisplay()
+    iST:UpdatePlayerWrathBubbles(now)
+    assert(playerBubbles.shown, "player-frame bubbles remain available while the main cue is Off")
+    local color = iST:GetWrathCueColor(stage)
+    for index, orb in ipairs(playerBubbles.orbs) do
+        assert(matchesColor(orb.core.color, color, 1, color.a * (stage >= index and 1 or 0.16)),
+            "player-frame bubbles use the same four-stage custom palette")
+    end
+end
+assert(playerBubbles.parent == PlayerFrame.manabar
+    or playerBubbles.point and playerBubbles.point[2] == PlayerFrame.manabar,
+    "the player-frame bubbles anchor to the mana bar")
+
+iST:HideBar()
+now = iST.WrathTracker.expiresAt + 0.1
+assert(type(playerBubbles.OnUpdate) == "function", "player-frame bubbles have their own update loop")
+playerBubbles.OnUpdate(playerBubbles, 1)
+assert(count() == 0 and matchesColor(playerBubbles.orbs[1].core.color,
+    iST:GetWrathCueColor(0), 1, iST:GetWrathCueColor(0).a * 0.16),
+    "player-frame bubbles expire stacks even with the main bar hidden")
+
+PlayerFrame:Hide()
+iST:UpdatePlayerWrathBubbles(now)
+assert(not playerBubbles.shown, "player-frame bubbles follow the hidden player frame")
+PlayerFrame:Show()
+PlayerFrame.manabar:Hide()
+iST:UpdatePlayerWrathBubbles(now)
+assert(not playerBubbles.shown, "player-frame bubbles do not cover a hidden mana bar")
+PlayerFrame.manabar:Show()
+local manaBar = PlayerFrame.manabar
+PlayerFrame.manabar = nil
+iST:UpdatePlayerWrathBubbles(now)
+assert(not playerBubbles.shown, "a missing mana bar disables the player-frame attachment gracefully")
+PlayerFrame.manabar = manaBar
+playerClass = "WARRIOR"
+iST:UpdatePlayerWrathBubbles(now)
+assert(not playerBubbles.shown, "the Paladin-only setting also controls player-frame bubbles")
+playerClass = "PALADIN"
+iST.State.InCombat = false
+iST:UpdatePlayerWrathBubbles(now)
+assert(not playerBubbles.shown, "the combat-only setting also controls player-frame bubbles")
+iST.State.InCombat = true
+iSTSettings.enabled = false
+iST:UpdatePlayerWrathBubbles(now)
+assert(not playerBubbles.shown, "disabling iST hides the player-frame bubbles")
+iSTSettings.enabled = true
+iSTSettings.showPlayerWrathBubbles = false
+iST:UpdatePlayerWrathBubbles(now)
+assert(not playerBubbles.shown, "the player-frame option can be disabled independently")
+iST.State.InCombat = false
+
+talentRank = 0
+iST:RefreshUnsealedWrathState()
+attack()
+assert(not iST:HasUnsealedWrath() and count() == 0, "an unselected talent disables buildup")
+
+iSTSettings.wrathCue = "SWORD_IMAGES"
+iST:UpdateWrathDisplay()
+assert(not imageSword.shown, "unselected talent hides the image cue")
+iST:SetFakeUnsealedWrath(true)
+assert(iSTSettings.fakeUnsealedWrath and iST:IsWrathTrackingEnabled(), "fake talent enables only addon tracking")
+assert(not iST:HasUnsealedWrath(), "fake talent does not change the real selected talent")
+iST.State.InCombat = true
+iST:SetCurrentSeal(20154)
+for expected = 1, 3 do attack(); assert(count() == expected, "real swings build simulated talent stacks") end
+iST:UpdateWrathDisplay()
+assert(imageSword.shown, "fake talent can exercise the image sword during real swings")
+auraResult = { applications = 1, expirationTime = now + 5, auraInstanceID = 127 }
+iST:ObserveWrathAura()
+assert(count() == 3, "real buff observations cannot overwrite fake talent simulation")
+auraResult = nil
+iST:StartStackTestMode()
+iST:SetFakeUnsealedWrath(false)
+assert(not iST.State.TestMode and count() == 0, "disabling fake talent ends preview and resets its stacks")
+assert(not iST:IsWrathTrackingEnabled() and not imageSword.shown,
+    "disabling fake talent without the real talent hides its cues")
+talentRank = 1
+iST:RefreshUnsealedWrathState()
+iST:SetFakeUnsealedWrath(true)
+attack()
+auraResult = { applications = 3, expirationTime = now + 5, auraInstanceID = 128 }
+iST:ObserveWrathAura()
+assert(count() == 1, "fake simulation ignores live buffs even when the real talent is learned")
+auraResult = nil
+iST:SetFakeUnsealedWrath(false)
+assert(iST:HasUnsealedWrath() and iST:IsWrathTrackingEnabled() and count() == 0,
+    "disabling fake mode preserves a real talent with fresh tracking")
+attack()
+assert(count() == 1, "the real talent continues tracking after fake mode ends")
+iST.State.InCombat = false
+
+local beforeDebug = #chatMessages
+iSTSettings.debugMode = false
+iST:DebugMsg("silent debug", 3)
+assert(#chatMessages == beforeDebug, "debug diagnostics stay silent while disabled")
+iSTSettings.debugMode = true
+for _, sample in ipairs({ { 1, "DebugError" }, { 2, "DebugWarning" }, { 3, "DebugInfo" } }) do
+    iST:DebugMsg("diagnostic sample", sample[1])
+    local message = chatMessages[#chatMessages]
+    assert(message:find(iST.L[sample[2]], 1, true) == 1
+        and message:find("diagnostic sample", 1, true), "debug severity uses the normalized addon prefix")
+end
+iSTSettings.debugMode = false
+talentRank, talentName = 1, "Twist of Light"
+iST:RefreshUnsealedWrathState()
+assert(not iST:HasUnsealedWrath(), "the removed talent cannot enable the new mechanic")
+talentName, configAvailable = "Unsealed Wrath", false
+iST:RefreshUnsealedWrathState()
+assert(not iST:HasUnsealedWrath(), "an unreadable config stays neutral")
+configAvailable, now = true, now + 2
+assert(iST:HasUnsealedWrath(), "a temporarily unavailable talent config is retried")
+iST:SetCurrentSeal(20154)
+attack()
+event("PLAYER_DEAD")
+assert(count() == 0 and iST.State.CurrentSealID == nil, "death clears stored and active seals")
+runDue()
+print("PASS: Unsealed Wrath tracking, restricted auras, isolated previews, all cue modes, and per-stage color schemes")

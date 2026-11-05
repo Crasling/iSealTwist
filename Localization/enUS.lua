@@ -1,13 +1,11 @@
 local addonName, addon = ...
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                                     Colors                                     │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Colors
 local Colors = {
-    -- Addon Brand Color
+    -- Addon color
     iST = "|cffff9716",
 
-    -- Standard Colors
+    -- Shared text colors
     White = "|cFFFFFFFF",
     Red = "|cFFFF0000",
     Green = "|cFF00FF00",
@@ -16,35 +14,30 @@ local Colors = {
     Gray = "|cFF808080",
     Cyan = "|cFF00FFFF",
 
-    -- WoW Class Colors
+    -- Class colors
     Classes = {
         PALADIN = "|cFFF58CBA",
     },
 
-    -- Reset
     Reset = "|r",
 }
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                           Localization Table Setup                              │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- English text and shared colors
 local L = {}
 addon.L = L
 addon.Colors = Colors
 
--- Fallback: Return key if translation missing
+-- Show the key when a translation is missing, so the label is still visible.
 setmetatable(L, {__index = function(t, k)
     return k
 end})
 
--- Helper for consistent message formatting
+-- Use the same addon prefix for player-facing messages.
 local function Msg(message)
     return Colors.iST .. "[iST]: " .. message
 end
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                                 Chat Messages                                  │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Chat messages
 L["PrintPrefix"] = Colors.iST .. "[iST]: "
 L["DebugInfo"] = Colors.iST .. "[iST]: " .. Colors.White .. "INFO: " .. Colors.Reset .. Colors.iST
 L["DebugWarning"] = Colors.iST .. "[iST]: " .. Colors.Yellow .. "WARNING: " .. Colors.Reset .. Colors.iST
@@ -57,24 +50,23 @@ L["BarLocked"] = Msg("Bar " .. Colors.Green .. "locked" .. Colors.iST .. ".")
 L["BarUnlocked"] = Msg("Bar " .. Colors.Yellow .. "unlocked" .. Colors.iST .. ". Drag to reposition.")
 L["BarReset"] = Msg("Bar position reset to center.")
 L["TestStarted"] = Msg("Test mode: simulating a " .. Colors.Yellow .. "3.6s" .. Colors.iST .. " swing.")
-L["WarningTestStarted"] = Msg("Test mode: previewing the configured no-Echo warning bar.")
+L["StackTestStarted"] = Msg("Test mode: building three stored Seal stacks.")
+L["WrathReleased"] = "Seals unleashed!"
+L["WrathCounter"] = "%d / 3"
+L["WrathCounterReady"] = "%d / 3 - %s"
 L["MacroUpdated"] = "Macro updated with %s, %s."
 L["MinimapLeftClick"] = (Colors.Yellow .. "Left Click: " .. Colors.Orange .. "Enable/Disable")
 L["MinimapShiftLeftClick"] = (Colors.Yellow .. "Shift-Left Click: " .. Colors.Orange .. "Toggle Bar Lock")
 L["MinimapRightClick"] = (Colors.Yellow .. "Right Click: " .. Colors.Orange .. "Open Settings")
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                               Slash Command Help                               │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Slash command help
 L["SlashHelp1"] = Colors.iST .. "iSealTwist Commands:"
 L["SlashHelp2"] = Colors.Yellow .. "  /ist settings" .. Colors.Reset .. " — Open settings panel"
 L["SlashHelp3"] = Colors.Yellow .. "  /ist lock" .. Colors.Reset .. " — Toggle bar lock"
 L["SlashHelp4"] = Colors.Yellow .. "  /ist reset" .. Colors.Reset .. " — Reset bar position"
 L["SlashHelp5"] = Colors.Yellow .. "  /ist test" .. Colors.Reset .. " — Simulate a swing for testing"
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                                Settings Panel                                  │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Settings panel
 L["SettingsTitle"] = Colors.iST .. "iSealTwist — Settings"
 
 -- Sidebar
@@ -109,26 +101,40 @@ L["OnlyInCombat"] = "Only Show In Combat"
 L["OnlyInCombatDesc"] = Colors.Gray .. "Hide the bar when out of combat.|r"
 L["OnlyAsPaladin"] = "Only Active As Paladin"
 L["OnlyAsPaladinDesc"] = Colors.Gray .. "Only activate the addon on Paladin characters.|r"
-L["ShowTwistSuccess"] = "Show 'Seal Twisted!' Text"
-L["ShowTwistSuccessDesc"] = Colors.Gray .. "Show green text when Twist of Light creates an Echo between melee attacks.|r"
+L["ShowTwistSuccess"] = "Show Release Text"
+L["ShowTwistSuccessDesc"] = Colors.Gray .. "Show feedback when an attack with a different seal releases stored stacks.|r"
 
 -- Indicator sub-sections
 L["SectionBarInformation"] = Colors.iST .. "Bar Information"
-L["SectionTwistFeedback"] = Colors.iST .. "Twist Feedback"
+L["SectionUnsealedWrath"] = Colors.iST .. "Unsealed Wrath"
+L["WrathCueStyle"] = "Stack Indicator"
+L["WrathCueSword"] = "Drawn Sword"
+L["WrathCueSwordImages"] = "Sword Images"
+L["WrathCueCircles"] = "Glowing Circles"
+L["WrathCueCounter"] = "Stack Counter"
+L["WrathCueText"] = "Ready Text"
+L["WrathCueOff"] = "Off"
+L["WrathCueDesc"] = Colors.Gray .. "Requires Unsealed Wrath. Stored seals last 15 seconds. Both sword styles and the circles light up from left to right; circles, counter, and text styles keep the normal border.|r"
+L["ShowPlayerWrathBubbles"] = "Show Stacks Below Player Mana"
+L["ShowPlayerWrathBubblesDesc"] = Colors.Gray .. "Show a separate frame with three stack bubbles below the standard player mana bar. Uses your stack colors and works alongside any swing-timer cue.|r"
+L["WrathReadyText"] = "Ready Message"
+L["WrathAttackNow"] = "Attack now"
+L["WrathTrackingDesc"] = Colors.Gray .. "When buff stacks and hit results are hidden by the game, the indicator estimates stacks from main-hand swings. Missed attacks can make that estimate differ from your actual stacks.|r"
 L["SectionSealPair"] = Colors.iST .. "Seal Pair"
 
 -- Seal pair dropdowns
-L["TwistFromSeal"] = "Echo Seal (From)"
-L["TwistFromSealDesc"] = Colors.Gray .. "The eligible seal your QoL macro replaces. Twist of Light supports Command, Righteousness, Fury, and Justice.|r"
-L["TwistIntoSeal"] = "Replacement Seal (Into)"
-L["TwistIntoSealDesc"] = Colors.Gray .. "The different seal your QoL macro switches into. This pair only configures the macro; detection accepts every valid replacement.|r"
-L["SealPairDesc"] = Colors.Gray .. "Green seals can create an Echo when replaced, so a pair of two green seals works in either direction. Orange seals can only be used as the destination. This pair configures the optional SealTwist macro.|r"
+L["TwistFromSeal"] = "Build-up Seal (From)"
+L["TwistFromSealDesc"] = Colors.Gray .. "The seal your optional macro starts with. Build stored stacks before switching to the other seal.|r"
+L["TwistIntoSeal"] = "Release Seal (Into)"
+L["TwistIntoSealDesc"] = Colors.Gray .. "The different seal your macro switches into. An attack with that seal releases stored stacks.|r"
+L["SealPairLegend"] = "Any two different seals work in both directions."
+L["SealPairDesc"] = Colors.Gray .. "Choose two seals for the optional SealTwist macro. With Unsealed Wrath, attacks build up to three stored stacks; switch seals to release them on your next attack. This pair only changes the macro.|r"
 L["OpenMacros"] = "Open Macros"
 L["MacroWindowCombatBlocked"] = Msg("The macro window cannot be opened during combat.")
 
 -- Twist text customization
 L["SectionTextAppearance"] = Colors.iST .. "Text"
-L["TwistTextSize"] = "Twist Text Size"
+L["TwistTextSize"] = "Release Text Size"
 L["IconSize"] = "Seal Icon Size"
 L["CurrentSealTextSize"] = "Current Seal Text Size"
 L["LatencyTextSize"] = "Latency Text Size"
@@ -139,8 +145,15 @@ L["SectionBarColors"]   = Colors.iST .. "Bar Colors"
 L["DefaultColors"]      = "Default Colors"
 L["ColorBar"]           = "Fill"
 L["ColorBorderNormal"]  = "Border"
-L["ColorTwistSuccess"]  = "Twist Success Text"
-L["ColorTwistWarning"]  = "No Echo Warning"
+L["ColorTwistSuccess"]  = "Release Text"
+L["SectionStackColors"] = Colors.iST .. "Stack Colors"
+L["WrathColorScheme"] = "Color Scheme"
+L["WrathSchemeGold"] = "Gold"
+L["WrathSchemeTraffic"] = "Red to Green"
+L["WrathSchemeBlue"] = "Blue to Cyan"
+L["WrathSchemeCustom"] = "Custom"
+L["WrathStageColor"] = "%d / 3 stacks"
+L["WrathStageColorsDesc"] = Colors.Gray .. "Choose a scheme or customize each stack stage. Colors apply to both sword styles, circles, counter, ready text, and player-frame bubbles. Editing a color switches to Custom; only sword styles change your normal border.|r"
 
 -- Position
 L["SectionPosition"] = Colors.iST .. "Position"
@@ -151,20 +164,22 @@ L["LockBarDesc"] = Colors.Gray .. "Prevent the bar from being dragged.|r"
 L["CenterHorizontally"] = "Center Horizontally"
 L["ResetPosition"] = "Reset Position"
 L["TestBar"] = "Test Bar"
-L["TestWarningBar"] = "Test Warning Bar"
-L["TestTwistSuccess"] = "Test Twist Success"
+L["TestStackBar"] = "Test Stack Buildup"
+L["TestTwistSuccess"] = "Test Release"
 L["PreviewNormal"] = "1. Normal"
-L["PreviewWarning"] = "2. No Echo"
-L["PreviewSuccess"] = "3. Twist Success"
+L["PreviewStacks"] = "2. Build Stacks"
+L["PreviewSuccess"] = "3. Release"
 
 -- About
-L["AboutText"] = Colors.iST .. "iSealTwist " .. Colors.Reset .. "is a WoW Forever Paladin weapon-swing timer. With Twist of Light learned, it reports successful Echo creation when an eligible seal is replaced between melee attacks."
+L["SectionTesting"] = Colors.iST .. "Testing"
+L["DebugMode"] = "Debug Mode"
+L["FakeUnsealedWrath"] = "Fake Unsealed Wrath"
+L["TestingDesc"] = Colors.Gray .. "Debug Mode shows diagnostics. Fake Unsealed Wrath lets iST track stacks without the talent; it does not grant the talent in-game. Attack with an active seal or use the stack preview to test your cues.|r"
+L["AboutText"] = Colors.iST .. "iSealTwist " .. Colors.Reset .. "is a WoW Forever Paladin weapon-swing timer. With Unsealed Wrath learned, it tracks stored Seal stacks and shows when three stacks are ready for a seal switch."
 L["CreatedBy"] = "Created by: "
 L["ISTCurseForgeLink"] = "Available on CurseForge: curseforge.com/wow/addons/isealtwist"
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                              Other Addon Tabs                                  │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Other addon tabs
 L["TabIWR"] = "iWR Settings"
 L["TabIWRPromo"] = "iWillRemember"
 L["TabINIF"] = "iNIF Settings"
@@ -172,9 +187,7 @@ L["TabINIFPromo"] = "iNeedIfYouNeed"
 L["TabIRC"] = "iRC Panel"
 L["TabIRCPromo"] = "iRC: Guild Connect"
 
--- ╭────────────────────────────────────────────────────────────────────────────────╮
--- │                              Other Addon Promos                                │
--- ╰────────────────────────────────────────────────────────────────────────────────╯
+-- Other addon descriptions
 L["IWRPromoDesc"] = Colors.iST .. "iWillRemember " .. Colors.Reset .. "is a player notes addon. Track, rate, and share notes about players with your friends. Never forget a ninja looter again."
 L["IWRPromoLink"] = "Available on CurseForge: curseforge.com/wow/addons/iwillremember"
 L["INIFPromoDesc"] = Colors.iST .. "iNeedIfYouNeed " .. Colors.Reset .. "is a smart loot addon. Automatic need/greed rolling with party coordination. Don't let them ninja without needing back."

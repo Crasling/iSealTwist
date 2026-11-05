@@ -1,6 +1,7 @@
 manual-changelog: .release-changelog.md
 
 ignore:
+  - tests
   - .github
   - .release-changelog.md
   - Libs/LibStub/tests
