@@ -2,41 +2,34 @@
  iSealTwist - Changelog
 ================================================================================
 
-v0.8.1 - Unsealed Wrath (Unreleased)
+v0.8.1 - Unsealed Wrath
 --------------------------------------------------------------------------------
 [CHANGED] Updated for the new Unsealed Wrath talent
-[ADDED] Show stacks with two sword styles, glowing circles, a counter, or a ready message
+[ADDED] Choose from two sword styles, glowing circles, a counter, or a ready message
 [ADDED] Optional stack bubbles below your mana bar
-[ADDED] Stack previews, color themes, and custom colors
-[ADDED] Test Unsealed Wrath without learning the talent
+[ADDED] Color themes and custom colors for each stack count
+[ADDED] Preview stack indicators and test without learning the talent
 [ADDED] Debug Mode in the About tab
+[CHANGED] Stack counts are estimated when the game hides buff information
 
 v0.7.5 - Seal Timer & AddOn Access
 --------------------------------------------------------------------------------
-[ADDED] iSealTwist is available from Blizzard's AddOns button
+[ADDED] Open iST from Blizzard's AddOns button
 [ADDED] An optional 30-second timer appears inside the active seal icon
 [FIXED] The seal timer stays centered and turns red below five seconds
 [FIXED] The settings window now closes with Escape
 
 v0.7.4 - Interface & Twist Feedback
 --------------------------------------------------------------------------------
-
- [CHANGED] Updated the addon logo and adjusted its minimap framing so the mark
-           fills the button and remains vertically centered
- [CHANGED] Rebuilt the settings window with iRC-style panels, navigation,
-           buttons, dropdowns, color rows, and wider circular-handle sliders
- [CHANGED] Reorganized Customization with grouped positioning tools and an
-           ordered Normal -> No Echo -> Twist Success preview panel
- [ADDED]   Added a configurable no-Echo warning color and a horizontal-centering
-           control that preserves the bar's vertical position
- [CHANGED] Twist success text now appears when the next weapon swing consumes a
-           prepared Echo instead of appearing immediately when seals are changed
- [CHANGED] Refined the Seal Pair card with centered columns, contextual one-way
-           or green two-way arrows, and disabled duplicate seal choices
- [ADDED]   Added an Open Macros shortcut that selects the generated SealTwist
-           macro on either the account or character tab
- [FIXED]   Deleting the generated SealTwist macro now recreates it automatically;
-           Open Macros also restores a missing macro before selecting it
+[CHANGED] Updated the logo and minimap icon
+[IMPROVED] Cleaner settings, buttons, dropdowns, and sliders
+[IMPROVED] Customization settings are grouped with clearer previews
+[ADDED] Custom warning color when no Echo is ready
+[ADDED] Center the swing bar horizontally
+[CHANGED] Twist success appears when a swing uses the prepared Echo
+[IMPROVED] Seal choices show valid directions and prevent duplicate selections
+[ADDED] Open Macros finds and selects your SealTwist macro
+[FIXED] Deleted SealTwist macros are recreated automatically
 
 v0.7.3 - Swing Timer & Seal Pair
 --------------------------------------------------------------------------------
