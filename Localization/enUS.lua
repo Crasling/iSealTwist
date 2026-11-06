@@ -58,6 +58,9 @@ L["MacroUpdated"] = "Macro updated with %s, %s."
 L["MinimapLeftClick"] = (Colors.Yellow .. "Left Click: " .. Colors.Orange .. "Enable/Disable")
 L["MinimapShiftLeftClick"] = (Colors.Yellow .. "Shift-Left Click: " .. Colors.Orange .. "Toggle Bar Lock")
 L["MinimapRightClick"] = (Colors.Yellow .. "Right Click: " .. Colors.Orange .. "Open Settings")
+L["TooltipStatus"] = Colors.Yellow .. "Status: " .. Colors.Reset
+L["StatusEnabled"] = Colors.Green .. "Swing timer enabled" .. Colors.Reset
+L["StatusDisabled"] = Colors.Red .. "Swing timer disabled" .. Colors.Reset
 
 -- Slash command help
 L["SlashHelp1"] = Colors.iST .. "iSealTwist Commands:"

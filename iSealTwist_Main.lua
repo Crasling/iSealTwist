@@ -1028,6 +1028,8 @@ function iST:CreateMinimapButton()
             tooltip:AddLine(L["MinimapLeftClick"], 1, 1, 1)
             tooltip:AddLine(L["MinimapShiftLeftClick"], 1, 1, 1)
             tooltip:AddLine(L["MinimapRightClick"], 1, 1, 1)
+            tooltip:AddLine(" ", 1, 1, 1)
+            tooltip:AddLine(L["TooltipStatus"] .. (iSTSettings.enabled and L["StatusEnabled"] or L["StatusDisabled"]), 1, 1, 1)
             tooltip:Show()
         end,
     })

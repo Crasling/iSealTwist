@@ -2,6 +2,10 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.2 - Minimap Tooltip
+--------------------------------------------------------------------------------
+[ADDED] Minimap tooltip shows whether the swing timer is enabled
+
 v0.8.1 - Unsealed Wrath
 --------------------------------------------------------------------------------
 [CHANGED] Updated for the new Unsealed Wrath talent
