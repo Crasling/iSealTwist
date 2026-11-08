@@ -2,6 +2,12 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.3 - Seal Timer Fix
+--------------------------------------------------------------------------------
+[ADDED] Debug messages show what resets each timer
+[FIXED] Seal of Command hits no longer restart the seal timer
+[FIXED] Buff updates no longer restart the seal countdown
+
 v0.8.2 - Minimap Tooltip
 --------------------------------------------------------------------------------
 [ADDED] Minimap tooltip shows whether the swing timer is enabled

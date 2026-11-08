@@ -1376,7 +1376,7 @@ function iST:CreateOptionsPanel()
         installedFrame:SetAllPoints(promo.content)
         installedFrame:Hide()
         do
-            local y = -10
+            local _, y = nil, -10
             _, y = CreateSectionHeader(installedFrame, Colors.iST .. promo.name, y)
             local desc
             desc, y = CreateInfoText(installedFrame, promo.installedDesc, y, "GameFontHighlight")
@@ -1404,7 +1404,7 @@ function iST:CreateOptionsPanel()
         promoFrame:SetAllPoints(promo.content)
         promoFrame:Hide()
         do
-            local y = -10
+            local _, y = nil, -10
             _, y = CreateSectionHeader(promoFrame, Colors.iST .. promo.name, y)
             local desc
             desc, y = CreateInfoText(promoFrame, promo.desc, y, "GameFontHighlight")

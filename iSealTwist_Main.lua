@@ -11,9 +11,11 @@ local function IsSecret(value)
 end
 
 local function GetLocalizedSpellName(spellID, fallback)
-    local localizedName
-    localizedName = C_Spell.GetSpellName(spellID)
-    return localizedName or fallback
+    local ok, localizedName = pcall(C_Spell.GetSpellName, spellID)
+    if ok and not IsSecret(localizedName) and type(localizedName) == "string" then
+        return localizedName
+    end
+    return fallback
 end
 
 local Title = "iSealTwist"
@@ -43,6 +45,17 @@ function iST:DebugMsg(message, severity)
 end
 
 local print = function(...) iST:PrintToChat(...) end
+
+local function debugTimerReset(timer, spellID, source, before, after, fallbackName)
+    if not iSTSettings or not iSTSettings.debugMode then return end
+    local name, id = fallbackName or "Internal update", "none"
+    if not IsSecret(spellID) and type(spellID) == "number" then
+        name = GetLocalizedSpellName(spellID, fallbackName or "Unknown spell")
+        id = tostring(spellID)
+    end
+    iST:DebugMsg(string.format("%s by %s (spell ID: %s; event: %s; combat: %s): %.1fs -> %.1fs.",
+        timer, name, id, source or "INTERNAL", iST.State.InCombat and "yes" or "no", before, after), 3)
+end
 
 -- Addon details
 iST.Title = Title
@@ -124,7 +137,8 @@ for spellID, name in pairs(iST.SEALS) do
     end
 end
 
--- A cast with a known translated name can teach us an unlisted spell ID.
+-- Translated names identify the seal family; spellbook checks distinguish
+-- an unlisted cast rank from a triggered effect with the same name.
 iST.KNOWN_SEAL_NAMES = {
     ["Seal of Command"] = true,
     ["Seal of Righteousness"] = true,
@@ -144,33 +158,35 @@ for canonicalName in pairs(iST.KNOWN_SEAL_NAMES) do
     iST.SEAL_NAME_ALIASES[canonicalName] = canonicalName
 end
 
--- Try the known spell IDs first, then match the translated seal name.
-function iST:ResolveSealCast(...)
-    local fallbackSpellID, eventSpellName
-    for index = 1, select("#", ...) do
-        local value = select(index, ...)
-        if IsSecret(value) then
-            -- Restricted event payloads cannot be used as lookup keys.
-        elseif type(value) == "number" then
-            if self.SEALS[value] then return value, self.SEALS[value] end
-            if not fallbackSpellID and value > 100 then fallbackSpellID = value end
-        elseif type(value) == "string" and self.SEAL_NAME_ALIASES[value] then
-            eventSpellName = self.SEAL_NAME_ALIASES[value]
-        end
-    end
+local ignoredSealSpellIDs = {}
 
-    if fallbackSpellID then
-        local spellName = GetLocalizedSpellName(fallbackSpellID)
-        if spellName and self.SEAL_NAME_ALIASES[spellName] then
-            eventSpellName = self.SEAL_NAME_ALIASES[spellName]
-        end
-    end
+function iST:ResolveSealCast(unit, castGUID, spellID)
+    -- The proc can produce a successful-cast event too. Its name alone is not
+    -- evidence that the player reapplied the seal.
+    if IsSecret(spellID) or type(spellID) ~= "number" or spellID <= 0
+        or spellID >= math.huge or spellID ~= math.floor(spellID) then return end
+    if self.SEALS[spellID] then return spellID, self.SEALS[spellID] end
 
-    if fallbackSpellID and eventSpellName then
-        self.SEALS[fallbackSpellID] = eventSpellName
+    local spellName = GetLocalizedSpellName(spellID)
+    local eventSpellName = spellName and self.SEAL_NAME_ALIASES[spellName]
+    if not eventSpellName then return end
+
+    local check = C_SpellBook and C_SpellBook.IsSpellInSpellBook
+    local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
+    local ok, inSpellbook
+    if type(check) == "function" and bank ~= nil then
+        ok, inSpellbook = pcall(check, spellID, bank, false)
+    end
+    if ok and not IsSecret(inSpellbook) and inSpellbook == true then
+        self.SEALS[spellID] = eventSpellName
         self.SEAL_NAMES[eventSpellName] = true
-        self.SEAL_SPELL_IDS[eventSpellName] = self.SEAL_SPELL_IDS[eventSpellName] or fallbackSpellID
-        return fallbackSpellID, eventSpellName
+        self.SEAL_SPELL_IDS[eventSpellName] = self.SEAL_SPELL_IDS[eventSpellName] or spellID
+        return spellID, eventSpellName
+    end
+    if iSTSettings and iSTSettings.debugMode and not ignoredSealSpellIDs[spellID] then
+        ignoredSealSpellIDs[spellID] = true
+        self:DebugMsg(string.format("Ignored %s spell %d: not confirmed in the player spellbook; seal timer unchanged.",
+            eventSpellName, spellID), 3)
     end
 end
 
@@ -555,7 +571,7 @@ function iST:OnBarUpdate(elapsed)
     self:UpdateSealTimer(now)
     if state.TestMode and now >= state.NextSwingTime then
         state.PreviewStacks = state.StackTestMode and (state.PreviewStacks + 1) % 4 or 0
-        self:ResetSwingTimer(3.6, false)
+        self:ResetSwingTimer(3.6, false, nil, "PREVIEW")
     end
 
     -- Wait for the next swing event rather than inventing another attack.
@@ -678,7 +694,7 @@ function iST:ShowTwistResult()
 end
 
 -- Swing timing
-function iST:ResetSwingTimer(swingDuration, isMeleeAttack)
+function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
     if issecretvalue and issecretvalue(swingDuration) then swingDuration = nil end
     local speed = type(swingDuration) == "number" and swingDuration or UnitAttackSpeed("player")
     if issecretvalue and issecretvalue(speed) then return end
@@ -700,10 +716,14 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack)
     self.State.Idle = false
 
     local now = GetTime()
+    local previousRemaining = math.max(0, self.State.NextSwingTime - now)
 
     self.State.WeaponSpeed = speed
     self.State.LastSwingTime = now
     self.State.NextSwingTime = now + speed
+    local resetName = not IsSecret(spellID) and self.SWING_RESET_SPELLS[spellID] or nil
+    debugTimerReset("Weapon swing timer reset", spellID, sourceEvent, previousRemaining, speed,
+        isMeleeAttack and "Main-hand auto attack" or resetName or "Timer update")
     self:UpdateBarVisibility()
 end
 
@@ -866,20 +886,25 @@ function iST:ObserveWrathAura(updateInfo)
     end
 end
 
-function iST:SetCurrentSeal(spellID, observedExpirationTime)
+function iST:SetCurrentSeal(spellID, observedExpirationTime, sourceEvent)
+    if IsSecret(spellID) then return end
     local name = self.SEALS[spellID]
     if not name then return end
 
+    local previousRemaining = math.max(0, (self.State.SealExpiresAt or 0) - GetTime())
     self.State.CurrentSealID = spellID
     self.State.CurrentSealName = name
     self.State.CurrentSealIcon = C_Spell.GetSpellTexture(spellID)
     self.State.SealCastTime = GetTime()
     local remaining = self.CONSTANTS.SEAL_DURATION
-    if not IsSecret(observedExpirationTime) and type(observedExpirationTime) == "number"
-        and observedExpirationTime > self.State.SealCastTime then
+    local observed = not IsSecret(observedExpirationTime) and type(observedExpirationTime) == "number"
+        and observedExpirationTime > self.State.SealCastTime and observedExpirationTime < math.huge
+    if observed then
         remaining = observedExpirationTime - self.State.SealCastTime
     end
     self.State.SealExpiresAt = self.State.SealCastTime + remaining
+    debugTimerReset(observed and "Seal timer synced" or "Seal timer reset", spellID,
+        sourceEvent, previousRemaining, remaining, name)
     self.State.SealGeneration = (self.State.SealGeneration or 0) + 1
     local sealGeneration = self.State.SealGeneration
 
@@ -896,7 +921,7 @@ function iST:SetCurrentSeal(spellID, observedExpirationTime)
     self:UpdateWrathDisplay()
 end
 
-function iST:ScanForActiveSealOutOfCombat()
+function iST:ScanForActiveSealOutOfCombat(sourceEvent)
     -- Recover a seal that was already active when the addon loaded.
     -- Leave the current estimate alone while combat blocks this scan.
     if (InCombatLockdown and InCombatLockdown())
@@ -910,8 +935,14 @@ function iST:ScanForActiveSealOutOfCombat()
             local expirationTime
             local readable = pcall(function() expirationTime = aura.expirationTime end)
             if not readable then return end
-            if issecretvalue and issecretvalue(expirationTime) then expirationTime = nil end
-            self:SetCurrentSeal(spellID, expirationTime)
+            -- An unrelated aura update must not manufacture another full
+            -- duration when the seal's actual expiry is unavailable.
+            if IsSecret(expirationTime) or type(expirationTime) ~= "number"
+                or expirationTime <= GetTime() or expirationTime >= math.huge
+                or expirationTime ~= expirationTime then return end
+            if self.State.CurrentSealName == self.SEALS[spellID]
+                and self.State.SealExpiresAt == expirationTime then return end
+            self:SetCurrentSeal(spellID, expirationTime, sourceEvent or "OUT_OF_COMBAT_AURA_SCAN")
             return
         end
     end
@@ -1360,7 +1391,7 @@ local function OnEvent(self, event, ...)
         if IsSecret(swingType) then return end
         if swingType == nil or swingType == Enum.PlayerSwingType.MainHand then
             iST:StopTestMode()
-            iST:ResetSwingTimer(swingDuration, true)
+            iST:ResetSwingTimer(swingDuration, true, nil, "PLAYER_SWING")
         end
         return
     end
@@ -1387,7 +1418,7 @@ local function OnEvent(self, event, ...)
         -- Stored seals remain available through short combat breaks.
         iST.WrathTracker:GetCount(GetTime())
         iST:UpdateBarVisibility()
-        iST:ScanForActiveSealOutOfCombat()
+        iST:ScanForActiveSealOutOfCombat("PLAYER_REGEN_ENABLED")
         iST:ObserveWrathAura()
         if iST.State.PendingMacroRefresh then
             iST:RequestTwistMacroRefresh()
@@ -1398,7 +1429,7 @@ local function OnEvent(self, event, ...)
     if event == "UNIT_AURA" then
         local unit, updateInfo = ...
         if not IsSecret(unit) and unit == "player" then
-            iST:ScanForActiveSealOutOfCombat()
+            iST:ScanForActiveSealOutOfCombat("UNIT_AURA")
             iST:ObserveWrathAura(updateInfo)
         end
         return
@@ -1426,22 +1457,15 @@ local function OnEvent(self, event, ...)
             -- Record the seal from the successful cast instead of waiting for
             -- a buff update, which may arrive later or be unreadable.
             local sealSpellID = iST:ResolveSealCast(...)
-            if sealSpellID then iST:SetCurrentSeal(sealSpellID) end
-
-            -- The usual spell ID is third. Also check the other arguments for
-            -- known reset spells because the event layout has varied by build.
-            local resetSpellID = type(spellID) == "number" and spellID or nil
-            if not (resetSpellID and iST.SWING_RESET_SPELLS[resetSpellID]) then
-                for index = 1, select("#", ...) do
-                    local value = select(index, ...)
-                    if type(value) == "number" and iST.SWING_RESET_SPELLS[value] then
-                        resetSpellID = value
-                        break
-                    end
-                end
+            if sealSpellID then
+                iST:SetCurrentSeal(sealSpellID, nil, "UNIT_SPELLCAST_SUCCEEDED")
             end
+
+            -- Only the spell-ID field identifies the cast. Other numeric
+            -- fields, such as the cast-bar ID, must never reset the timer.
+            local resetSpellID = not IsSecret(spellID) and type(spellID) == "number" and spellID or nil
             if resetSpellID and iST.SWING_RESET_SPELLS[resetSpellID] then
-                iST:ResetSwingTimer(nil, false)
+                iST:ResetSwingTimer(nil, false, resetSpellID, "UNIT_SPELLCAST_SUCCEEDED")
             end
         end
         return
@@ -1511,7 +1535,7 @@ function iST:OnAddonLoaded()
 
     self:UpdateLatency()
 
-    self:ScanForActiveSealOutOfCombat()
+    self:ScanForActiveSealOutOfCombat("ADDON_LOADED")
 
     self:RegisterSlashCommands()
 
@@ -1528,7 +1552,7 @@ function iST:OnPlayerLogin()
     C_Timer.After(1, function()
         if iST.State.Initialized then
             iST:RefreshUnsealedWrathState()
-            iST:ScanForActiveSealOutOfCombat()
+            iST:ScanForActiveSealOutOfCombat("PLAYER_LOGIN")
             iST:ObserveWrathAura()
         end
     end)

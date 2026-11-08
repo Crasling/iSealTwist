@@ -1,6 +1,6 @@
 -- Run from the addon directory. These checks use no game or network access.
 local now, timers, frames, chatMessages = 100, {}, {}, {}
-local playerClass, playerDead = "PALADIN", false
+local playerClass, playerDead, inCombat = "PALADIN", false, false
 local function widget(parent)
     local object = { parent = parent, widgetWidth = 250, widgetHeight = 25, shown = false, alpha = 1 }
     local methods = {}
@@ -65,8 +65,8 @@ function UnitIsDeadOrGhost() return playerDead end
 function UnitHealth() return playerDead and 0 or 100 end
 function UnitPowerType() return 0, "MANA" end
 function UnitAttackSpeed() return 3.6 end
-function InCombatLockdown() return false end
-function UnitAffectingCombat() return false end
+function InCombatLockdown() return inCombat end
+function UnitAffectingCombat() return inCombat end
 function LibStub() return nil end
 function tostringall(...) return ... end
 local secret = {}
@@ -536,4 +536,146 @@ attack()
 event("PLAYER_DEAD")
 assert(count() == 0 and iST.State.CurrentSealID == nil, "death clears stored and active seals")
 runDue()
+
+-- Command's triggered damage has the same name as the seal itself.
+-- Only casting the seal should start another thirty-second countdown.
+local originalSpellName = C_Spell.GetSpellName
+local spellNames = {
+    [20424] = "Seal of Command", [20916] = "Seal of Command",
+    [20921] = "Seal of Command", [20922] = "Seal of Command", [20923] = "Seal of Command",
+    [20187] = "Seal of Righteousness", [20467] = "Judgement of Command",
+    [600001] = "Seal of Command", [600002] = "Seal of Command",
+    [600003] = "Seal of Command", [600004] = secret,
+}
+C_Spell.GetSpellName = function(id) return spellNames[id] or originalSpellName(id) end
+Enum.SpellBookSpellBank = { Player = 0 }
+local spellbookResult = true
+C_SpellBook = { IsSpellInSpellBook = function(id, bank, includeOverrides)
+    assert(bank == Enum.SpellBookSpellBank.Player and includeOverrides == false,
+        "new seal IDs require an exact player-spellbook match")
+    return id == 600001 and spellbookResult or false
+end }
+iST:StopTestMode()
+inCombat = true
+event("PLAYER_REGEN_DISABLED")
+iST:SetCurrentSeal(20375)
+local sealExpiry, sealGeneration = iST.State.SealExpiresAt, iST.State.SealGeneration
+local oldSealReader, combatAuraReads = C_UnitAuras.GetPlayerAuraBySpellID, 0
+C_UnitAuras.GetPlayerAuraBySpellID = function() combatAuraReads = combatAuraReads + 1; return secret end
+event("UNIT_AURA", "player", {})
+assert(combatAuraReads == 0 and iST.State.SealExpiresAt == sealExpiry,
+    "combat leaves seal aura scans blocked while cast-event tracking remains active")
+for _, procID in ipairs({20424, 20916, 20921, 20922, 20923, 20467, 20424}) do
+    now = now + 1
+    event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-proc", procID)
+    assert(iST.State.CurrentSealID == 20375 and iST.State.SealExpiresAt == sealExpiry
+        and iST.State.SealGeneration == sealGeneration, "Command damage and Judgement cannot refresh the seal")
+    assert(iST.SEALS[procID] == nil, "a proc cannot teach the addon a seal-cast ID")
+end
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-recast", 20375)
+assert(iST.State.SealExpiresAt == now + 30 and iST.State.SealExpiresAt > sealExpiry,
+    "a genuine recast refreshes the timer")
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-righteousness", 20154)
+sealExpiry = iST.State.SealExpiresAt
+now = now + 1
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-righteousness-proc", 20187)
+event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
+assert(iST.State.CurrentSealID == 20154 and iST.State.SealExpiresAt == sealExpiry,
+    "Righteousness damage and normal swings also preserve the countdown")
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-secret", secret)
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-unavailable")
+assert(iST.State.SealExpiresAt == sealExpiry, "hidden or missing spell IDs do not change the timer")
+spellbookResult = secret
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-hidden-book", 600001)
+assert(iST.State.CurrentSealID == 20154, "hidden spellbook results do not confirm a new seal")
+spellbookResult = true
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-new-rank", 600001)
+assert(iST.State.CurrentSealID == 600001 and iST.State.CurrentSealName == "Seal of Command",
+    "an actual spellbook seal can still teach an unlisted rank")
+local savedSpellbook = C_SpellBook
+C_SpellBook = nil
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-no-book", 600002)
+C_SpellBook = { IsSpellInSpellBook = function() error("spellbook unavailable") end }
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-book-error", 600003)
+C_SpellBook = savedSpellbook
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-secret-name", 600004)
+event("UNIT_SPELLCAST_SUCCEEDED", "party1", "Cast-other-player", 20154)
+assert(iST.State.CurrentSealID == 600001, "unavailable APIs, hidden spell names and other units cannot change the seal")
+iSTSettings.debugMode = true
+local diagnosticCount = #chatMessages
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-proc-debug", 20424)
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-proc-debug", 20424)
+assert(#chatMessages == diagnosticCount + 1 and chatMessages[#chatMessages]:find("20424", 1, true),
+    "Debug Mode identifies an ignored proc once without flooding chat")
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-real-debug", 20375)
+local resetMessage = chatMessages[#chatMessages]
+assert(resetMessage:find("Seal timer reset by Seal of Command", 1, true)
+    and resetMessage:find("spell ID: 20375", 1, true)
+    and resetMessage:find("UNIT_SPELLCAST_SUCCEEDED", 1, true)
+    and resetMessage:find("combat: yes", 1, true)
+    and resetMessage:find("30.0s", 1, true), "seal reset diagnostics name the spell, ID, event and countdown")
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-repentance-debug", 20066)
+resetMessage = chatMessages[#chatMessages]
+assert(resetMessage:find("Weapon swing timer reset by Repentance", 1, true)
+    and resetMessage:find("spell ID: 20066", 1, true)
+    and resetMessage:find("UNIT_SPELLCAST_SUCCEEDED", 1, true), "swing-reset spells log their own identity")
+event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
+resetMessage = chatMessages[#chatMessages]
+assert(resetMessage:find("Main-hand auto attack", 1, true) and resetMessage:find("event: PLAYER_SWING", 1, true)
+    and resetMessage:find("spell ID: none", 1, true), "normal attacks identify their event without inventing a spell ID")
+iSTSettings.debugMode = false
+local silentResets = #chatMessages
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-silent-debug", 20375)
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-silent-repentance", 20066)
+event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
+assert(#chatMessages == silentResets, "all timer-reset diagnostics stay silent with Debug Mode disabled")
+local nextSwing = iST.State.NextSwingTime
+now = now + 0.1
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-other", 20467, 20066)
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-hidden", secret, 20066)
+assert(iST.State.NextSwingTime == nextSwing, "a cast-bar ID cannot be mistaken for a swing-reset spell ID")
+inCombat = false
+C_UnitAuras.GetPlayerAuraBySpellID = oldSealReader
+event("PLAYER_REGEN_ENABLED")
+
+local observedSeal
+C_UnitAuras.GetPlayerAuraBySpellID = function(id)
+    if id == 20375 then return observedSeal end
+end
+iST:SetCurrentSeal(20375)
+sealExpiry, sealGeneration = iST.State.SealExpiresAt, iST.State.SealGeneration
+for _, expiry in ipairs({secret, 0, false}) do
+    now = now + 1
+    observedSeal = { expirationTime = expiry }
+    event("UNIT_AURA", "player", {})
+    assert(iST.State.SealExpiresAt == sealExpiry and iST.State.SealGeneration == sealGeneration,
+        "aura updates without a readable expiry never restart the timer")
+end
+observedSeal = { expirationTime = sealExpiry }
+event("UNIT_AURA", "player", {})
+assert(iST.State.SealGeneration == sealGeneration, "unchanged aura expiry does not reschedule the timer")
+observedSeal = { expirationTime = now + 12 }
+iSTSettings.debugMode = true
+event("UNIT_AURA", "player", {})
+assert(iST.State.SealExpiresAt == now + 12, "a readable buff expiry corrects the estimate")
+resetMessage = chatMessages[#chatMessages]
+assert(resetMessage:find("Seal timer synced by Seal of Command", 1, true)
+    and resetMessage:find("spell ID: 20375", 1, true) and resetMessage:find("event: UNIT_AURA", 1, true),
+    "aura corrections identify their source separately from successful casts")
+iSTSettings.debugMode = false
+local correctedExpiry = iST.State.SealExpiresAt
+now = correctedExpiry
+runDue()
+assert(iST.State.CurrentSealID == nil, "old callbacks cannot prevent the corrected seal from expiring")
+iST:SetCurrentSeal(20154)
+sealExpiry = iST.State.SealExpiresAt
+now = now + 5
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-switch", 20375)
+now = sealExpiry
+runDue()
+assert(iST.State.CurrentSealID == 20375, "the previous seal's expiry cannot clear a newer cast")
+now = iST.State.SealExpiresAt
+runDue()
+assert(iST.State.CurrentSealID == nil, "the new seal expires at its own deadline")
 print("PASS: Unsealed Wrath tracking, restricted auras, isolated previews, all cue modes, and per-stage color schemes")
+print("PASS: seal casts, same-name damage procs, Judgement, spellbook confirmation, and aura countdown corrections")
