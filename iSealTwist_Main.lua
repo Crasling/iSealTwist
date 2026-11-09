@@ -72,6 +72,7 @@ iST.CONSTANTS = {
     BAR_UPDATE_RATE = 0.016,        -- ~60fps
     BAR_STALE_THRESHOLD = 0.5,      -- hide bar this long after expected swing
     SEAL_DURATION = 30,            -- Forever seals are tracked from successful casts
+    PARRY_EVENT_DELAY = 0.65,     -- Observed offset between Forever's parry and swing event streams
 }
 
 iST.FONT_CHOICES = {
@@ -276,7 +277,7 @@ iST.SettingsDefault = {
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
     twistSuccessColor = { r = 0.2, g = 1.0, b = 0.2, a = 1.0 },
-    wrathCue = "SWORD",
+    wrathCue = "BAR_COLOR",
     showPlayerWrathBubbles = false,
     wrathReadyText = "Switch now",
     wrathColorScheme = "GOLD",
@@ -315,8 +316,8 @@ function iST:InitializeSettings()
         end
     end
     -- Replace removed cue choices and move the old shared color to stage colors.
-    local validCues = { SWORD = true, SWORD_IMAGES = true, COUNTER = true, TEXT = true, CIRCLES = true, OFF = true }
-    if not validCues[iSTSettings.wrathCue] then iSTSettings.wrathCue = "SWORD" end
+    local validCues = { BAR_COLOR = true, SWORD_IMAGES = true, COUNTER = true, TEXT = true, CIRCLES = true, OFF = true }
+    if not validCues[iSTSettings.wrathCue] then iSTSettings.wrathCue = self.SettingsDefault.wrathCue end
     self:InitializeWrathColors(legacyWrathColor)
     iSTSettings.wrathCueColor = nil
     iSTSettings.twistWarningColor = nil
@@ -349,9 +350,17 @@ function iST:ApplyBarTypography()
     ApplyFont(bar.speedText, speedSize or 11, "OUTLINE")
     ApplyFont(bar.latencyText, iSTSettings.latencyTextSize or 9, "OUTLINE")
     ApplyFont(bar.sealText, iSTSettings.sealTextSize or 10, "OUTLINE")
-    local sealTimerSize = math.max(9, math.min(18,
-        math.floor((iSTSettings.sealIconSize or iSTSettings.barHeight or 25) * 0.46 + 0.5)))
+    local iconSize = math.max(16, iSTSettings.sealIconSize or iSTSettings.barHeight or 25)
+    local sealTimerSize = math.floor(iconSize * 0.46 + 0.5)
     ApplyFont(bar.sealTimerText, sealTimerSize, "THICKOUTLINE")
+    if bar.sealTimerOverlay then
+        -- Center the visible digits, allowing for the font's side bearing and
+        -- baseline padding. A fixed pixel nudge stops fitting as the icon grows.
+        local opticalOffset = sealTimerSize * 0.1
+        bar.sealTimerText:ClearAllPoints()
+        bar.sealTimerText:SetSize(iconSize, iconSize)
+        bar.sealTimerText:SetPoint("CENTER", bar.sealTimerOverlay, "CENTER", opticalOffset - 1, -opticalOffset)
+    end
     ApplyFont(bar.twistResultText, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
     ApplyFont(bar.wrathCueText, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
     bar.latencyText:SetScale(1)
@@ -413,6 +422,19 @@ function iST:CreateSwingBar()
     fill:SetVertexColor(bc.r, bc.g, bc.b, bc.a)
     bar.fill = fill
 
+    local parryTrail = bar:CreateTexture(nil, "ARTWORK", nil, 2)
+    parryTrail:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+    parryTrail:SetVertexColor(1, 0.78, 0.25, 1)
+    parryTrail:SetBlendMode("ADD")
+    parryTrail:Hide()
+    bar.parryTrail = parryTrail
+
+    local parrySpark = bar:CreateTexture(nil, "ARTWORK", nil, 3)
+    parrySpark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
+    parrySpark:SetVertexColor(1, 0.88, 0.45, 1)
+    parrySpark:SetBlendMode("ADD")
+    parrySpark:Hide()
+    bar.parrySpark = parrySpark
 
     -- Circular seal icon (left of bar)
     local sealIconFrame = CreateFrame("Frame", nil, bar)
@@ -429,13 +451,37 @@ function iST:CreateSwingBar()
     sealIconRing:SetPoint("CENTER", sealIconFrame, "CENTER")
     sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95)
 
-    local sealIcon = sealIconFrame:CreateTexture(nil, "ARTWORK")
+    -- The portrait covers the center of this circular swipe, leaving only the
+    -- outer ring visible. Blizzard animates the countdown between our updates.
+    local sealRingCountdown = CreateFrame("Cooldown", nil, sealIconFrame, "CooldownFrameTemplate")
+    sealRingCountdown:SetAllPoints(sealIconRing)
+    sealRingCountdown:SetFrameLevel(sealIconFrame:GetFrameLevel() + 1)
+    sealRingCountdown:EnableMouse(false)
+    sealRingCountdown:SetSwipeTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+    sealRingCountdown:SetSwipeColor(1, 0.59, 0.09, 0.95)
+    sealRingCountdown:SetDrawSwipe(true)
+    sealRingCountdown:SetDrawEdge(false)
+    sealRingCountdown:SetDrawBling(false)
+    sealRingCountdown:SetUseCircularEdge(true)
+    sealRingCountdown:SetReverse(false)
+    sealRingCountdown:SetHideCountdownNumbers(true)
+    sealRingCountdown.noCooldownCount = true
+    sealRingCountdown:Hide()
+    bar.sealRingCountdown = sealRingCountdown
+
+    local sealPortraitFrame = CreateFrame("Frame", nil, sealIconFrame)
+    sealPortraitFrame:SetAllPoints(sealIconFrame)
+    sealPortraitFrame:SetFrameLevel(sealRingCountdown:GetFrameLevel() + 1)
+    sealPortraitFrame:EnableMouse(false)
+    bar.sealPortraitFrame = sealPortraitFrame
+
+    local sealIcon = sealPortraitFrame:CreateTexture(nil, "ARTWORK")
     sealIcon:SetPoint("CENTER", sealIconFrame, "CENTER")
     sealIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
     local sealIconMask
-    if sealIcon.AddMaskTexture and sealIconFrame.CreateMaskTexture then
-        sealIconMask = sealIconFrame:CreateMaskTexture()
+    if sealIcon.AddMaskTexture and sealPortraitFrame.CreateMaskTexture then
+        sealIconMask = sealPortraitFrame:CreateMaskTexture()
         sealIconMask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
         sealIconMask:SetAllPoints(sealIcon)
         sealIcon:AddMaskTexture(sealIconMask)
@@ -457,19 +503,30 @@ function iST:CreateSwingBar()
     bar.sealIconRing = sealIconRing
     bar.sealIconMask = sealIconMask
 
-    -- Center the text itself in the seal icon, without a fixed-size text box.
-    local sealTimerText = sealIconFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    sealTimerText:SetPoint("CENTER", sealIconFrame, "CENTER", 0, 0)
+    -- A separate, non-interactive text area follows the icon's exact bounds.
+    local sealTimerOverlay = CreateFrame("Frame", nil, sealIconFrame)
+    sealTimerOverlay:SetAllPoints(sealIcon)
+    sealTimerOverlay:SetFrameLevel(sealPortraitFrame:GetFrameLevel() + 1)
+    sealTimerOverlay:EnableMouse(false)
+    bar.sealTimerOverlay = sealTimerOverlay
+
+    local sealTimerText = sealTimerOverlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    sealTimerText:SetAllPoints(sealTimerOverlay)
+    sealTimerText:SetJustifyH("CENTER")
+    sealTimerText:SetJustifyV("MIDDLE")
+    sealTimerText:SetWordWrap(false)
+    sealTimerText:SetNonSpaceWrap(false)
+    sealTimerText:SetMaxLines(1)
     sealTimerText:SetText("")
     sealTimerText:SetTextColor(1, 1, 1, 1)
-    sealTimerText:SetShadowOffset(1, -1)
-    sealTimerText:SetShadowColor(0, 0, 0, 1)
+    sealTimerText:SetShadowOffset(0, 0)
+    sealTimerText:SetShadowColor(0, 0, 0, 0)
     sealTimerText:Hide()
     bar.sealTimerText = sealTimerText
 
     -- Time remaining text (right side)
     local timeText = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    timeText:SetPoint("RIGHT", bar, "RIGHT", -6, 0)
+    timeText:SetPoint("RIGHT", bar, "RIGHT", -5, 0)
     timeText:SetText("")
     timeText:SetTextColor(1, 1, 1, 1)
     bar.timeText = timeText
@@ -481,15 +538,22 @@ function iST:CreateSwingBar()
     speedText:SetTextColor(0.8, 0.8, 0.8, 0.7)
     bar.speedText = speedText
 
+    -- Keep the labels above the sword image frame, including its outer glow.
+    local labelOverlay = CreateFrame("Frame", nil, bar)
+    labelOverlay:SetAllPoints(bar)
+    labelOverlay:SetFrameLevel(bar:GetFrameLevel() + 3)
+    labelOverlay:EnableMouse(false)
+    bar.labelOverlay = labelOverlay
+
     -- Latency text (bottom-right, small)
-    local latencyText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local latencyText = labelOverlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     latencyText:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", -2, -2)
     latencyText:SetText("")
     latencyText:SetTextColor(0.5, 0.5, 0.5, 0.8)
     bar.latencyText = latencyText
 
     -- Seal name text (below bar, center)
-    local sealText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local sealText = labelOverlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     sealText:SetPoint("TOP", bar, "BOTTOM", 0, -2)
     sealText:SetText("")
     sealText:SetTextColor(1, 0.59, 0.09, 0.9)
@@ -580,13 +644,12 @@ function iST:OnBarUpdate(elapsed)
     local stale = not noSwing and not state.TestMode
         and now > state.NextSwingTime + self.CONSTANTS.BAR_STALE_THRESHOLD
     if noSwing or stale then
+        self:ClearParryAnimation()
         if not state.Idle then
             state.Idle = true
             self:UpdateBarVisibility()
             local inset = bar.contentInset or 1
             bar.fill:SetWidth(math.max(1, bar:GetWidth() - inset * 2))
-            local color = iSTSettings.barColor
-            bar.fill:SetVertexColor(color.r, color.g, color.b, 0.18)
             bar.timeText:SetText("")
             bar.speedText:Hide()
             bar.latencyText:SetShown(iSTSettings.showLatency)
@@ -595,10 +658,9 @@ function iST:OnBarUpdate(elapsed)
         state.Idle = false
         local inset = bar.contentInset or 1
         local width = bar:GetWidth() - inset * 2
-        local progress = math.max(0, math.min((now - state.LastSwingTime) / state.WeaponSpeed, 1))
-        local color = iSTSettings.barColor
+        local progress = self:GetSwingBarProgress(now)
         bar.fill:SetWidth(math.max(1, progress * width))
-        bar.fill:SetVertexColor(color.r, color.g, color.b, color.a)
+        self:UpdateParryAnimation(now, progress, width)
         bar.timeText:SetText(string.format("%.1fs", math.max(0, state.NextSwingTime - now)))
         if iSTSettings.showWeaponSpeed then
             bar.speedText:SetText(string.format("%.2f", state.WeaponSpeed))
@@ -630,6 +692,7 @@ function iST:OnBarUpdate(elapsed)
 end
 
 function iST:HideBar()
+    self:ClearParryAnimation()
     if self.BarFrame then
         self.BarFrame:Hide()
         self.State.BarVisible = false
@@ -694,11 +757,127 @@ function iST:ShowTwistResult()
 end
 
 -- Swing timing
+function iST:ClearParryAnimation()
+    self.State.ParryAnimation = nil
+    if self.BarFrame then
+        self.BarFrame.parryTrail:Hide()
+        self.BarFrame.parrySpark:Hide()
+    end
+end
+
+function iST:GetSwingBarProgress(now)
+    local state = self.State
+    if state.WeaponSpeed <= 0 then return 0 end
+    local progress = (now - state.LastSwingTime) / state.WeaponSpeed
+    local animation = state.ParryAnimation
+    if animation and animation.duration > 0 then
+        local fraction = math.max(0, math.min((now - animation.start) / animation.duration, 1))
+        -- Ease the newly gained progress into view; the actual deadline and
+        -- countdown have already changed and do not wait for the animation.
+        progress = progress - animation.offset * (1 - fraction) ^ 3
+    end
+    return math.max(0, math.min(progress, 1))
+end
+
+function iST:UpdateParryAnimation(now, progress, width)
+    local state, bar = self.State, self.BarFrame
+    local animation = state.ParryAnimation
+    if not animation then return end
+    local age = now - animation.start
+    if age >= animation.fade or now >= state.NextSwingTime then
+        self:ClearParryAnimation()
+        return
+    end
+    local alpha = math.max(0, 1 - age / animation.fade)
+    local inset = bar.contentInset or 1
+    local origin = math.min(progress, animation.from + age / state.WeaponSpeed)
+    bar.parryTrail:ClearAllPoints()
+    bar.parryTrail:SetPoint("TOPLEFT", bar, "TOPLEFT", inset + origin * width, -inset)
+    bar.parryTrail:SetSize(math.max(1, (progress - origin) * width), math.max(1, bar:GetHeight() - inset * 2))
+    bar.parryTrail:SetAlpha(alpha * 0.35)
+    bar.parryTrail:Show()
+    bar.parrySpark:ClearAllPoints()
+    bar.parrySpark:SetPoint("CENTER", bar, "LEFT", inset + progress * width, 0)
+    bar.parrySpark:SetSize(14, math.max(18, bar:GetHeight() * 1.5))
+    bar.parrySpark:SetAlpha(alpha * 0.9)
+    bar.parrySpark:Show()
+end
+
+function iST:ApplyParryHaste(preview)
+    local state = self.State
+    if not iSTSettings.enabled or state.TestMode ~= (preview == true) then return false end
+    local speed, now = state.WeaponSpeed, GetTime()
+    if IsSecret(speed) or type(speed) ~= "number" or speed <= 0 or speed ~= speed or speed == math.huge then
+        self:DebugMsg("Parry ignored: no readable main-hand weapon speed is cached.", 3)
+        return false
+    end
+    local remaining = state.NextSwingTime - now
+    if remaining <= 0 then
+        self:DebugMsg("Parry ignored: there is no pending main-hand swing.", 3)
+        return false
+    end
+
+    -- UNIT_COMBAT arrives later than PLAYER_SWING on Forever. Apply the rule
+    -- at the estimated parry time, then return to the bar's event timeline.
+    -- Otherwise a previous swing's late parry can hasten the new bar cycle.
+    local eventDelay = preview == true and 0 or self.CONSTANTS.PARRY_EVENT_DELAY
+    local atParry = remaining + eventDelay
+    if atParry > speed + 0.00001 or (eventDelay > 0 and atParry >= speed - 0.00001) then
+        self:DebugMsg(string.format("Parry ignored: estimated event belongs before this swing (bar left %.3fs; corrected %.3fs; weapon %.3fs; event offset %.3fs).",
+            remaining, atParry, speed, eventDelay), 3)
+        return false
+    end
+
+    local floor = speed * 0.2
+    if atParry <= floor + 0.00001 then
+        self:DebugMsg(string.format("Parry detected: corrected %.3fs left; already within the %.3fs parry-haste floor (bar left %.3fs).",
+            atParry, floor, remaining), 3)
+        return false
+    end
+    -- A preview has no dispatch delay, so its fresh swing may start at 100%.
+    local after = math.max(0, math.max(floor, atParry - speed * 0.4) - eventDelay)
+    local gained = remaining - after
+    local visibleProgress = self:GetSwingBarProgress(now)
+    if preview ~= true and iSTSettings.debugMode then
+        state.ParryTimingCheck = state.ParryTimingCheck or { originalDeadline = state.NextSwingTime, startedAt = now }
+        state.ParryTimingCheck.predictedDeadline = state.NextSwingTime - gained
+    end
+    state.LastSwingTime = state.LastSwingTime - gained
+    state.NextSwingTime = state.NextSwingTime - gained
+    local targetProgress = math.max(0, math.min(1, (now - state.LastSwingTime) / speed))
+    state.ParryAnimation = {
+        start = now, from = visibleProgress, offset = math.max(0, targetProgress - visibleProgress),
+        duration = math.min(0.16, after * 0.5), fade = math.min(0.35, after),
+    }
+    state.Idle = false
+    self:DebugMsg(string.format("Parry haste (UNIT_COMBAT/player/PARRY): %.3fs -> %.3fs remaining; advanced %.3fs; weapon speed %.3fs; event offset %.3fs.",
+        remaining, after, gained, speed, eventDelay), 3)
+    self:InvalidateBarState()
+    return true
+end
+
+function iST:CheckParryPrediction(now, isMeleeAttack, sourceEvent)
+    local check = self.State.ParryTimingCheck
+    if not check or sourceEvent == "PREVIEW" then return end
+    self.State.ParryTimingCheck = nil
+    if not isMeleeAttack then
+        self:DebugMsg("Parry timing check cancelled by a swing-resetting cast.", 3)
+    elseif now - check.startedAt <= self.State.WeaponSpeed * 2 then
+        self:DebugMsg(string.format("Next main-hand swing after parry: %.3fs from corrected prediction; %.3fs from original deadline (negative = early, positive = late).",
+            now - check.predictedDeadline, now - check.originalDeadline), 3)
+    else
+        self:DebugMsg("Parry timing check expired before the next main-hand swing.", 3)
+    end
+end
+
 function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
     if issecretvalue and issecretvalue(swingDuration) then swingDuration = nil end
     local speed = type(swingDuration) == "number" and swingDuration or UnitAttackSpeed("player")
     if issecretvalue and issecretvalue(speed) then return end
     if not speed or speed <= 0 then return end
+    self:ClearParryAnimation()
+    local now = GetTime()
+    self:CheckParryPrediction(now, isMeleeAttack, sourceEvent)
 
     -- A swing event gives timing, not a hit result. Estimate the stacks here,
     -- then check the buff after the game has processed the swing.
@@ -715,7 +894,6 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
     end
     self.State.Idle = false
 
-    local now = GetTime()
     local previousRemaining = math.max(0, self.State.NextSwingTime - now)
 
     self.State.WeaponSpeed = speed
@@ -734,6 +912,12 @@ function iST:OnAttackSpeedChanged()
     local newSpeed = UnitAttackSpeed("player")
     if issecretvalue and issecretvalue(newSpeed) then return end
     if not newSpeed or newSpeed <= 0 then return end
+    if newSpeed == state.WeaponSpeed then return end
+    self:ClearParryAnimation()
+    if state.ParryTimingCheck then
+        state.ParryTimingCheck = nil
+        self:DebugMsg("Parry timing check cancelled by an attack-speed change.", 3)
+    end
 
     -- Haste changes the time left without restarting the swing from zero.
     local now = GetTime()
@@ -972,23 +1156,49 @@ function iST:UpdateSealTimer(now)
         and self.State.CurrentSealIcon
         and remaining > 0
 
+    local urgent = remaining < 5
+    self:UpdateSealRing(expiresAt, showTimer, urgent)
     if showTimer then
         local displayedSeconds = math.ceil(remaining)
-        local urgent = displayedSeconds < 5
         bar.sealTimerText:SetText(tostring(displayedSeconds))
         if urgent then
             bar.sealTimerText:SetTextColor(1, 0.12, 0.08, 1)
-            if bar.sealIconRing then bar.sealIconRing:SetVertexColor(1, 0.08, 0.05, 1) end
         else
             bar.sealTimerText:SetTextColor(1, 1, 1, 1)
-            if bar.sealIconRing then bar.sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95) end
         end
         bar.sealTimerText:Show()
     else
         bar.sealTimerText:SetText("")
         bar.sealTimerText:Hide()
-        if bar.sealIconRing then bar.sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95) end
     end
+end
+
+function iST:UpdateSealRing(expiresAt, showTimer, urgent)
+    local bar = self.BarFrame
+    local countdown = bar and bar.sealRingCountdown
+    if not countdown then return end
+    if not showTimer then
+        if bar.sealRingExpiresAt then countdown:Clear() end
+        countdown:Hide()
+        bar.sealRingExpiresAt, bar.sealRingUrgent = nil, nil
+        bar.sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95)
+        return
+    end
+
+    if bar.sealRingExpiresAt ~= expiresAt then
+        -- A seal recovered after login may already be partly expired. Keep its
+        -- full thirty-second scale instead of drawing a fresh ring on recovery.
+        local duration = self.CONSTANTS.SEAL_DURATION
+        countdown:SetCooldown(expiresAt - duration, duration)
+        bar.sealRingExpiresAt = expiresAt
+        bar.sealIconRing:SetVertexColor(0.28, 0.28, 0.28, 0.95)
+    end
+    if bar.sealRingUrgent ~= urgent then
+        if urgent then countdown:SetSwipeColor(1, 0.08, 0.05, 1)
+        else countdown:SetSwipeColor(1, 0.59, 0.09, 0.95) end
+        bar.sealRingUrgent = urgent
+    end
+    countdown:Show()
 end
 
 function iST:UpdateSealDisplay()
@@ -1263,6 +1473,7 @@ end
 function iST:StopTestMode()
     local state = self.State
     if not state.TestMode then return end
+    self:ClearParryAnimation()
     state.TestMode, state.StackTestMode, state.PreviewStacks = false, false, 0
     state.TestModeGeneration = state.TestModeGeneration + 1
     -- Return to the real swing timing without touching the live stack tracker.
@@ -1283,6 +1494,7 @@ end
 
 local function StartBarTest(stackPreview)
     local state = iST.State
+    iST:ClearParryAnimation()
     if not state.TestMode then
         state.TestSwingSnapshot = { state.WeaponSpeed, state.LastSwingTime, state.NextSwingTime }
     end
@@ -1322,6 +1534,16 @@ end
 function iST:StartTwistSuccessTestMode()
     StartBarTest(false)
     self:ShowTwistResult()
+end
+
+function iST:StartParryHasteTestMode()
+    StartBarTest(false)
+    local generation = self.State.TestModeGeneration
+    C_Timer.After(0.7, function()
+        if iST.State.TestMode and iST.State.TestModeGeneration == generation then
+            iST:ApplyParryHaste(true)
+        end
+    end)
 end
 
 -- Slash commands
@@ -1396,6 +1618,16 @@ local function OnEvent(self, event, ...)
         return
     end
 
+    if event == "UNIT_COMBAT" then
+        local unit, action = ...
+        -- The amount field can be secret. Only the defender and action are
+        -- needed, and neither is compared until its readability is checked.
+        if not IsSecret(unit) and not IsSecret(action) and unit == "player" and action == "PARRY" then
+            iST:ApplyParryHaste()
+        end
+        return
+    end
+
     if event == "PLAYER_REGEN_DISABLED" then
         iST.State.InCombat = true
         iST:StopTestMode()
@@ -1436,7 +1668,11 @@ local function OnEvent(self, event, ...)
     end
 
     if event == "PLAYER_DEAD" then
+        iST.State.ParryTimingCheck = nil
+        iST:ClearParryAnimation()
         iST:StopTestMode()
+        iST.State.LastSwingTime, iST.State.NextSwingTime = 0, 0
+        iST:InvalidateBarState()
         iST.WrathTracker:Reset()
         iST.State.WrathAuraInstanceID = nil
         iST:ClearCurrentSeal()
@@ -1491,6 +1727,7 @@ for _, eventName in ipairs({
     "PLAYER_LOGIN",
     "PLAYER_ENTERING_WORLD",
     "PLAYER_SWING",
+    "UNIT_COMBAT",
     "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED",
     "PLAYER_DEAD",

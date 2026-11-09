@@ -28,13 +28,35 @@ local function widget(parent)
     function methods:SetBackdropBorderColor(...) self.borderColor = { ... } end
     function methods:SetPoint(...) self.point = { ... } end
     function methods:GetPoint() return table.unpack(self.point or { "CENTER", nil, "CENTER", 0, 0 }) end
-    function methods:GetFrameLevel() return 1 end
+    function methods:GetFrameLevel() return self.frameLevel or 1 end
+    function methods:SetFrameLevel(value) self.frameLevel = value end
+    function methods:SetAllPoints(target) self.allPointsTarget = target end
+    function methods:SetCooldown(start, duration)
+        self.cooldownStart, self.cooldownDuration = start, duration
+        self.cooldownSets = (self.cooldownSets or 0) + 1
+    end
+    function methods:Clear() self.cooldownStart, self.cooldownDuration = nil, nil end
+    function methods:SetSwipeTexture(value) self.swipeTexture = value end
+    function methods:SetSwipeColor(...) self.swipeColor = { ... } end
+    function methods:SetReverse(value) self.reverse = value end
+    function methods:SetDrawSwipe(value) self.drawSwipe = value end
+    function methods:SetDrawEdge(value) self.drawEdge = value end
+    function methods:SetDrawBling(value) self.drawBling = value end
+    function methods:SetHideCountdownNumbers(value) self.hideCountdownNumbers = value end
     function methods:GetEffectiveScale() return 1 end
     function methods:GetScale() return 1 end
     function methods:SetScript(event, callback) self[event] = callback end
+    function methods:RegisterEvent(event)
+        self.registeredEvents = self.registeredEvents or {}
+        self.registeredEvents[event] = true
+    end
     function methods:CreateFontString() return widget(self) end
     function methods:CreateTexture() return widget(self) end
     function methods:CreateMaskTexture() return widget(self) end
+    function methods:AddMaskTexture(mask)
+        self.masks = self.masks or {}
+        self.masks[#self.masks + 1] = mask
+    end
     function methods:CreateLine() return widget(self) end
     function methods:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "OUTLINE" end
     function methods:SetFont(path, size, flags) self.font = { path, size, flags } end
@@ -106,6 +128,7 @@ local events = frames[1]
 iST:InitializeSettings()
 assert(iSTSettings.fakeUnsealedWrath == false and iSTSettings.debugMode == false,
     "fake talent and debug diagnostics start disabled")
+assert(iSTSettings.wrathCue == "BAR_COLOR", "new characters default to swing bar stack colors")
 iST:CreateSwingBar()
 iST:RefreshUnsealedWrathState()
 local function event(name, ...) events.OnEvent(events, name, ...) end
@@ -183,20 +206,19 @@ assert(iST.State.PreviewStacks == 3, "stack preview reaches three")
 assert(iST.WrathTracker.count == liveCount and iST.WrathTracker.expiresAt == liveExpiry,
     "previews never alter live stack state")
 iSTSettings.wrathCue = "SWORD"
+iST:InitializeSettings()
+assert(iSTSettings.wrathCue == "BAR_COLOR", "saved drawn-sword selections move to swing bar colors")
 iST:UpdateWrathDisplay()
-assert(iST.BarFrame.wrathSword.shown, "sword style appears in stack preview")
-assert(iST.BarFrame.borderColor[4] == 0, "sword replaces the normal border")
-for _, stroke in ipairs(iST.BarFrame.wrathSword.strokes) do
-    assert(stroke.edge.color[1] == iST:GetWrathCueColor(3).r, "all three sword sections illuminate at full stacks")
-end
+assert(not iST.BarFrame.wrathSword, "the removed drawn sword is no longer constructed")
+assert(iST.BarFrame.fill.color[1] == iST:GetWrathCueColor(3).r, "the swing fill uses the three-stack color")
+assert(iST.BarFrame.borderColor[4] == iSTSettings.borderNormalColor.a, "bar colors preserve the normal border")
 iST.State.PreviewStacks = 1
 iST:UpdateWrathDisplay()
-assert(iST.BarFrame.wrathSword.bladeTop[1].edge.color[1] >
-    iST.BarFrame.wrathSword.bladeTop[2].edge.color[1], "the sword fills from left to right")
+assert(iST.BarFrame.fill.color[2] == iST:GetWrathCueColor(1).g, "the fill follows changes in stack count")
 iSTSettings.wrathCue = "COUNTER"
 iST:UpdateWrathDisplay()
-assert(not iST.BarFrame.wrathSword.shown and iST.BarFrame.wrathCueText.text == "1 / 3",
-    "counter style replaces sword rendering")
+assert(iST.BarFrame.wrathCueText.text == "1 / 3", "counter style replaces bar-color cues")
+assert(iST.BarFrame.fill.color[2] == iSTSettings.barColor.g, "counter style restores the normal fill color")
 assert(iST.BarFrame.borderColor[1] == iSTSettings.borderNormalColor.r,
     "counter style restores the configured normal border")
 iSTSettings.wrathCue = "TEXT"
@@ -207,7 +229,7 @@ iST:UpdateWrathDisplay()
 assert(iST.BarFrame.wrathCueText.text == "Switch now", "three stacks show the selected ready phrase")
 iSTSettings.wrathCue = "OFF"
 iST:UpdateWrathDisplay()
-assert(not iST.BarFrame.wrathSword.shown and not iST.BarFrame.wrathCueFrame.shown,
+assert(not iST.BarFrame.wrathCueFrame.shown,
     "off hides every stack cue")
 
 iSTSettings.wrathCue = "SWORD_IMAGES"
@@ -215,14 +237,20 @@ iST:InitializeSettings()
 assert(iSTSettings.wrathCue == "SWORD_IMAGES", "the image sword remains a saved cue choice")
 local imageSword = assert(iST.BarFrame.wrathSwordImages, "the image sword cue is constructed")
 assert(imageSword.base.texture:find("Sword_Base", 1, true), "image cue uses the unlit sword asset")
+assert(imageSword.glowMask.texture:find("Sword_GlowEdgeMask.tga", 1, true),
+    "the glow has a dedicated soft edge mask")
+assert(imageSword.base.masks and imageSword.base.masks[1] == imageSword.glowMask,
+    "the base artwork and glow use the same feathered outer margin")
 for stage = 0, 3 do
     iST.State.PreviewStacks = stage
     iST:UpdateWrathDisplay()
     assert(imageSword.shown and imageSword.base.shown, "the image cue keeps its base visible")
-    assert(not iST.BarFrame.wrathSword.shown, "image cue does not overlap the drawn sword")
+    assert(not iST.BarFrame.wrathSword, "image cue does not construct the removed drawn sword")
     for index, piece in ipairs(imageSword.pieces) do
         assert(#piece > 0, "each image stack has drawable textures")
         for _, texture in ipairs(piece) do
+            assert(texture.masks and texture.masks[1] == imageSword.glowMask,
+                "every glowing sword section shares the same aligned feather mask")
             assert(texture.shown == (index <= stage), "image sword sections light up left to right")
             if texture.texCoord then
                 for _, coordinate in ipairs(texture.texCoord) do
@@ -236,7 +264,33 @@ for stage = 0, 3 do
             "full-stack glow uses the glowing sword asset")
     end
 end
-for _, style in ipairs({ "SWORD", "COUNTER", "CIRCLES", "OFF" }) do
+local maskFile = assert(io.open("Images/Frames/Sword_GlowEdgeMask.tga", "rb"))
+local maskData = maskFile:read("*a"); maskFile:close()
+assert(#maskData == 18 + 256 * 256 * 4 and maskData:byte(3) == 2 and maskData:byte(17) == 32,
+    "the shaped edge mask is a valid uncompressed RGBA TGA")
+local function maskAlpha(x, y) return maskData:byte(18 + ((y or 128) * 256 + x) * 4 + 4) end
+assert(maskAlpha(0) == 0 and maskAlpha(255) == 0 and maskAlpha(128) == 255 and maskAlpha(248) == 255,
+    "the halo fades completely away at both outer edges while the blade and tip remain opaque")
+assert(maskAlpha(235, 100) > maskAlpha(240, 100) and maskAlpha(240, 100) > maskAlpha(245, 100)
+    and maskAlpha(245, 100) > maskAlpha(250, 100) and maskAlpha(250, 100) > maskAlpha(254, 100),
+    "the right halo has a broad gradual fade away from the blade")
+assert(maskAlpha(20, 100) > maskAlpha(15, 100) and maskAlpha(15, 100) > maskAlpha(10, 100)
+    and maskAlpha(10, 100) > maskAlpha(5, 100), "the left halo has the same broad fade")
+assert(maskAlpha(6, 128) == 255 and maskAlpha(12, 120) == 255,
+    "the solid pommel remains opaque inside the left fade")
+for index = 0, 255 do
+    assert(maskAlpha(0, index) == 0 and maskAlpha(255, index) == 0
+        and maskAlpha(index, 0) == 0 and maskAlpha(index, 255) == 0,
+        "all four canvas boundaries are fully transparent")
+end
+local previousWidth, previousHeight = iST.BarFrame:GetWidth(), iST.BarFrame:GetHeight()
+iST.BarFrame:SetSize(400, 30)
+iST:UpdateWrathDisplay()
+assert(math.abs(imageSword.glowMask:GetWidth() - 1024 * 400 / (890 - 246)) < 0.00001,
+    "the feather mask stays aligned to the full artwork when the bar is resized")
+iST.BarFrame:SetSize(previousWidth, previousHeight)
+iST:UpdateWrathDisplay()
+for _, style in ipairs({ "BAR_COLOR", "COUNTER", "CIRCLES", "OFF" }) do
     iSTSettings.wrathCue = style
     iST:UpdateWrathDisplay()
     assert(not imageSword.shown, "other cues hide the sword images")
@@ -252,7 +306,7 @@ local function matchesColor(actual, expected, brightness, alpha)
         and math.abs(actual[4] - (alpha or expected.a or 1)) < tolerance
 end
 
--- The same stage palette drives the counter, sword, and ready text.
+-- The same stage palette drives the bar, images, bubbles, and ready text.
 iSTSettings.wrathCue = "CIRCLES"
 iST:InitializeSettings()
 assert(iSTSettings.wrathCue == "CIRCLES", "the circles cue survives saved-setting initialization")
@@ -270,19 +324,15 @@ for _, scheme in ipairs({ "GOLD", "TRAFFIC", "BLUE" }) do
             scheme .. " counter uses the configured " .. stage .. "/3 color")
         assert(matchesColor(iST.BarFrame.borderColor, iSTSettings.borderNormalColor),
             "stage-specific counter colors preserve the normal border")
-        iSTSettings.wrathCue = "SWORD"
+        iSTSettings.wrathCue = "BAR_COLOR"
         iST:UpdateWrathDisplay()
-        for _, stroke in ipairs(iST.BarFrame.wrathSword.strokes) do
-            local filled = stage >= stroke.section
-            assert(matchesColor(stroke.edge.color, color, filled and 1 or 0.28,
-                filled and color.a or 0.55),
-                scheme .. " sword uses the same " .. stage .. "/3 color")
-        end
+        assert(matchesColor(iST.BarFrame.fill.color, color), scheme .. " bar uses the chosen " .. stage .. "/3 color")
+        assert(matchesColor(iST.BarFrame.borderColor, iSTSettings.borderNormalColor), "bar colors preserve the normal border")
         iSTSettings.wrathCue = "CIRCLES"
         iST:UpdateWrathDisplay()
-        assert(iST.BarFrame.wrathCircles.shown and not iST.BarFrame.wrathSword.shown
-            and not iST.BarFrame.wrathCueFrame.shown,
-            "circles replace both the sword and counter")
+        assert(iST.BarFrame.wrathCircles.shown and not iST.BarFrame.wrathCueFrame.shown,
+            "circles replace the counter")
+        assert(matchesColor(iST.BarFrame.fill.color, iSTSettings.barColor), "circles restore the configured normal fill")
         assert(matchesColor(iST.BarFrame.borderColor, iSTSettings.borderNormalColor),
             "the circles cue preserves the configured normal border")
         for index, orb in ipairs(iST.BarFrame.wrathCircles.orbs) do
@@ -317,14 +367,9 @@ for stage = 0, 3 do
     iST:UpdateWrathDisplay()
     assert(matchesColor(iST.BarFrame.wrathCueText.textColor, color),
         "each custom stack color reaches the counter renderer")
-    iSTSettings.wrathCue = "SWORD"
+    iSTSettings.wrathCue = "BAR_COLOR"
     iST:UpdateWrathDisplay()
-    for _, stroke in ipairs(iST.BarFrame.wrathSword.strokes) do
-        local filled = stage >= stroke.section
-        assert(matchesColor(stroke.edge.color, color, filled and 1 or 0.28,
-            color.a * (filled and 1 or 0.55)),
-            "custom stack colors and opacity reach every sword stage")
-    end
+    assert(matchesColor(iST.BarFrame.fill.color, color), "custom stack colors and opacity reach the swing fill at every stage")
     iSTSettings.wrathCue = "CIRCLES"
     iST:UpdateWrathDisplay()
     for index, orb in ipairs(iST.BarFrame.wrathCircles.orbs) do
@@ -679,3 +724,319 @@ runDue()
 assert(iST.State.CurrentSealID == nil, "the new seal expires at its own deadline")
 print("PASS: Unsealed Wrath tracking, restricted auras, isolated previews, all cue modes, and per-stage color schemes")
 print("PASS: seal casts, same-name damage procs, Judgement, spellbook confirmation, and aura countdown corrections")
+
+-- Defensive parries advance the existing swing; they are not attacks or casts.
+local function close(actual, expected, message)
+    assert(math.abs(actual - expected) < 0.00001, message)
+end
+local function seedSwing(speed, remaining)
+    iST:ClearParryAnimation()
+    iST.State.ParryTimingCheck = nil
+    iST.State.TestMode, iST.State.Idle = false, false
+    iST.State.WeaponSpeed = speed
+    iST.State.NextSwingTime = now + remaining
+    iST.State.LastSwingTime = now + remaining - speed
+end
+iSTSettings.enabled, iSTSettings.onlyInCombat = true, false
+iSTSettings.debugMode = true
+-- First check the engine's parry bands independently of notification delay.
+local liveParryDelay = iST.CONSTANTS.PARRY_EVENT_DELAY
+iST.CONSTANTS.PARRY_EVENT_DELAY = 0
+assert(events.registeredEvents.UNIT_COMBAT, "parry detection is registered on the actual event frame")
+for _, test in ipairs({
+    { 3, 1.8 }, { 2.5, 1.3 }, { 2, 0.8 }, { 1.5, 0.6 }, { 0.8, 0.6 },
+    { 0.6, 0.6 }, { 0.1, 0.1 }, { 0, 0 }, { -1, -1 },
+}) do
+    seedSwing(3, test[1])
+    event("UNIT_COMBAT", "player", "PARRY", "", secret, 1)
+    close(iST.State.NextSwingTime - now, test[2], "parry applies the full cut, floor, or no change as appropriate")
+    close(iST.State.WeaponSpeed, 3, "parry haste does not change the normal weapon speed")
+    close(iST.State.LastSwingTime + 3, iST.State.NextSwingTime, "start, duration, and deadline stay consistent")
+end
+local floorExplained = false
+for _, message in ipairs(chatMessages) do
+    if message:find("parry-haste floor", 1, true) then floorExplained = true end
+end
+assert(floorExplained, "debug explains parries too close to the next attack")
+seedSwing(3, 2.8)
+local unchanged = iST.State.NextSwingTime
+for _, args in ipairs({ { "target", "PARRY" }, { "party1", "PARRY" }, { "player", "DODGE" },
+    { "player", "BLOCK" }, { "player", "WOUND" }, { secret, "PARRY" }, { "player", secret } }) do
+    event("UNIT_COMBAT", table.unpack(args))
+    assert(iST.State.NextSwingTime == unchanged, "other defenders, other outcomes, and secret tokens cannot advance the player's swing")
+end
+iST.State.WeaponSpeed = secret
+assert(not iST:ApplyParryHaste() and iST.State.NextSwingTime == unchanged,
+    "an unreadable speed is never compared or used in arithmetic")
+seedSwing(3, 2.8)
+iST:SetCurrentSeal(20154)
+iST.WrathTracker:Reset()
+iST.WrathTracker:Attack("Seal of Righteousness", now)
+local savedCount, savedExpiry, savedGeneration = count(), iST.State.SealExpiresAt, iST.State.SealGeneration
+local originalSpeedReader = UnitAttackSpeed
+UnitAttackSpeed = function() error("parry must use its already-known weapon speed") end
+event("UNIT_COMBAT", "player", "PARRY", "", secret, 1)
+UnitAttackSpeed = originalSpeedReader
+close(iST.State.NextSwingTime - now, 1.6, "the countdown uses the corrected deadline immediately")
+assert(count() == savedCount and iST.State.SealExpiresAt == savedExpiry and iST.State.SealGeneration == savedGeneration,
+    "a defensive parry cannot create seal stacks, consume stacks, or reset the seal timer")
+assert(chatMessages[#chatMessages]:find("Parry haste (UNIT_COMBAT/player/PARRY)", 1, true),
+    "debug identifies the event and the before/after swing timing")
+local bar = iST.BarFrame
+local inset = bar.contentInset
+local fillWidth = bar:GetWidth() - inset * 2
+iST:OnBarUpdate(1)
+close(bar.fill:GetWidth() / fillWidth, 0.2 / 3, "the animation starts at the old visible progress")
+assert(bar.timeText:GetText() == "1.6s" and bar.parrySpark:IsShown(), "the countdown is immediate while the forward sweep animates")
+now = now + 0.08
+iST:OnBarUpdate(1)
+local visual = bar.fill:GetWidth() / fillWidth
+local target = (now - iST.State.LastSwingTime) / 3
+assert(visual > 0.2 / 3 and visual < target and bar.parryTrail:GetWidth() > 1,
+    "fill eases forward with a gold trail instead of jumping or delaying the deadline")
+assert(bar.parrySpark.alpha > 0 and bar.parrySpark.alpha < 0.9, "the spark fades during its sweep")
+local beforeSecond = iST:GetSwingBarProgress(now)
+event("UNIT_COMBAT", "player", "PARRY")
+close(iST:GetSwingBarProgress(now), beforeSecond, "a second parry continues smoothly from the currently visible fill")
+close(iST.State.NextSwingTime - now, 0.6, "consecutive parries respect the floor")
+local floorDeadline = iST.State.NextSwingTime
+event("UNIT_COMBAT", "player", "PARRY")
+assert(iST.State.NextSwingTime == floorDeadline, "a parry at the floor cannot postpone the attack")
+now = now + 0.2
+iST:OnBarUpdate(1)
+close(bar.fill:GetWidth() / fillWidth, (now - iST.State.LastSwingTime) / 3,
+    "the eased fill rejoins the corrected timer before the next attack")
+now = now + 0.2
+iST:OnBarUpdate(1)
+assert(not iST.State.ParryAnimation and not bar.parrySpark:IsShown() and not bar.parryTrail:IsShown(),
+    "the glow clears after its short fade")
+assert(bar.fill.color[1] == iSTSettings.barColor.r and bar.fill.color[4] == iSTSettings.barColor.a,
+    "the effect preserves the configured fill color and opacity")
+seedSwing(3, 2.5); event("UNIT_COMBAT", "player", "PARRY")
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+assert(not iST.State.ParryAnimation and not bar.parrySpark:IsShown(), "the actual swing clears the previous parry effect")
+seedSwing(3, 2.5); event("UNIT_COMBAT", "player", "PARRY")
+UnitAttackSpeed = function() return 2 end
+iST:OnAttackSpeedChanged()
+UnitAttackSpeed = originalSpeedReader
+assert(not iST.State.ParryAnimation and iST.State.WeaponSpeed == 2,
+    "a real attack-speed change clears obsolete animation offsets")
+close(iST.State.NextSwingTime - now, 1.3 / 3 * 2, "ordinary haste still rescales the parry-shortened swing")
+iSTSettings.debugMode = false
+seedSwing(3, 2.5)
+local quiet = #chatMessages
+event("UNIT_COMBAT", "player", "PARRY")
+assert(#chatMessages == quiet, "parry diagnostics respect Debug Mode")
+iST:HideBar()
+assert(not iST.State.ParryAnimation, "a hidden bar does not retain an old speedup animation")
+seedSwing(3, 2.5)
+local realStart, realNext = iST.State.LastSwingTime, iST.State.NextSwingTime
+savedCount = count()
+iST:StartParryHasteTestMode()
+now = now + 0.71; runDue()
+assert(iST.State.TestMode and iST.State.ParryAnimation and count() == savedCount,
+    "parry preview animates without changing real seal stacks")
+iST:StopTestMode()
+assert(iST.State.LastSwingTime == realStart and iST.State.NextSwingTime == realNext and not iST.State.ParryAnimation,
+    "stopping the parry preview restores the live timer")
+iST:StartParryHasteTestMode()
+iST:StartTestMode()
+now = now + 0.71; runDue()
+assert(not iST.State.ParryAnimation, "a cancelled preview callback cannot alter a newer preview")
+iST:StopTestMode()
+seedSwing(3, 2.5)
+iSTSettings.enabled = false
+unchanged = iST.State.NextSwingTime
+event("UNIT_COMBAT", "player", "PARRY")
+assert(iST.State.NextSwingTime == unchanged, "disabled tracking does not apply parry haste")
+iSTSettings.enabled = true
+event("UNIT_COMBAT", "player", "PARRY")
+event("PLAYER_DEAD")
+assert(not iST.State.ParryAnimation and iST.State.NextSwingTime == 0, "death clears the speedup effect and stops the swing")
+event("UNIT_COMBAT", "player", "PARRY")
+assert(iST.State.NextSwingTime == 0 and not iST.State.ParryAnimation, "a late parry event cannot restart the timer after death or a combat reload")
+local optionsFile = assert(io.open("iSealTwist_OptionsPanel.lua", "rb"))
+local optionsSource = optionsFile:read("*a"); optionsFile:close()
+assert(optionsSource:find('L["PreviewParryHaste"]', 1, true) and optionsSource:find("iST:StartParryHasteTestMode()", 1, true),
+    "Customization exposes the new parry-haste preview")
+print("PASS: player parries, 40% reduction and 20% floor, secret guards, immediate countdown, eased golden sweep, cleanup, and isolated preview")
+
+-- Forever's defensive notification can belong to the preceding swing. On a
+-- fast one-hander this is longer than the 20% floor itself (2.6s * .2 = .52s).
+iST.CONSTANTS.PARRY_EVENT_DELAY = liveParryDelay
+iSTSettings.debugMode = true
+for _, test in ipairs({ {2.4, 2.4}, {1.95, 1.95}, {1.9, 0.86}, {1.6, 0.56}, {1.3, 0.26}, {0.8, 0}, {0.4, 0} }) do
+    seedSwing(2.6, test[1])
+    event("UNIT_COMBAT", "player", "PARRY", "", secret, 1)
+    close(iST.State.NextSwingTime - now, test[2], "2.6s parry correction uses the parry's estimated time, not its delivery time")
+    close(iST.State.LastSwingTime + 2.6, iST.State.NextSwingTime,
+        "corrected fast-weapon deadlines remain consistent with the progress bar")
+    if test[1] == test[2] then
+        assert(not iST.State.ParryAnimation and not iST.State.ParryTimingCheck,
+            "a previous swing's delayed parry cannot animate a false speedup on the new swing")
+    end
+    iST:OnBarUpdate(1)
+    if test[2] == 0 then assert(not iST.State.ParryAnimation, "an already-due swing cannot leave a zero-duration animation active") end
+end
+seedSwing(3.6, 0.05)
+event("UNIT_COMBAT", "player", "PARRY")
+close(iST.State.NextSwingTime - now, 0.05, "a genuinely sub-floor parry does not delay a slower weapon's imminent attack")
+seedSwing(2.6, 2.4)
+event("UNIT_COMBAT", "player", "PARRY")
+assert(chatMessages[#chatMessages]:find("estimated event belongs before this swing", 1, true),
+    "debug explains why a late previous-cycle parry is ignored")
+seedSwing(2.6, 1.6)
+event("UNIT_COMBAT", "player", "PARRY")
+assert(iST.State.ParryTimingCheck, "debug tracks the expected next swing after a valid parry")
+local unchangedPrediction, unchangedAnimation = iST.State.ParryTimingCheck, iST.State.ParryAnimation
+UnitAttackSpeed = function() return 2.6 end
+iST:OnAttackSpeedChanged()
+UnitAttackSpeed = originalSpeedReader
+assert(iST.State.ParryTimingCheck == unchangedPrediction and iST.State.ParryAnimation == unchangedAnimation,
+    "an unchanged attack-speed notification cannot erase the parry animation or its timing sample")
+local resultLogStart = #chatMessages
+now = iST.State.NextSwingTime
+event("PLAYER_SWING", 2.6, Enum.PlayerSwingType.MainHand)
+local resultLogged = false
+for index = resultLogStart + 1, #chatMessages do
+    if chatMessages[index]:find("Next main-hand swing after parry", 1, true)
+        and chatMessages[index]:find("-1.040s from original deadline", 1, true) then resultLogged = true end
+end
+assert(resultLogged and not iST.State.ParryTimingCheck,
+    "debug compares the next actual swing against both the corrected and unchanged deadlines")
+seedSwing(2.6, 1.6); event("UNIT_COMBAT", "player", "PARRY")
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-reset-timing-check", 20066)
+assert(not iST.State.ParryTimingCheck, "a swing-resetting spell invalidates the timing comparison")
+seedSwing(2.6, 1.6); event("UNIT_COMBAT", "player", "PARRY")
+UnitAttackSpeed = function() return 2.4 end
+iST:OnAttackSpeedChanged()
+UnitAttackSpeed = originalSpeedReader
+assert(not iST.State.ParryTimingCheck, "a real speed change invalidates the timing comparison")
+iSTSettings.debugMode = false
+seedSwing(2.6, 1.6)
+quiet = #chatMessages
+event("UNIT_COMBAT", "player", "PARRY")
+assert(#chatMessages == quiet and not iST.State.ParryTimingCheck, "live parry timing diagnostics stay off when Debug Mode is off")
+iST:ClearParryAnimation()
+iST.State.LastSwingTime, iST.State.NextSwingTime = 0, 0
+print("PASS: Forever event-delay compensation, 2.6s one-hander cases, previous-cycle rejection, due-swing animation cleanup, and actual-swing timing diagnostics")
+
+iSTSettings.wrathCue = "BAR_COLOR"
+iST:StartStackTestMode()
+for stage = 0, 3 do
+    iST.State.PreviewStacks = stage
+    iST:OnBarUpdate(1)
+    assert(matchesColor(bar.fill.color, iST:GetWrathCueColor(stage)),
+        "the real bar update retains the selected color at every preview stack stage")
+end
+now = now + 0.8
+assert(iST:ApplyParryHaste(true), "parry preview works with the colored swing bar")
+iST:OnBarUpdate(1)
+assert(matchesColor(bar.fill.color, iST:GetWrathCueColor(3)) and bar.parrySpark:IsShown(),
+    "the parry animation leaves the three-stack fill color intact")
+iST:StopTestMode()
+talentRank, talentName, inCombat = 0, "Unsealed Wrath", false
+iST.State.InCombat = false
+iST:SetFakeUnsealedWrath(false)
+iST:OnBarUpdate(1)
+assert(matchesColor(bar.fill.color, iSTSettings.barColor, 1, iSTSettings.barColor.a * 0.18),
+    "without Unsealed Wrath, the idle timer uses its normal bar color")
+iST:SetFakeUnsealedWrath(true)
+iST:SetCurrentSeal(20154)
+for _ = 1, 3 do iST.WrathTracker:Attack("Seal of Righteousness", now) end
+iST:OnBarUpdate(1)
+local idleStackColor = iST:GetWrathCueColor(3)
+assert(matchesColor(bar.fill.color, idleStackColor, 1, idleStackColor.a * 0.18),
+    "idle stack colors preserve custom opacity and the normal dimming")
+iSTSettings.wrathCue = "OFF"
+iST:UpdateWrathDisplay()
+assert(matchesColor(bar.fill.color, iSTSettings.barColor, 1, iSTSettings.barColor.a * 0.18),
+    "turning the cue off immediately restores the normal idle fill")
+print("PASS: swing-bar palettes and custom opacity at all four stages, saved cue migration, normal-color fallback, idle dimming, and parry animation coexistence")
+
+local savedIconSize = iSTSettings.sealIconSize
+local smallCorrection
+for _, size in ipairs({ 16, 25, 64 }) do
+    iSTSettings.sealIconSize = size
+    bar:UpdateModernDimensions(iSTSettings.barHeight)
+    assert(bar.sealTimerText.parent == bar.sealTimerOverlay,
+        "the countdown belongs to a dedicated overlay above the seal artwork")
+    local point, relative, relativePoint, x, y = bar.sealTimerText:GetPoint()
+    assert(point == "CENTER" and relative == bar.sealTimerOverlay and relativePoint == "CENTER",
+        "the text area stays centered on the icon overlay")
+    assert(bar.sealTimerText:GetWidth() == size and bar.sealTimerText:GetHeight() == size,
+        "the countdown text area follows both dimensions of the icon")
+    if size == 16 then smallCorrection = x end
+    if size == 64 then assert(x > smallCorrection * 3 and y < 0,
+        "large icons receive a proportional visual correction instead of the small-icon pixel nudge") end
+    for _, seconds in ipairs({20, 11, 7, 1}) do
+        iST.State.SealExpiresAt = now + seconds
+        iST:UpdateSealTimer(now)
+        local _, target, _, nextX, nextY = bar.sealTimerText:GetPoint()
+        assert(target == relative and nextX == x and nextY == y,
+            "single- and double-digit countdowns retain the same visual center")
+    end
+end
+iSTSettings.sealIconSize = savedIconSize
+bar:UpdateModernDimensions(iSTSettings.barHeight)
+print("PASS: dedicated seal-countdown overlay, proportional font correction at 16/25/64px, and stable single/double-digit anchoring")
+
+iSTSettings.showSealIcon, iSTSettings.showSealTimer = true, true
+iST:SetCurrentSeal(20154)
+local ring = bar.sealRingCountdown
+local function ringFraction()
+    return math.max(0, math.min(1, (ring.cooldownStart + ring.cooldownDuration - now) / ring.cooldownDuration))
+end
+assert(ring:IsShown() and ring.drawSwipe and ring.reverse == false and not ring.drawEdge and not ring.drawBling,
+    "the seal ring uses a smooth draining swipe without edge flashes")
+assert(ring.hideCountdownNumbers and ring.noCooldownCount, "the ring does not add another number over the centered timer")
+assert(bar.sealIcon.parent == bar.sealPortraitFrame and bar.sealPortraitFrame:GetFrameLevel() > ring:GetFrameLevel()
+    and bar.sealTimerOverlay:GetFrameLevel() > bar.sealPortraitFrame:GetFrameLevel(),
+    "the portrait and countdown stay above the swipe so the icon itself is never darkened")
+assert(ring.allPointsTarget == bar.sealIconRing, "the countdown follows the outer circle when it is resized")
+close(ringFraction(), 1, "a fresh seal starts with a full ring")
+assert(bar.sealIconRing.color[1] == bar.sealIconRing.color[2] and bar.sealIconRing.color[2] == bar.sealIconRing.color[3],
+    "elapsed time reveals a neutral gray ring underneath")
+local ringSets = ring.cooldownSets
+now = now + 15
+for _ = 1, 20 do iST:UpdateSealTimer(now) end
+close(ringFraction(), 0.5, "half the seal duration leaves half the ring")
+assert(ring.cooldownSets == ringSets and bar.sealTimerText:GetText() == "15",
+    "normal updates keep number and ring synchronized without restarting the native animation")
+now = now + 10.1
+iST:UpdateSealTimer(now)
+assert(ring.swipeColor[2] == 0.08 and bar.sealTimerText.textColor[2] == 0.12,
+    "the remaining arc and number turn red below five actual seconds")
+iSTSettings.showSealTimer = false
+iST:UpdateSealTimer(now)
+assert(not ring:IsShown() and not ring.cooldownStart and bar.sealIconRing.color[2] == 0.59,
+    "turning off the seal timer restores the static gold circle")
+iSTSettings.showSealTimer = true
+iST:UpdateSealTimer(now)
+close(ringFraction(), 4.9 / 30, "re-enabling the ring resumes the actual remaining fraction")
+iSTSettings.showSealIcon = false
+iST:UpdateSealDisplay()
+assert(not ring:IsShown() and not bar.sealTimerText:IsShown(), "hiding the icon also clears its countdown")
+iSTSettings.showSealIcon = true
+iST:SetCurrentSeal(20375, now + 12, "UNIT_AURA")
+close(ringFraction(), 12 / 30, "a recovered partly expired seal uses its full duration scale")
+ringSets = ring.cooldownSets
+local ringExpiry = bar.sealRingExpiresAt
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-command-proc", 20424)
+assert(ring.cooldownSets == ringSets and bar.sealRingExpiresAt == ringExpiry,
+    "Seal of Command damage cannot refill the ring")
+iST:SetCurrentSeal(20375)
+close(ringFraction(), 1, "casting the seal again refills the ring")
+ringSets = ring.cooldownSets
+for _, size in ipairs({16, 64}) do
+    iSTSettings.sealIconSize = size
+    bar:UpdateModernDimensions(iSTSettings.barHeight)
+    iST:UpdateSealTimer(now)
+end
+assert(ring.cooldownSets == ringSets, "resizing does not restart the countdown")
+iSTSettings.sealIconSize = savedIconSize
+bar:UpdateModernDimensions(iSTSettings.barHeight)
+iST:ClearCurrentSeal()
+assert(not ring:IsShown() and not bar.sealRingExpiresAt and not ring.cooldownStart,
+    "seal removal clears the ring and its cached deadline")
+print("PASS: circular seal countdown, gray elapsed arc, final-five-second warning, unchanged portrait, partial recovery, recasts, resize, and disable/removal cleanup")

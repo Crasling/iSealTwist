@@ -2,6 +2,14 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.4 - Parry Haste
+--------------------------------------------------------------------------------
+[ADDED] Golden speedup effect and a parry-haste preview
+[ADDED] Seal icon ring shows the time remaining
+[CHANGED] Replaced the drawn sword with stack colors on the swing bar
+[FIXED] Swing timer accounts for delayed parry updates
+[FIXED] Sword glow fades smoothly at the edges
+
 v0.8.3 - Seal Timer Fix
 --------------------------------------------------------------------------------
 [ADDED] Debug messages show what resets each timer

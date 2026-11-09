@@ -995,7 +995,7 @@ function iST:CreateOptionsPanel()
         _, y = CreateSettingsDropdown(indicatorsContent, L["WrathCueStyle"], y, 250,
             function()
                 return {
-                    { value = "SWORD", text = L["WrathCueSword"] },
+                    { value = "BAR_COLOR", text = L["WrathCueBarColor"] },
                     { value = "SWORD_IMAGES", text = L["WrathCueSwordImages"] },
                     { value = "CIRCLES", text = L["WrathCueCircles"] },
                     { value = "COUNTER", text = L["WrathCueCounter"] },
@@ -1254,7 +1254,7 @@ function iST:CreateOptionsPanel()
         local previewCard = CreateFrame("Frame", nil, customizationContent, BACKDROP_TEMPLATE)
         previewCard:SetPoint("TOPLEFT", customizationContent, "TOPLEFT", 20, y)
         previewCard:SetPoint("TOPRIGHT", customizationContent, "TOPRIGHT", -20, y)
-        previewCard:SetHeight(72)
+        previewCard:SetHeight(106)
         previewCard:SetBackdrop(PANEL_BACKDROP)
         previewCard:SetBackdropColor(0.035, 0.030, 0.022, 0.96)
         previewCard:SetBackdropBorderColor(ORANGE[1], ORANGE[2], ORANGE[3], 0.45)
@@ -1274,6 +1274,9 @@ function iST:CreateOptionsPanel()
         end, true)
         CreateSettingsButtonAt(previewCard, L["PreviewSuccess"], 140, 306, -34, function()
             iST:StartTwistSuccessTestMode()
+        end, true)
+        CreateSettingsButtonAt(previewCard, L["PreviewParryHaste"], 140, 12, -68, function()
+            iST:StartParryHasteTestMode()
         end, true)
         y = y - previewCard:GetHeight() - 8
 

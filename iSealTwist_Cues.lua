@@ -84,82 +84,8 @@ function iST:ResetWrathColors()
     self:SetWrathColorScheme("GOLD")
 end
 
--- Three blade sections surround the existing timer. The first section also
--- lights the grip and guard; the last section completes the sword tip.
-local function CreateSwordStroke(frame, section)
-    local glow = frame:CreateLine(nil, "OVERLAY", nil, 1)
-    glow:SetThickness(7)
-    local edge = frame:CreateLine(nil, "OVERLAY", nil, 2)
-    edge:SetThickness(2)
-    local stroke = { glow = glow, edge = edge, section = section }
-    frame.strokes[#frame.strokes + 1] = stroke
-    return stroke
-end
-
-local function PositionStroke(stroke, frame, x1, y1, x2, y2)
-    stroke.glow:SetStartPoint("BOTTOMLEFT", frame, x1, y1)
-    stroke.glow:SetEndPoint("BOTTOMLEFT", frame, x2, y2)
-    stroke.edge:SetStartPoint("BOTTOMLEFT", frame, x1, y1)
-    stroke.edge:SetEndPoint("BOTTOMLEFT", frame, x2, y2)
-end
-
-local function LayoutSword(bar)
-    local sword = bar.wrathSword
-    local width, height = bar:GetWidth(), bar:GetHeight()
-    -- Only move the lines when the bar is resized.
-    if sword.width == width and sword.height == height then return end
-    sword.width, sword.height = width, height
-
-    local middle, top, bottom = height * 0.5, height + 2, -2
-    local bladeEnd = math.max(4, width - 3)
-    local third = bladeEnd / 3
-    for section = 1, 3 do
-        local startX = (section - 1) * third
-        local endX = section * third
-        PositionStroke(sword.bladeTop[section], sword, startX, top, endX, top)
-        PositionStroke(sword.bladeBottom[section], sword, startX, bottom, endX, bottom)
-    end
-    PositionStroke(sword.tipTop, sword, bladeEnd, top, width + 13, middle)
-    PositionStroke(sword.tipBottom, sword, width + 13, middle, bladeEnd, bottom)
-
-    PositionStroke(sword.guard, sword, -4, bottom - 4, -4, top + 4)
-    PositionStroke(sword.guardTop, sword, -8, top + 4, 0, top + 4)
-    PositionStroke(sword.guardBottom, sword, -8, bottom - 4, 0, bottom - 4)
-    PositionStroke(sword.gripTop, sword, -25, middle + 3, -7, middle + 3)
-    PositionStroke(sword.gripBottom, sword, -25, middle - 3, -7, middle - 3)
-    PositionStroke(sword.pommel, sword, -25, middle - 4, -25, middle + 4)
-    for index, wrap in ipairs(sword.gripWraps) do
-        local x = -22 + (index - 1) * 4
-        PositionStroke(wrap, sword, x, middle - 3, x + 2, middle + 3)
-    end
-
-    bar.wrathCueFrame:SetWidth(math.max(100, width))
-end
-
 function iST:CreateWrathCue(bar)
-    if bar.wrathSword then return end
-
-    local sword = CreateFrame("Frame", nil, bar)
-    sword:SetAllPoints(bar)
-    sword:SetFrameLevel(bar:GetFrameLevel() + 2)
-    sword:EnableMouse(false)
-    sword.strokes, sword.bladeTop, sword.bladeBottom = {}, {}, {}
-    for section = 1, 3 do
-        sword.bladeTop[section] = CreateSwordStroke(sword, section)
-        sword.bladeBottom[section] = CreateSwordStroke(sword, section)
-    end
-    sword.tipTop = CreateSwordStroke(sword, 3)
-    sword.tipBottom = CreateSwordStroke(sword, 3)
-    sword.guard = CreateSwordStroke(sword, 1)
-    sword.guardTop = CreateSwordStroke(sword, 1)
-    sword.guardBottom = CreateSwordStroke(sword, 1)
-    sword.gripTop = CreateSwordStroke(sword, 1)
-    sword.gripBottom = CreateSwordStroke(sword, 1)
-    sword.pommel = CreateSwordStroke(sword, 1)
-    sword.gripWraps = {}
-    for index = 1, 4 do sword.gripWraps[index] = CreateSwordStroke(sword, 1) end
-    sword:Hide()
-    bar.wrathSword = sword
+    if bar.wrathCueFrame then return end
 
     local cueFrame = CreateFrame("Frame", nil, bar)
     cueFrame:SetPoint("BOTTOM", bar, "TOP", 0, 9)
@@ -180,48 +106,37 @@ function iST:CreateWrathCue(bar)
     bar.wrathCircles:SetPoint("BOTTOM", bar, "TOP", 0, 7)
     bar.wrathCircles:SetFrameLevel(bar:GetFrameLevel() + 4)
     self:CreatePlayerWrathFrame()
-    LayoutSword(bar)
 end
 
 function iST:UpdateWrathDisplay(now)
     local bar = self.BarFrame
-    if not bar or not bar.wrathSword then return end
+    if not bar or not bar.wrathCueFrame then return end
     now = now or GetTime()
     -- Previews supply their own count; drawing the cue does not change live stacks.
     local count, active, armed = self:GetWrathDisplayState(now)
     count = math.max(0, math.min(3, math.floor(count or 0)))
-    local style = iSTSettings.wrathCue or "SWORD"
-    local swordVisible = active and style == "SWORD"
-    local sword = bar.wrathSword
+    local style = iSTSettings.wrathCue or "BAR_COLOR"
     local color = self:GetWrathCueColor(count)
 
-    LayoutSword(bar)
-    if swordVisible then
-        local pulse = count == 3 and (0.24 + math.sin(now * 4) * 0.07) or 0.19
-        for _, stroke in ipairs(sword.strokes) do
-            local filled = count >= stroke.section
-            local brightness = filled and 1 or 0.28
-            local alpha = (color.a or 1) * (filled and 1 or 0.55)
-            stroke.edge:SetColorTexture(color.r * brightness, color.g * brightness,
-                color.b * brightness, alpha)
-            stroke.glow:SetColorTexture(color.r, color.g, color.b,
-                filled and pulse * (color.a or 1) or 0)
-        end
-        sword:Show()
-        if bar.SetBackdropBorderColor then bar:SetBackdropBorderColor(0, 0, 0, 0) end
-    else
-        sword:Hide()
-        -- Other cue styles use the normal border unless the image sword replaces it below.
-        local border = iSTSettings.borderNormalColor
-        if bar.SetBackdropBorderColor then
-            bar:SetBackdropBorderColor(border.r, border.g, border.b, border.a or 1)
-        end
+    -- Stack colors belong on the fill for this cue. The other cues, and
+    -- characters without the talent, keep the chosen normal bar color.
+    local fillColor = active and style == "BAR_COLOR" and color or iSTSettings.barColor
+    bar.fill:SetVertexColor(fillColor.r, fillColor.g, fillColor.b,
+        (fillColor.a or 1) * (self.State.Idle and 0.18 or 1))
+    local border = iSTSettings.borderNormalColor
+    if bar.SetBackdropBorderColor then
+        bar:SetBackdropBorderColor(border.r, border.g, border.b, border.a or 1)
+    end
+    local cueWidth = math.max(100, bar:GetWidth())
+    if bar.wrathCueWidth ~= cueWidth then
+        bar.wrathCueFrame:SetWidth(cueWidth)
+        bar.wrathCueWidth = cueWidth
     end
 
     local imagesVisible = active and style == "SWORD_IMAGES"
     self:UpdateSwordImageCue(bar, count, imagesVisible, color)
-    -- Leave room for either sword's hilt, then restore the usual icon gap on other styles.
-    local iconOffset = imagesVisible and -(bar.wrathSwordImages.leftOverhang + 7) or swordVisible and -37 or -7
+    -- Leave room for the image sword's hilt, then restore the usual icon gap.
+    local iconOffset = imagesVisible and -(bar.wrathSwordImages.leftOverhang + 7) or -7
     if bar.sealIconFrame and bar.wrathIconOffset ~= iconOffset then
         bar.sealIconFrame:ClearAllPoints()
         bar.sealIconFrame:SetPoint("RIGHT", bar, "LEFT", iconOffset, 0)

@@ -9,6 +9,7 @@ local function AddRegion(frame, asset, x1, y1, x2, y2)
     local texture = frame:CreateTexture(nil, "BORDER")
     texture:SetTexture(ASSET_PATH .. asset .. ".blp")
     texture:SetTexCoord(x1 / SOURCE_SIZE, x2 / SOURCE_SIZE, y1 / SOURCE_SIZE, y2 / SOURCE_SIZE)
+    texture:AddMaskTexture(frame.glowMask)
     frame.regions[#frame.regions + 1] = { texture = texture, x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
     return texture
 end
@@ -37,6 +38,15 @@ function iST:CreateSwordImageCue(bar)
     frame:SetFrameLevel(bar:GetFrameLevel() + 1)
     frame:EnableMouse(false)
     frame.regions, frame.pieces = {}, {}
+
+    -- Feather both layers over a wider margin. The mask protects the solid
+    -- pommel and blade tip so only the surrounding halo fades into the world.
+    local glowMask = frame:CreateMaskTexture()
+    glowMask:SetTexture(ASSET_PATH .. "Sword_GlowEdgeMask.tga")
+    frame.glowMask = glowMask
+    frame.regions[#frame.regions + 1] = {
+        texture = glowMask, x1 = 0, y1 = 0, x2 = SOURCE_SIZE, y2 = SOURCE_SIZE,
+    }
     frame.base = AddRegion(frame, "Sword_Base", 0, 0, SOURCE_SIZE, SOURCE_SIZE)
 
     -- Cut the glow into thirds from the same full-size image as the base so the
