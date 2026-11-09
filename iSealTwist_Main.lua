@@ -825,12 +825,12 @@ function iST:ApplyParryHaste(preview)
     end
 
     -- UNIT_COMBAT arrives later than PLAYER_SWING on Forever. Apply the rule
-    -- at the estimated parry time, then return to the bar's event timeline.
+    -- at the adjusted parry time, then return to the bar's event timeline.
     -- Otherwise a previous swing's late parry can hasten the new bar cycle.
     local eventDelay = preview == true and 0 or self.CONSTANTS.PARRY_EVENT_DELAY
     local atParry = remaining + eventDelay
     if atParry > speed + 0.00001 or (eventDelay > 0 and atParry >= speed - 0.00001) then
-        self:DebugMsg(string.format("Parry ignored: estimated event belongs before this swing (bar left %.3fs; corrected %.3fs; weapon %.3fs; event offset %.3fs).",
+        self:DebugMsg(string.format("Parry ignored: adjusted event belongs before this swing (bar left %.3fs; corrected %.3fs; weapon %.3fs; event offset %.3fs).",
             remaining, atParry, speed, eventDelay), 3)
         return false
     end
@@ -886,16 +886,12 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
     local now = GetTime()
     self:CheckParryPrediction(now, isMeleeAttack, sourceEvent)
 
-    -- A swing event gives timing, not a hit result. Estimate the stacks here,
-    -- then check the buff after the game has processed the swing.
+    -- A swing starts an attempt. Its delayed physical feedback decides whether
+    -- the counter gains or releases stacks; timing alone must not add one.
     if isMeleeAttack then
         if self:IsWrathTrackingEnabled() then
             if (self.State.SealExpiresAt or 0) <= GetTime() then self:ClearCurrentSeal() end
-            local consumed = self.WrathTracker:Attack(self.State.CurrentSealName, GetTime())
-            if consumed > 0 then self:ShowTwistResult() end
-            self:DebugMsg(string.format("Unsealed Wrath%s: %d/3 stacks; stored seal: %s%s.",
-                iSTSettings.fakeUnsealedWrath and " test" or " estimate", self.WrathTracker.count,
-                self.WrathTracker.seal or "none", consumed > 0 and ("; released " .. consumed) or ""), 3)
+            self:QueueWrathSwing(now)
             self:ScheduleWrathAuraCheck()
         end
     end
@@ -1005,6 +1001,7 @@ function iST:SetFakeUnsealedWrath(enabled)
     -- Start fresh when switching between real and fake talent tracking.
     iSTSettings.fakeUnsealedWrath = enabled == true
     self:CancelWrathAuraChecks()
+    self:CancelPendingWrathHits()
     self:StopTestMode()
     self.WrathTracker:Reset()
     self.State.WrathAuraInstanceID = nil
@@ -1023,6 +1020,7 @@ function iST:RefreshUnsealedWrathState()
     self.State.NextWrathTalentCheck = 0
     if not self:IsWrathTrackingEnabled() then
         self:CancelWrathAuraChecks()
+        self:CancelPendingWrathHits()
         self.WrathTracker:Reset()
         self.State.WrathAuraInstanceID = nil
         self.State.TwistResultDuration = 0
@@ -1102,17 +1100,18 @@ function iST:ApplyWrathAura(aura, source, refreshed)
     if not IsSecret(spellID) and type(spellID) == "number" and spellID > 0 then state.WrathAuraSpellID = spellID end
     if not IsSecret(name) and type(name) == "string" then state.WrathAuraName = name end
     if IsSecret(count) then
-        if not state.WrathCountRestricted then self:DebugMsg("Unsealed Wrath stack count is restricted; keeping the swing estimate.", 3) end
+        if not state.WrathCountRestricted then self:DebugMsg("Unsealed Wrath stack count is restricted; continuing hit tracking.", 3) end
         state.WrathCountRestricted = true
         return false
     end
     if IsSecret(expiresAt) then expiresAt = nil end
-    local previous, previousEstimated = tracker.count, tracker.estimated
+    local previous, previousUnconfirmed = tracker.count, tracker.countUnconfirmed
     if not tracker:Observe(count, expiresAt, state.CurrentSealName, GetTime(), refreshed) then return false end
+    state.WrathAuraRevision = (state.WrathAuraRevision or 0) + 1
     state.WrathCountRestricted = nil
-    if previous ~= tracker.count or previousEstimated then
+    if previous ~= tracker.count or previousUnconfirmed then
         self:DebugMsg(string.format("Unsealed Wrath confirmed by %s: %d -> %d/3; timer %s.",
-            source, previous, tracker.count, tracker.expiryEstimated and "estimated" or "confirmed"), 3)
+            source, previous, tracker.count, tracker.expiryUnconfirmed and "derived from stack updates" or "confirmed by buff"), 3)
     end
     self:UpdateWrathDisplay()
     return true
@@ -1130,14 +1129,14 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         end)
         if readOK and not IsSecret(added) and type(added) == "table" then
             for _, aura in ipairs(added) do
-                if IsWrathAura(aura) and self:ApplyWrathAura(aura, "UNIT_AURA addition", true) then return end
+                if IsWrathAura(aura) and self:ApplyWrathAura(aura, "UNIT_AURA addition", true) then return true end
             end
         end
         if readOK and not IsSecret(updated) and type(updated) == "table" and type(reader) == "function" then
             for _, id in ipairs(updated) do
                 if not IsSecret(id) and type(id) == "number" and id > 0 then
                     local ok, aura = pcall(reader, "player", id)
-                    if ok and IsWrathAura(aura) and self:ApplyWrathAura(aura, "UNIT_AURA update", true) then return end
+                    if ok and IsWrathAura(aura) and self:ApplyWrathAura(aura, "UNIT_AURA update", true) then return true end
                 end
             end
         end
@@ -1152,17 +1151,19 @@ function iST:ObserveWrathAura(updateInfo, delayed)
     end
     if removedCurrent then
         tracker:Reset()
+        state.WrathAuraRevision = (state.WrathAuraRevision or 0) + 1
         state.WrathAuraInstanceID = nil
         self:UpdateWrathDisplay()
+        return true
     else
         if state.WrathAuraInstanceID and type(reader) == "function" then
             local ok, aura = pcall(reader, "player", state.WrathAuraInstanceID)
-            if ok and self:ApplyWrathAura(aura, "cached aura instance") then return end
+            if ok and self:ApplyWrathAura(aura, "cached aura instance") then return true end
         end
         local byName = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
         if type(byName) == "function" then
             local ok, aura = pcall(byName, "player", state.WrathAuraName or "Unsealed Wrath", "HELPFUL")
-            if ok and self:ApplyWrathAura(aura, "spell-name lookup") then return end
+            if ok and self:ApplyWrathAura(aura, "spell-name lookup") then return true end
         end
     end
     if not delayed then self:ScheduleWrathAuraCheck() end
@@ -1206,7 +1207,7 @@ end
 
 function iST:ScanForActiveSealOutOfCombat(sourceEvent)
     -- Recover a seal that was already active when the addon loaded.
-    -- Leave the current estimate alone while combat blocks this scan.
+    -- Keep the current seal timer while combat blocks this scan.
     if (InCombatLockdown and InCombatLockdown())
         or (UnitAffectingCombat and UnitAffectingCombat("player")) then return end
     if not (C_UnitAuras and type(C_UnitAuras.GetPlayerAuraBySpellID) == "function") then return end
@@ -1719,12 +1720,18 @@ local function OnEvent(self, event, ...)
     end
 
     if event == "UNIT_COMBAT" then
+        iST:ObserveWrathHitFeedback(...)
         local unit, action = ...
         -- The amount field can be secret. Only the defender and action are
         -- needed, and neither is compared until its readability is checked.
         if not IsSecret(unit) and not IsSecret(action) and unit == "player" and action == "PARRY" then
             iST:ApplyParryHaste()
         end
+        return
+    end
+
+    if event == "PLAYER_TARGET_CHANGED" then
+        iST:CancelPendingWrathHits(true)
         return
     end
 
@@ -1769,6 +1776,7 @@ local function OnEvent(self, event, ...)
 
     if event == "PLAYER_DEAD" then
         iST:CancelWrathAuraChecks()
+        iST:CancelPendingWrathHits()
         iST.State.ParryTimingCheck = nil
         iST:ClearParryAnimation()
         iST:StopTestMode()
@@ -1791,6 +1799,7 @@ local function OnEvent(self, event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, castGUID, spellID = ...
         if not IsSecret(unit) and unit == "player" then
+            iST:ObserveWrathFeedbackCast(spellID)
             -- Record the seal from the successful cast instead of waiting for
             -- a buff update, which may arrive later or be unreadable.
             local sealSpellID = iST:ResolveSealCast(...)
@@ -1829,6 +1838,7 @@ for _, eventName in ipairs({
     "PLAYER_ENTERING_WORLD",
     "PLAYER_SWING",
     "UNIT_COMBAT",
+    "PLAYER_TARGET_CHANGED",
     "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED",
     "PLAYER_DEAD",

@@ -16,6 +16,7 @@ Localization\locale.xml
 
 iSealTwist_Stacks.lua
 iSealTwist_Main.lua
+iSealTwist_HitTracking.lua
 iSealTwist_Bubbles.lua
 iSealTwist_SwordImages.lua
 iSealTwist_Cues.lua

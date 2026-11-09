@@ -123,7 +123,7 @@ L["ShowPlayerWrathBubblesDesc"] = Colors.Gray .. "Show a separate frame with thr
 L["WrathReadyText"] = "Ready Message"
 L["WrathAttackNow"] = "Attack now"
 L["WrongSeal"] = "Wrong seal"
-L["WrathTrackingDesc"] = Colors.Gray .. "When buff stacks and hit results are hidden by the game, the indicator estimates stacks from main-hand swings. Missed attacks can make that estimate differ from your actual stacks.|r"
+L["WrathTrackingDesc"] = Colors.Gray .. "Tracks stacks using main-hand swings and physical hit feedback, with buff updates when available. Missed, dodged and parried attacks do not add stacks.|r"
 L["SectionSealPair"] = Colors.iST .. "Seal Pair"
 
 -- Seal pair dropdowns

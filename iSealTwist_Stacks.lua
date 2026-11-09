@@ -3,12 +3,12 @@ local _, iST = ...
 -- Changing seals or leaving combat does not clear stored stacks. Keep them
 -- until they expire, are consumed, or the caller resets tracking.
 function iST:NewWrathTracker()
-    local tracker = { count = 0, seal = nil, expiresAt = 0, estimated = true, expiryEstimated = true }
+    local tracker = { count = 0, seal = nil, expiresAt = 0, countUnconfirmed = true, expiryUnconfirmed = true }
 
     function tracker:Reset()
         self.count, self.seal, self.expiresAt = 0, nil, 0
-        self.estimated = true
-        self.expiryEstimated = true
+        self.countUnconfirmed = true
+        self.expiryUnconfirmed = true
     end
 
     function tracker:GetCount(now)
@@ -26,20 +26,19 @@ function iST:NewWrathTracker()
             self:Reset()
             return consumed
         end
-        -- Swing events do not tell us whether the attack hit. Estimate one stack
-        -- per swing and a refreshed 15-second duration until a readable aura
-        -- supplies the actual count and expiry.
+        -- The caller has matched a landed melee outcome. Add a stack and
+        -- refresh its fifteen-second clock until readable aura data corrects it.
         self.seal = seal
         self.count = math.min(3, self.count + 1)
         self.expiresAt = now + 15
-        self.estimated = true
-        self.expiryEstimated = true
+        self.countUnconfirmed = true
+        self.expiryUnconfirmed = true
         return 0
     end
 
     -- The caller must check aura fields for secret values before passing them in.
     -- The count and expiry can be protected independently. A readable count
-    -- still corrects the estimate when only the fifteen-second clock is inferred.
+    -- still corrects the counter when only the fifteen-second clock is inferred.
     function tracker:Observe(count, expiresAt, seal, now, refreshed)
         if type(count) ~= "number" or count ~= count or count < 1 or count > 3
             or count ~= math.floor(count) then
@@ -49,17 +48,17 @@ function iST:NewWrathTracker()
             or expiresAt <= now or expiresAt > now + 15.5) then
             return false
         end
-        -- Expire the old estimate before reusing its seal, so a stale seal cannot
+        -- Expire the old stacks before reusing their seal, so a stale seal cannot
         -- be attached to newly observed stacks.
         self:GetCount(now)
-        self.expiryEstimated = expiresAt == nil
+        self.expiryUnconfirmed = expiresAt == nil
         if expiresAt == nil then
             if refreshed or count > self.count or self.expiresAt <= now then expiresAt = now + 15
             else expiresAt = self.expiresAt end
         end
         self.count, self.expiresAt = count, expiresAt
         self.seal = self.seal or seal
-        self.estimated = false
+        self.countUnconfirmed = false
         return true
     end
 

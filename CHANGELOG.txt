@@ -9,7 +9,8 @@ v0.8.5 - Seal Reminders
 [ADDED] Compact seal and Righteous Fury reminders with adjustable warning times
 [ADDED] Protection-only option for the Righteous Fury reminder
 [ADDED] Combat-only option for the seal reminder
-[FIXED] Wrath stacks update more reliably during combat
+[FIXED] Missed, dodged and parried attacks no longer add Wrath stacks
+[FIXED] Holy Strike and Judgement no longer cause skipped Wrath stacks
 
 v0.8.4 - Parry Haste
 --------------------------------------------------------------------------------
@@ -37,7 +38,7 @@ v0.8.1 - Unsealed Wrath
 [ADDED] Color themes and custom colors for each stack count
 [ADDED] Preview stack indicators and test without learning the talent
 [ADDED] Debug Mode in the About tab
-[CHANGED] Stack counts are estimated when the game hides buff information
+[CHANGED] Tracks stack counts through melee swings when buff information is hidden
 
 v0.7.5 - Seal Timer & AddOn Access
 --------------------------------------------------------------------------------

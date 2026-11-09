@@ -141,7 +141,7 @@ end }
 
 local iST = {}
 for _, file in ipairs({ "Localization/enUS.lua", "iSealTwist_Stacks.lua",
-    "iSealTwist_Main.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua", "iSealTwist_Reminders.lua" }) do
+    "iSealTwist_Main.lua", "iSealTwist_HitTracking.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua", "iSealTwist_Reminders.lua" }) do
     assert(loadfile(file))("iSealTwist", iST)
 end
 local events = frames[1]
@@ -155,6 +155,8 @@ local function event(name, ...) events.OnEvent(events, name, ...) end
 local function attack()
     now = now + 1
     event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
+    now = now + 0.5
+    event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
 end
 local function count() return iST.WrathTracker:GetCount(now) end
 local function runDue()
@@ -198,8 +200,8 @@ attack()
 auraResult = { applications = 3, expirationTime = now + 8, auraInstanceID = 99 }
 event("UNIT_AURA", "player", {})
 assert(count() == 3 and iST.WrathTracker.expiresAt == now + 8,
-    "public buff stacks and expiry correct the estimate")
-assert(not iST.WrathTracker.estimated, "readable buff state is identified as authoritative")
+    "public buff stacks and expiry correct the counter")
+assert(not iST.WrathTracker.countUnconfirmed, "readable buff state is identified as authoritative")
 
 inCombat = true
 assert(iST.WrathTracker:Observe(2, now + 8, iST.State.CurrentSealName, now))
@@ -214,7 +216,7 @@ assert(count() == 3, "secret event tokens are ignored")
 for _, hidden in ipairs({ secret, { applications = secret, expirationTime = now + 5 } }) do
     auraResult = hidden
     event("UNIT_AURA", "player", {})
-    assert(count() == 3, "a secret stack count never changes the estimate")
+    assert(count() == 3, "a secret stack count never changes the counter")
 end
 local preservedExpiry = iST.WrathTracker.expiresAt
 auraResult = { applications = 2, expirationTime = secret, auraInstanceID = secret }
@@ -244,7 +246,7 @@ assert(iST.State.WrathAuraInstanceID == 200 and count() == 0,
 assert(iST.WrathTracker:Observe(2, now + 7, iST.State.CurrentSealName, now))
 currentWrathAura = { name = secret, spellId = secret, applications = 3, expirationTime = secret, auraInstanceID = 200 }
 event("UNIT_AURA", "player", { updatedAuraInstanceIDs = { secret, 200 } })
-assert(count() == 3 and iST.WrathTracker.expiryEstimated and not iST.WrathTracker.estimated,
+assert(count() == 3 and iST.WrathTracker.expiryUnconfirmed and not iST.WrathTracker.countUnconfirmed,
     "a targeted instance update confirms three stacks without requiring a readable clock or name")
 assert(iST.BarFrame.fill.color[1] == iST:GetWrathCueColor(3).r,
     "a confirmed combat count repaints the cue immediately")
@@ -779,7 +781,7 @@ assert(iST.State.SealGeneration == sealGeneration, "unchanged aura expiry does n
 observedSeal = { expirationTime = now + 12 }
 iSTSettings.debugMode = true
 event("UNIT_AURA", "player", {})
-assert(iST.State.SealExpiresAt == now + 12, "a readable buff expiry corrects the estimate")
+assert(iST.State.SealExpiresAt == now + 12, "a readable buff expiry corrects the timer")
 resetMessage = chatMessages[#chatMessages]
 assert(resetMessage:find("Seal timer synced by Seal of Command", 1, true)
     and resetMessage:find("spell ID: 20375", 1, true) and resetMessage:find("event: UNIT_AURA", 1, true),
@@ -945,7 +947,7 @@ iSTSettings.debugMode = true
 for _, test in ipairs({ {2.4, 2.4}, {1.95, 1.95}, {1.9, 0.86}, {1.6, 0.56}, {1.3, 0.26}, {0.8, 0}, {0.4, 0} }) do
     seedSwing(2.6, test[1])
     event("UNIT_COMBAT", "player", "PARRY", "", secret, 1)
-    close(iST.State.NextSwingTime - now, test[2], "2.6s parry correction uses the parry's estimated time, not its delivery time")
+    close(iST.State.NextSwingTime - now, test[2], "2.6s parry correction uses the parry's adjusted time, not its delivery time")
     close(iST.State.LastSwingTime + 2.6, iST.State.NextSwingTime,
         "corrected fast-weapon deadlines remain consistent with the progress bar")
     if test[1] == test[2] then
@@ -960,7 +962,7 @@ event("UNIT_COMBAT", "player", "PARRY")
 close(iST.State.NextSwingTime - now, 0.05, "a genuinely sub-floor parry does not delay a slower weapon's imminent attack")
 seedSwing(2.6, 2.4)
 event("UNIT_COMBAT", "player", "PARRY")
-assert(chatMessages[#chatMessages]:find("estimated event belongs before this swing", 1, true),
+assert(chatMessages[#chatMessages]:find("adjusted event belongs before this swing", 1, true),
     "debug explains why a late previous-cycle parry is ignored")
 seedSwing(2.6, 1.6)
 event("UNIT_COMBAT", "player", "PARRY")
@@ -1075,7 +1077,7 @@ close(ringFraction(), 1, "a fresh seal starts with a full ring")
 assert(bar.sealIconRing.color[1] == bar.sealIconRing.color[2] and bar.sealIconRing.color[2] == bar.sealIconRing.color[3],
     "elapsed time reveals a neutral gray ring underneath")
 local ringSets = ring.cooldownSets
-now = now + 15
+now = iST.State.SealExpiresAt - 15
 for _ = 1, 20 do iST:UpdateSealTimer(now) end
 close(ringFraction(), 0.5, "half the seal duration leaves half the ring")
 assert(ring.cooldownSets == ringSets and bar.sealTimerText:GetText() == "15",
@@ -1509,3 +1511,80 @@ sealCombatOnly:SetChecked(false)
 sealCombatOnly.OnClick(sealCombatOnly)
 assert(seal:IsShown(), "turning off combat-only restores normal reminder visibility")
 print("PASS: settings construction, sidebar navigation, styled mode dropdown, independent reminder controls, live scale/threshold changes, and preview buttons")
+
+SlashCmdList = {}
+string.trim = string.trim or function(value) return value:match("^%s*(.-)%s*$") end
+iST:RegisterSlashCommands()
+assert(iST.HitDebug == nil and iST.HandleHitDebugCommand == nil,
+    "the release files do not load the development recorder or command handler")
+local wasLocked = iSTSettings.barLocked
+SlashCmdList.ISEALTWIST("lock")
+assert(iSTSettings.barLocked ~= wasLocked, "normal slash commands remain available")
+print("PASS: release files load without the hit recorder; normal slash commands still work")
+
+-- Run the new matcher through the actual event handler and cue renderer.
+playerDead, inCombat = false, true
+iSTSettings.enabled, iSTSettings.wrathCue = true, "COUNTER"
+iSTSettings.sealStackMode = "ALTERNATE"
+iST:SetFakeUnsealedWrath(true)
+iST:SetCurrentSeal(20375)
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+assert(count() == 0, "the real swing handler queues an attempt without adding a stack")
+now = now + .5
+event("UNIT_COMBAT", "target", "WOUND", "BLOCK_REDUCED", secret, 1)
+assert(count() == 1 and bar.wrathCueText:GetText() == string.format(iST.L["WrathCounter"], 1),
+    "matched feedback immediately repaints the actual counter")
+now = now + 2.5
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+local confirmedExpiry = iST.WrathTracker.expiresAt
+now = now + .5
+event("UNIT_COMBAT", "target", "DODGE", "", secret, 1)
+assert(count() == 1 and iST.WrathTracker.expiresAt == confirmedExpiry,
+    "a dodged attack through the real event handler cannot refresh stacks")
+now = now + 2.5
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+event("PLAYER_TARGET_CHANGED")
+now = now + .5
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
+assert(count() == 1, "feedback from a newly selected target cannot count the old swing")
+now = now + 2.5
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+iST:SetFakeUnsealedWrath(false)
+iST:SetFakeUnsealedWrath(true)
+now = now + .5
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
+assert(count() == 0, "switching Fake mode cancels in-flight feedback")
+spellNames[1866] = "Holy Strike"
+iST:SetCurrentSeal(20375)
+local sealDeadline = iST.State.SealExpiresAt
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+local swingDeadline = iST.State.NextSwingTime
+now = now + .185
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "holy-strike-cast", 1866)
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 2)
+assert(count() == 0 and iST.State.SealExpiresAt == sealDeadline
+    and iST.State.NextSwingTime == swingDeadline,
+    "Holy Strike neither counts as a melee hit nor resets the seal or swing timer")
+now = now + .807
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
+assert(count() == 1 and bar.wrathCueText:GetText() == string.format(iST.L["WrathCounter"], 1),
+    "a later melee hit after Holy Strike updates the real counter")
+spellNames[20271] = "Judgement"
+now = now + 2.008
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+local judgementSwingDeadline = iST.State.NextSwingTime
+now = now + .2
+event("UNIT_SPELLCAST_SUCCEEDED", "player", "judgement-cast", 20271)
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 2)
+assert(count() == 1 and iST.State.SealExpiresAt == sealDeadline
+    and iST.State.NextSwingTime == judgementSwingDeadline,
+    "Judgement neither counts as a melee hit nor resets the seal or swing timer")
+now = now + .3
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
+assert(count() == 2, "Judgement does not prevent the pending melee hit from adding a stack")
+iST:SetCurrentSeal(20375)
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+playerDead = true
+event("PLAYER_DEAD")
+assert(#iST.WrathHitMatcher.pending == 0, "death cancels pending swing feedback")
+print("PASS: real Fake-mode swing/feedback dispatch, cue update, missed-hit deadline, Holy Strike/Judgement overlap without timer resets, target changes, mode switches, and death")
