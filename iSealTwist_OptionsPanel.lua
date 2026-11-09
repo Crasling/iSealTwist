@@ -61,12 +61,15 @@ local function CreateSettingsCheckbox(parent, label, descText, yOffset, getFunc,
         if iST.InvalidateBarState then iST:InvalidateBarState() end
     end)
 
-    local nextY = yOffset - 22
+    -- The checkbox template is taller than its label. Reserve the whole control
+    -- before placing descriptions or the next row underneath it.
+    local nextY = yOffset - math.max(24, cb:GetHeight()) - 6
     if descText and descText ~= "" then
         local desc = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         desc:SetPoint("TOPLEFT", parent, "TOPLEFT", 48, nextY)
         desc:SetWidth(350)
         desc:SetJustifyH("LEFT")
+        desc:SetWordWrap(true)
         desc:SetText(descText)
         local height = desc:GetStringHeight()
         if height < 12 then height = 12 end
@@ -476,6 +479,7 @@ local function CreateInfoText(parent, text, yOffset, fontObj)
     fs:SetPoint("TOPLEFT", parent, "TOPLEFT", 25, yOffset)
     fs:SetWidth(370)
     fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(true)
     fs:SetText(text)
     local height = fs:GetStringHeight()
     if height < 14 then height = 14 end
@@ -737,6 +741,7 @@ function iST:CreateOptionsPanel()
     local iWRContainer, iWRContent = CreateTabContent()
     local iNIFContainer, iNIFContent = CreateTabContent()
     local iRCContainer, iRCContent = CreateTabContent()
+    local remindersContainer, remindersContent = CreateTabContent()
 
     local tabContents = {
         generalContainer,
@@ -747,6 +752,7 @@ function iST:CreateOptionsPanel()
         iWRContainer,
         iNIFContainer,
         iRCContainer,
+        remindersContainer,
     }
 
     local sidebarButtons = {}
@@ -777,6 +783,7 @@ function iST:CreateOptionsPanel()
         { type = "tab", label = L["TabGeneral"], index = 1 },
         { type = "tab", label = L["TabTiming"], index = 2 },
         { type = "tab", label = L["TabIndicators"], index = 3 },
+        { type = "tab", label = L["TabReminders"], index = 9 },
         { type = "tab", label = L["TabCustomization"], index = 4 },
         { type = "tab", label = L["TabAbout"], index = 5 },
         { type = "header", label = Colors.iST .. L["SidebarOtherAddons"] },
@@ -845,7 +852,7 @@ function iST:CreateOptionsPanel()
         _, y = CreateSectionHeader(generalContent, L["SectionSealPair"], y)
 
         -- The spell table contains every rank; list each seal only once.
-        local sealChoices, fromDropdown, intoDropdown = {}
+        local sealChoices, fromDropdown, intoDropdown, legend = {}
         local seenNames = {}
         for _, name in pairs(iST.SEALS) do
             if not seenNames[name] then
@@ -863,7 +870,7 @@ function iST:CreateOptionsPanel()
         local pairCard = CreateFrame("Frame", nil, generalContent, BACKDROP_TEMPLATE)
         pairCard:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
         pairCard:SetPoint("TOPRIGHT", generalContent, "TOPRIGHT", -20, y)
-        pairCard:SetHeight(146)
+        pairCard:SetHeight(220)
         if pairCard.SetBackdrop then
             pairCard:SetBackdrop({
                 bgFile = "Interface\\BUTTONS\\WHITE8X8",
@@ -887,7 +894,9 @@ function iST:CreateOptionsPanel()
         direction:SetPoint("CENTER", pairCard, "TOP", 0, -47)
 
         local function UpdateSealDirection()
-            direction:SetText(Colors.Green .. "< -- >" .. Colors.Reset)
+            local fromOnly = iSTSettings.sealStackMode == "FROM_ONLY"
+            direction:SetText((fromOnly and Colors.iST .. "-->" or Colors.Green .. "< -- >") .. Colors.Reset)
+            if legend then legend:SetText(fromOnly and L["SealPairFromOnlyLegend"] or L["SealPairLegend"]) end
         end
 
         local function SealDropdownText(option)
@@ -913,6 +922,7 @@ function iST:CreateOptionsPanel()
                 iSTSettings.twistFromSeal = value
                 if intoDropdown then intoDropdown:Refresh() end
                 UpdateSealDirection()
+                iST:UpdateWrathDisplay()
                 if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
             end,
             function(option) return option.text end,
@@ -926,18 +936,32 @@ function iST:CreateOptionsPanel()
                 iSTSettings.twistIntoSeal = value
                 fromDropdown:Refresh()
                 UpdateSealDirection()
+                iST:UpdateWrathDisplay()
                 if iST.RequestTwistMacroRefresh then iST:RequestTwistMacroRefresh() end
             end,
             function(option) return option.text end,
             function(option) return option.value == iSTSettings.twistFromSeal end)
         intoDropdown:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -32)
+        local modeLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        modeLabel:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -76)
+        modeLabel:SetText(L["SealStackMode"])
+        local modeDropdown = CreateStyledDropdown(pairCard, 260,
+            function() return {
+                { value = "ALTERNATE", text = L["SealStackAlternate"] },
+                { value = "FROM_ONLY", text = L["SealStackFromOnly"] },
+            } end,
+            function() return iSTSettings.sealStackMode end,
+            function(value) iST:SetSealStackMode(value); UpdateSealDirection() end)
+        modeDropdown:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -94)
+
+        legend = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        legend:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -134)
+        legend:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -134)
+        legend:SetJustifyH("LEFT")
+        legend:SetHeight(34)
         UpdateSealDirection()
 
-        local legend = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        legend:SetPoint("BOTTOM", pairCard, "BOTTOM", 0, 44)
-        legend:SetText(L["SealPairLegend"])
-
-        CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -110, OpenMacroWindow)
+        CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -178, OpenMacroWindow)
 
         y = y - pairCard:GetHeight() - 8
 
@@ -1046,6 +1070,53 @@ function iST:CreateOptionsPanel()
         )
 
         scrollChildren[3]:SetHeight(math.abs(y) + 10)
+    end
+
+    -- Reminders have their own position and do not depend on the swing bar being visible.
+    do
+        local y = -10
+        _, y = CreateInfoText(remindersContent, L["RemindersDesc"], y, "GameFontDisableSmall")
+        y = y - 8
+        for reminderIndex, kind in ipairs({ "FURY", "SEAL" }) do
+            local reminderKind = kind
+            local settings = iSTSettings.reminders[kind]
+            local function set(key, value)
+                settings[key] = value
+                iST:ApplyReminderSettings()
+            end
+            _, y = CreateSectionHeader(remindersContent, kind == "FURY" and L["ReminderFury"] or L["ReminderSeal"], y)
+            y = y - 6
+            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderEnable"], nil, y,
+                function() return settings.enabled end, function(value) set("enabled", value) end)
+            if kind == "FURY" then
+                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderProtOnly"], L["ReminderProtOnlyDesc"], y,
+                    function() return settings.protOnly end, function(value) set("protOnly", value) end)
+            else
+                _, y = CreateSettingsCheckbox(remindersContent, L["OnlyInCombat"], nil, y,
+                    function() return settings.onlyInCombat end, function(value) set("onlyInCombat", value) end)
+            end
+            y = y - 6
+            _, y = CreateCustomSlider(remindersContent, L["ReminderThreshold"], y,
+                0, kind == "FURY" and 600 or 30, kind == "FURY" and 5 or 1,
+                function() return settings.warningSeconds end, function(value) set("warningSeconds", value) end,
+                function(value) return value == 0 and L["ReminderMissingOnly"] or string.format(L["ReminderSeconds"], value) end)
+            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderShowIcon"], nil, y,
+                function() return settings.showIcon end, function(value) set("showIcon", value) end)
+            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderShowTime"], nil, y,
+                function() return settings.showTime end, function(value) set("showTime", value) end)
+            y = y - 6
+            _, y = CreateCustomSlider(remindersContent, L["ReminderScale"], y, 0.5, 3, 0.05,
+                function() return settings.scale end, function(value) set("scale", value) end,
+                function(value) return string.format("%.2fx", value) end)
+            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderLock"], nil, y,
+                function() return settings.locked end, function(value) set("locked", value) end)
+            CreateSettingsButtonAt(remindersContent, L["ReminderPreviewMove"], 180, 20, y,
+                function() iST:PreviewReminder(reminderKind) end)
+            CreateSettingsButtonAt(remindersContent, L["ResetPosition"], 160, 210, y,
+                function() iST:ResetReminderPosition(reminderKind) end)
+            y = y - 50
+        end
+        scrollChildren[9]:SetHeight(math.abs(y) + 10)
     end
 
     -- Appearance, position, and previews.

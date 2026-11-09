@@ -2,6 +2,15 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.5 - Seal Reminders
+--------------------------------------------------------------------------------
+[ADDED] Choose alternating seals or always building stacks with From
+[ADDED] Wrong seal reminder after releasing stacks in From mode
+[ADDED] Compact seal and Righteous Fury reminders with adjustable warning times
+[ADDED] Protection-only option for the Righteous Fury reminder
+[ADDED] Combat-only option for the seal reminder
+[FIXED] Wrath stacks update more reliably during combat
+
 v0.8.4 - Parry Haste
 --------------------------------------------------------------------------------
 [ADDED] Golden speedup effect and a parry-haste preview

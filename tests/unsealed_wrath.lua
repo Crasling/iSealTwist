@@ -1,8 +1,10 @@
 -- Run from the addon directory. These checks use no game or network access.
+unpack = unpack or table.unpack
 local now, timers, frames, chatMessages = 100, {}, {}, {}
 local playerClass, playerDead, inCombat = "PALADIN", false, false
 local function widget(parent)
-    local object = { parent = parent, widgetWidth = 250, widgetHeight = 25, shown = false, alpha = 1 }
+    local object = { parent = parent, widgetWidth = 250, widgetHeight = 25, shown = false, alpha = 1,
+        Text = false, ScrollBar = false }
     local methods = {}
     function methods:SetSize(w, h) self.widgetWidth, self.widgetHeight = w, h end
     function methods:SetWidth(w) self.widgetWidth = w end
@@ -23,6 +25,17 @@ local function widget(parent)
     function methods:SetTexCoord(...) self.texCoord = { ... } end
     function methods:SetDesaturated(value) self.desaturated = value end
     function methods:GetText() return self.text or "" end
+    function methods:GetName() return self.name end
+    function methods:GetStringHeight() return math.max(12, math.ceil(#(self.text or "") / 60) * 12) end
+    function methods:GetStringWidth() return #(self.text or "") * (self.font and self.font[2] or 12) * 0.5 end
+    function methods:GetFontString() return self.fontString end
+    function methods:SetFontString(value) self.fontString = value end
+    function methods:GetChecked() return self.checked end
+    function methods:SetChecked(value) self.checked = value end
+    function methods:HookScript(event, callback)
+        local previous = self[event]
+        self[event] = function(...) if previous then previous(...) end; callback(...) end
+    end
     function methods:SetColorTexture(...) self.color = { ... } end
     function methods:SetVertexColor(...) self.color = { ... } end
     function methods:SetBackdropBorderColor(...) self.borderColor = { ... } end
@@ -44,7 +57,12 @@ local function widget(parent)
     function methods:SetDrawBling(value) self.drawBling = value end
     function methods:SetHideCountdownNumbers(value) self.hideCountdownNumbers = value end
     function methods:GetEffectiveScale() return 1 end
-    function methods:GetScale() return 1 end
+    function methods:GetScale() return self.scale or 1 end
+    function methods:SetScale(value) self.scale = value end
+    function methods:SetFrameStrata(value) self.strata = value end
+    function methods:EnableMouse(value) self.mouseEnabled = value end
+    function methods:StartMoving() self.moving = true end
+    function methods:StopMovingOrSizing() self.moving = false end
     function methods:SetScript(event, callback) self[event] = callback end
     function methods:RegisterEvent(event)
         self.registeredEvents = self.registeredEvents or {}
@@ -75,8 +93,10 @@ PlayerFrame.manabar = widget(PlayerFrame)
 PlayerFrame.manabar:Show()
 function PlayerFrame_GetManaBar() return PlayerFrame and PlayerFrame.manabar end
 ChatFrame1 = { AddMessage = function(_, message) chatMessages[#chatMessages + 1] = message end }
-function CreateFrame(_, _, parent)
+function CreateFrame(_, name, parent, template)
     local frame = widget(parent)
+    frame.name = name
+    if template == "UIPanelScrollFrameTemplate" then frame.ScrollBar = widget(frame) end
     frames[#frames + 1] = frame
     return frame
 end
@@ -121,7 +141,7 @@ end }
 
 local iST = {}
 for _, file in ipairs({ "Localization/enUS.lua", "iSealTwist_Stacks.lua",
-    "iSealTwist_Main.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua" }) do
+    "iSealTwist_Main.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua", "iSealTwist_Reminders.lua" }) do
     assert(loadfile(file))("iSealTwist", iST)
 end
 local events = frames[1]
@@ -180,19 +200,76 @@ event("UNIT_AURA", "player", {})
 assert(count() == 3 and iST.WrathTracker.expiresAt == now + 8,
     "public buff stacks and expiry correct the estimate")
 assert(not iST.WrathTracker.estimated, "readable buff state is identified as authoritative")
+
+inCombat = true
+assert(iST.WrathTracker:Observe(2, now + 8, iST.State.CurrentSealName, now))
+auraResult = { applications = 3, expirationTime = secret, auraInstanceID = secret }
+event("UNIT_AURA", "player", {})
+assert(count() == 3, "readable combat stacks must correct 2 to 3 even when expiry and instance ID are secret")
+inCombat = false
+auraResult = { applications = 3, expirationTime = now + 8, auraInstanceID = 99 }
+event("UNIT_AURA", "player", {})
 event("UNIT_AURA", secret, secret)
 assert(count() == 3, "secret event tokens are ignored")
-for _, hidden in ipairs({ secret, { applications = secret, expirationTime = now + 5 },
-    { applications = 2, expirationTime = secret } }) do
+for _, hidden in ipairs({ secret, { applications = secret, expirationTime = now + 5 } }) do
     auraResult = hidden
     event("UNIT_AURA", "player", {})
-    assert(count() == 3, "secret aura fields never change stacks")
+    assert(count() == 3, "a secret stack count never changes the estimate")
 end
+local preservedExpiry = iST.WrathTracker.expiresAt
+auraResult = { applications = 2, expirationTime = secret, auraInstanceID = secret }
+event("UNIT_AURA", "player", {})
+assert(count() == 2 and iST.WrathTracker.expiresAt == preservedExpiry,
+    "readable lower counts are authoritative too; hidden expiry does not restart the timer")
+auraResult = { applications = 3, expirationTime = now + 8, auraInstanceID = 99 }
+event("UNIT_AURA", "player", {})
 auraResult = nil
 event("UNIT_AURA", "player", {})
 assert(count() == 3, "an unavailable buff lookup is not treated as confirmed zero")
 event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 99 } })
 assert(count() == 0, "a public removal of the observed buff clears stacks")
+
+inCombat = true
+local currentWrathAura
+C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, id)
+    assert(unit == "player" and not issecretvalue(id), "aura instance checks use public player IDs")
+    if id == 200 then return currentWrathAura end
+    return { name = "Holy Shield", spellId = 20925, applications = 3, expirationTime = now + 10, auraInstanceID = id }
+end
+event("UNIT_AURA", "player", { addedAuras = {
+    { name = "Unsealed Wrath", spellId = 88888, applications = secret, expirationTime = secret, auraInstanceID = 200 },
+} })
+assert(iST.State.WrathAuraInstanceID == 200 and count() == 0,
+    "public identity can be learned before the combat stack count becomes readable")
+assert(iST.WrathTracker:Observe(2, now + 7, iST.State.CurrentSealName, now))
+currentWrathAura = { name = secret, spellId = secret, applications = 3, expirationTime = secret, auraInstanceID = 200 }
+event("UNIT_AURA", "player", { updatedAuraInstanceIDs = { secret, 200 } })
+assert(count() == 3 and iST.WrathTracker.expiryEstimated and not iST.WrathTracker.estimated,
+    "a targeted instance update confirms three stacks without requiring a readable clock or name")
+assert(iST.BarFrame.fill.color[1] == iST:GetWrathCueColor(3).r,
+    "a confirmed combat count repaints the cue immediately")
+local confirmedCountExpiry = iST.WrathTracker.expiresAt
+auraResult = { applications = 2, expirationTime = now + 8, auraInstanceID = 200 }
+iST:ScheduleWrathAuraCheck()
+now = now + 0.35
+runDue()
+assert(count() == 3 and iST.WrathTracker.expiresAt == confirmedCountExpiry,
+    "follow-up checks prefer the known instance over an older name lookup and do not keep extending hidden expiry")
+currentWrathAura, auraResult = secret, nil
+event("UNIT_AURA", "player", {})
+local queuedChecks = #timers
+for _ = 1, 25 do event("UNIT_AURA", "player", { updatedAuraInstanceIDs = { 201 } }) end
+assert(#timers == queuedChecks and count() == 3, "unrelated buffs and repeated hidden updates cannot grow the pending check queue")
+event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 200 }, addedAuras = {
+    { name = "Unsealed Wrath", spellId = 88888, applications = 3, expirationTime = now + 10, auraInstanceID = 202 },
+} })
+assert(count() == 3 and iST.State.WrathAuraInstanceID == 202, "a replacement aura is processed before removal of the old instance")
+C_UnitAuras.GetAuraDataByAuraInstanceID = nil
+event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 202 } })
+assert(count() == 0, "a genuine removal still clears confirmed combat stacks")
+iST:CancelWrathAuraChecks()
+inCombat = false
+print("PASS: readable combat stack corrections with hidden metadata, instance updates, cue repainting, delayed reconciliation, bounded retries, and aura replacement/removal")
 
 iST:SetCurrentSeal(20154)
 attack()
@@ -1040,3 +1117,395 @@ iST:ClearCurrentSeal()
 assert(not ring:IsShown() and not bar.sealRingExpiresAt and not ring.cooldownStart,
     "seal removal clears the ring and its cached deadline")
 print("PASS: circular seal countdown, gray elapsed arc, final-five-second warning, unchanged portrait, partial recovery, recasts, resize, and disable/removal cleanup")
+
+-- Seal-pair guidance must not change what the real tracker observes.
+playerClass, playerDead, inCombat = "PALADIN", false, false
+iST.State.TestMode, iST.State.StackTestMode = false, false
+iSTSettings.twistFromSeal, iSTSettings.twistIntoSeal = "Seal of Righteousness", "Seal of Command"
+iST:SetFakeUnsealedWrath(true)
+iST.State.TwistResultDuration = 0
+iST:SetSealStackMode("ALTERNATE")
+iST:SetCurrentSeal(20154)
+for _ = 1, 3 do attack() end
+iST:SetCurrentSeal(20375)
+local stacks, tracking, armed, wrong = iST:GetWrathDisplayState(now)
+assert(stacks == 3 and tracking and armed and not wrong, "alternating mode allows releasing From stacks")
+attack()
+attack()
+assert(count() == 1 and not select(4, iST:GetWrathDisplayState(now)), "alternating mode builds the other seal normally")
+iST:SetCurrentSeal(20154)
+attack()
+assert(count() == 0 and not select(4, iST:GetWrathDisplayState(now)), "alternating mode releases in either direction")
+
+iST:SetSealStackMode("FROM_ONLY")
+for _ = 1, 3 do attack() end
+iST:SetCurrentSeal(20375)
+assert(not select(4, iST:GetWrathDisplayState(now)), "selecting Into for the release is not a wrong-seal warning")
+attack()
+assert(count() == 0 and select(4, iST:GetWrathDisplayState(now)), "From-only mode asks to return after the release swing")
+iST.State.TwistResultDuration = 0
+for _, style in ipairs({ "BAR_COLOR", "SWORD_IMAGES", "CIRCLES", "COUNTER", "TEXT" }) do
+    iSTSettings.wrathCue = style
+    iST:UpdateWrathDisplay(now)
+    assert(bar.wrathCueFrame:IsShown() and bar.wrathCueText:GetText() == "Wrong seal",
+        "each enabled cue can show the return-to-From warning")
+    assert(bar.wrathCueText.textColor[2] == 0.12 and not bar.wrathCircles:IsShown(), "wrong-seal text is red and does not overlap circles")
+end
+iSTSettings.wrathCue = "OFF"
+iST:UpdateWrathDisplay(now)
+assert(not bar.wrathCueFrame:IsShown(), "Off also hides wrong-seal cues")
+iSTSettings.wrathCue = "COUNTER"
+iST.State.TwistResultDuration = 0.5
+iST:UpdateWrathDisplay(now)
+assert(not bar.wrathCueFrame:IsShown(), "the release message keeps priority until its fade ends")
+iST.State.TwistResultDuration = 0
+attack()
+assert(count() == 1 and select(4, iST:GetWrathDisplayState(now)), "wrong-seal guidance never hides actual stacks built on Into")
+iST:SetCurrentSeal(20154)
+assert(not select(4, iST:GetWrathDisplayState(now)), "returning to From clears the warning")
+iST:SetCurrentSeal(20164)
+assert(select(4, iST:GetWrathDisplayState(now)), "an unrelated seal is not the preferred buildup seal")
+iST.State.TestMode, iST.State.StackTestMode, iST.State.PreviewStacks = true, true, 2
+assert(not select(4, iST:GetWrathDisplayState(now)), "bar previews cannot inherit live wrong-seal warnings")
+iST.State.TestMode, iST.State.StackTestMode = false, false
+iSTSettings.fakeUnsealedWrath, iST.State.UnsealedWrathKnown = false, false
+inCombat = true
+assert(not select(4, iST:GetWrathDisplayState(now)), "the rotation warning requires the talent or explicit fake mode")
+inCombat = false
+iST:SetFakeUnsealedWrath(true)
+print("PASS: alternating and From-only guidance, release timing, all cue styles, preview isolation, talent gating, and unchanged live stacks")
+
+-- Exercise the actual reminder module, including its independent event frame.
+local furyAura, furyReads, specReads = nil, 0, 0
+local points = { 5, 31, 0 }
+C_UnitAuras.GetPlayerAuraBySpellID = function(id)
+    assert(id == 25780, "the reminder only queries its own Righteous Fury buff")
+    furyReads = furyReads + 1
+    return furyAura
+end
+C_UnitAuras.GetAuraDataByIndex = function(unit, index, filter)
+    assert(unit == "player" and filter == "HELPFUL" and not inCombat, "only scan the player's readable buffs outside combat")
+    if index > 1 then return nil end
+    if not issecretvalue(furyAura) and type(furyAura) == "table" then
+        return { spellId = 25780, expirationTime = furyAura.expirationTime,
+            duration = furyAura.duration, auraInstanceID = furyAura.auraInstanceID }
+    end
+    return furyAura
+end
+C_SpecializationInfo = { GetSpecializationInfo = function(index, inspect, pet)
+    assert(not inCombat, "reminder talent reads must never run in combat")
+    assert(inspect == false and pet == false, "use the local player's applied talent points")
+    specReads = specReads + 1
+    return index, "Tree", "", 1, "", 0, points[index], "", 99 -- preview points must be ignored
+end }
+local function reminderEvent(name, ...)
+    for _, frame in ipairs(frames) do
+        if frame.registeredEvents and frame.registeredEvents[name] and frame.OnEvent and frame ~= events then
+            frame.OnEvent(frame, name, ...)
+        end
+    end
+end
+local function tickReminders(seconds)
+    now = now + seconds
+    for _, frame in ipairs(frames) do
+        if frame.OnUpdate and frame:IsShown() and frame ~= bar then frame.OnUpdate(frame, seconds) end
+    end
+end
+iSTSettings.enabled, iSTSettings.onlyAsPaladin, iSTSettings.onlyInCombat = true, true, true
+iST:InitializeReminders()
+local fury, seal = iST.ReminderFrames.FURY, iST.ReminderFrames.SEAL
+local furySettings, sealSettings = iSTSettings.reminders.FURY, iSTSettings.reminders.SEAL
+assert(not furySettings.enabled and not sealSettings.enabled and not fury:IsShown() and not seal:IsShown(), "reminders are opt-in")
+assert(furySettings.warningSeconds == 60 and sealSettings.warningSeconds == 5, "independent warning defaults")
+assert(furySettings.point ~= iST.ReminderDefaults.FURY.point, "saved positions do not alias defaults")
+sealSettings.enabled = true
+iST:SetSealStackMode("ALTERNATE")
+iST:ClearCurrentSeal()
+iST:ApplyReminderSettings()
+assert(seal:IsShown() and seal.title:GetText() == "Cast a seal", "missing seals warn even while the combat-only bar is hidden")
+iST:SetCurrentSeal(20154)
+iST:UpdateReminders()
+assert(not seal:IsShown(), "a fresh seal hides its reminder")
+tickReminders(25)
+assert(seal:IsShown() and seal.title:GetText() == "Refresh Seal of Righteousness" and seal.timer:GetText() == "5s left", "the chosen threshold triggers without requiring a visible swing bar")
+sealSettings.warningSeconds = 0
+iST:ApplyReminderSettings()
+assert(not seal:IsShown(), "zero disables advance expiry warnings")
+tickReminders(5)
+assert(seal:IsShown() and seal.title:GetText() == "Cast a seal" and seal.timer:GetText() == "", "zero still warns on expiry, without inventing a time left")
+sealSettings.showIcon, sealSettings.showTime, sealSettings.scale = false, false, 1.6
+sealSettings.warningSeconds = 5
+iST:SetCurrentSeal(20154, now + 3)
+iST:ApplyReminderSettings()
+assert(seal:IsShown() and not seal.icon:IsShown() and seal.timer:GetText() == "" and seal:GetScale() == 1.6, "icon, countdown, and scale are independent options")
+assert(seal.title.point[4] == 0, "text reclaims the icon space when the icon is hidden")
+sealSettings.showTime = true
+iST:SetSealStackMode("FROM_ONLY")
+iST.WrathTracker:Reset()
+iST:SetCurrentSeal(20375)
+iST:UpdateReminders()
+assert(seal:IsShown() and seal.title:GetText() == "Switch to Seal of Righteousness", "the standalone seal reminder also supports the preferred buildup seal")
+
+furySettings.enabled, furySettings.protOnly = true, true
+iST:ApplyReminderSettings()
+assert(fury:IsShown() and iST.State.ReminderProtection == true, "Protection majority allows a missing Fury warning")
+furyAura = { expirationTime = now + 1680, duration = 1800, auraInstanceID = 6 }
+reminderEvent("UNIT_AURA", "player", {})
+local confirmedFuryExpiry = iST.State.FuryExpiresAt
+assert(not fury:IsShown(), "Fury with 28 minutes left does not need a reminder")
+furyAura = nil
+reminderEvent("UNIT_AURA", "player", {})
+assert(iST.State.FuryPresent and iST.State.FuryExpiresAt == confirmedFuryExpiry,
+    "a transient nil just before combat must not discard a confirmed Fury timer")
+inCombat = true
+furyAura = nil
+reminderEvent("PLAYER_REGEN_DISABLED")
+reminderEvent("UNIT_AURA", "player", {})
+tickReminders(2)
+assert(iST.State.FuryPresent and iST.State.FuryExpiresAt == confirmedFuryExpiry and not fury:IsShown(),
+    "nil combat lookups cannot turn a confirmed 28-minute Fury buff into Missing")
+local savedFuryID = iST.State.FuryAuraID
+iST.State.FuryKnown, iST.State.FuryPresent, iST.State.FuryExpiresAt, iST.State.FuryAuraID = nil, nil, nil, nil
+reminderEvent("UNIT_AURA", "player", {})
+assert(iST.State.FuryKnown == nil and not fury:IsShown(), "a combat reload with unknown Fury data cannot invent a Missing warning")
+iST.State.FuryKnown, iST.State.FuryPresent, iST.State.FuryExpiresAt, iST.State.FuryAuraID = true, true, confirmedFuryExpiry, savedFuryID
+tickReminders(1620)
+assert(fury:IsShown() and fury.title:GetText() == "Refresh Righteous Fury" and fury.timer:GetText() == "58s left",
+    "the preserved countdown still reaches the warning threshold during combat")
+inCombat = false
+furyAura = { expirationTime = confirmedFuryExpiry, duration = 1800, auraInstanceID = 6 }
+reminderEvent("PLAYER_REGEN_ENABLED")
+assert(iST.State.FuryExpiresAt == confirmedFuryExpiry and fury.title:GetText() == "Refresh Righteous Fury", "leaving combat confirms the original deadline without refreshing it")
+furyAura = { expirationTime = now + 300, duration = 600, auraInstanceID = 7 }
+reminderEvent("UNIT_AURA", "player", {})
+assert(not fury:IsShown(), "Fury is hidden above its threshold")
+furyAura.expirationTime = now + 60
+reminderEvent("UNIT_AURA", "player", {})
+assert(fury:IsShown() and fury.title:GetText() == "Refresh Righteous Fury" and fury.timer:GetText() == "1m 00s left", "Fury shows its remaining duration at the configured threshold")
+furyAura = { expirationTime = 0, duration = 0, auraInstanceID = 8 }
+reminderEvent("UNIT_AURA", "player", {})
+assert(not fury:IsShown(), "a permanent Fury buff is not treated as expired")
+points = { 0, 5, 31 }
+furyAura = nil
+reminderEvent("PLAYER_TALENT_UPDATE")
+tickReminders(0.31)
+assert(not fury:IsShown() and iST.State.ReminderProtection == false, "Retribution hides the Protection-only reminder")
+for _, distribution in ipairs({ { 10, 10, 0 }, { 0, 0, 0 }, { 0, 10, 10 } }) do
+    points = distribution
+    reminderEvent("PLAYER_TALENT_UPDATE")
+    assert(not fury:IsShown(), "ties and no talents do not count as Protection")
+end
+points = { 5, 31, 0 }
+reminderEvent("PLAYER_TALENT_UPDATE")
+assert(fury:IsShown(), "a talent change updates the filter")
+
+inCombat = true
+local previousReads = specReads
+iST.State.ReminderProtection = nil
+reminderEvent("PLAYER_TALENT_UPDATE")
+tickReminders(2)
+assert(specReads == previousReads and not fury:IsShown(), "unknown Protection after a combat reload waits for safe talent data")
+reminderEvent("UNIT_SPELLCAST_SUCCEEDED", secret, "", secret)
+reminderEvent("UNIT_AURA", secret, secret)
+assert(specReads == previousReads, "restricted event values never trigger a talent read")
+inCombat = false
+reminderEvent("PLAYER_REGEN_ENABLED")
+tickReminders(1)
+assert(fury:IsShown() and specReads > previousReads, "leaving combat resolves the pending Protection filter")
+
+furyAura = { expirationTime = now + 40, duration = 600, auraInstanceID = 9 }
+reminderEvent("UNIT_AURA", "player", {})
+local expiry = iST.State.FuryExpiresAt
+inCombat = true
+furyAura = secret
+reminderEvent("UNIT_AURA", "player", {})
+assert(iST.State.FuryExpiresAt == expiry, "a completely restricted aura preserves known expiry")
+furyAura = { expirationTime = secret, duration = secret, auraInstanceID = secret }
+reminderEvent("UNIT_AURA", "player", {})
+assert(iST.State.FuryExpiresAt == expiry, "restricted fields do not enter timer arithmetic")
+tickReminders(41)
+reminderEvent("UNIT_AURA", "player", {})
+assert(iST.State.FuryPresent and not iST.State.FuryExpiresAt and not fury:IsShown(), "a confirmed present buff with a hidden new duration is not reported missing from a stale expiry")
+furyAura = nil
+reminderEvent("UNIT_AURA", "player", { removedAuraInstanceIDs = { secret, 9 } })
+tickReminders(0.31)
+assert(fury:IsShown() and fury.title:GetText() == "Cast Righteous Fury", "readable removal or absence clears Fury")
+reminderEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-fury", 25780)
+assert(not fury:IsShown(), "the cast waits briefly for the aura update instead of immediately reporting it missing")
+tickReminders(1)
+assert(iST.State.FuryPresent and not fury:IsShown(), "a hidden lookup after a Fury cast cannot undo its confirmation in combat")
+inCombat = false
+reminderEvent("PLAYER_REGEN_ENABLED")
+tickReminders(0.31)
+assert(fury:IsShown() and not iST.State.FuryPresent, "an absent Fury buff is confirmed missing after combat")
+inCombat = true
+furyAura = { expirationTime = now + 50, duration = 600, auraInstanceID = 10 }
+reminderEvent("UNIT_AURA", "player", {})
+assert(fury:IsShown() and fury.timer:GetText() == "50s left", "a later readable aura restores its actual countdown")
+inCombat = false
+
+points = { 0, 0, 31 }
+reminderEvent("PLAYER_TALENT_UPDATE")
+assert(not fury:IsShown(), "Protection filter still applies after safe refresh")
+iST:PreviewReminder("FURY")
+assert(fury:IsShown() and fury.strata == "DIALOG" and fury.mouseEnabled, "preview can be moved above the settings window even with the filter off")
+fury.OnDragStart(fury)
+assert(fury.moving, "preview permits dragging a locked reminder")
+fury:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 45, -70)
+fury.OnDragStop(fury)
+assert(not fury.moving and furySettings.point[1] == "TOPLEFT" and furySettings.point[3] == 45, "dragging saves this character's position")
+iST:PreviewReminder("FURY")
+assert(not fury:IsShown(), "the preview button toggles off")
+iST:PreviewReminder("FURY")
+tickReminders(30)
+assert(not fury:IsShown(), "the preview expires without changing real buff state")
+iST:ResetReminderPosition("FURY")
+assert(furySettings.point[1] == "CENTER" and furySettings.point[3] == -180, "reset restores only this reminder's position")
+furySettings.protOnly = false
+furyAura = nil
+iST:ApplyReminderSettings()
+assert(fury:IsShown(), "Protection-only can be disabled independently")
+playerDead = true
+iST:UpdateBarVisibility()
+assert(not fury:IsShown() and not seal:IsShown(), "death hides both reminders")
+playerDead, playerClass = false, "WARRIOR"
+iST:UpdateBarVisibility()
+assert(not fury:IsShown() and not seal:IsShown(), "the Paladin-only setting applies to reminders")
+playerClass = "PALADIN"
+iSTSettings.enabled = false
+iST:UpdateBarVisibility()
+assert(not fury:IsShown() and not seal:IsShown(), "disabling the addon hides reminders too")
+iSTSettings.enabled = true
+furySettings.enabled, sealSettings.enabled = false, false
+iST:ApplyReminderSettings()
+local readsBefore = furyReads
+reminderEvent("UNIT_AURA", "player", {})
+assert(furyReads == readsBefore and not fury:IsShown() and not seal:IsShown(), "disabled reminders do not poll aura data")
+print("PASS: optional buff reminders, expiry thresholds, permanent buffs, preferred seal, Protection points, combat reloads, secret guards, previews, drag/scale settings, and cleanup")
+
+-- Recover the real buff when a convenience lookup or an aura event is incomplete.
+furySettings.enabled, furySettings.protOnly = true, false
+furyAura = { expirationTime = now + 1440, duration = 1800, auraInstanceID = 50 }
+iST:ApplyReminderSettings()
+local stableExpiry = iST.State.FuryExpiresAt
+inCombat = true
+reminderEvent("PLAYER_REGEN_DISABLED")
+furyAura = nil
+C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, id)
+    assert(unit == "player" and id == 50, "instance recovery uses only the previously confirmed public ID")
+    return { expirationTime = stableExpiry, duration = secret, auraInstanceID = 50 }
+end
+reminderEvent("UNIT_AURA", "player", {})
+assert(iST.State.FuryPresent and iST.State.FuryExpiresAt == stableExpiry and not fury:IsShown(),
+    "a readable cached instance recovers Fury while the spell lookup is hidden")
+C_UnitAuras.GetAuraDataByAuraInstanceID = function() return secret end
+tickReminders(1.1)
+assert(iST.State.FuryExpiresAt == stableExpiry and not fury:IsShown(), "a restricted instance lookup cannot erase its timer")
+C_UnitAuras.GetAuraDataByAuraInstanceID = nil
+reminderEvent("UNIT_AURA", "player", { removedAuraInstanceIDs = { 50 } })
+assert(iST.State.FuryPresent and iST.State.FuryExpiresAt == stableExpiry, "removal leaves time for a replacement event")
+tickReminders(0.1)
+reminderEvent("UNIT_AURA", "player", { addedAuras = {
+    { spellId = 25780, expirationTime = stableExpiry, duration = 1800, auraInstanceID = 51 },
+} })
+tickReminders(0.3)
+assert(iST.State.FuryPresent and iST.State.FuryAuraID == 51 and iST.State.FuryExpiresAt == stableExpiry and not fury:IsShown(),
+    "a replacement event keeps the original deadline without inventing another thirty minutes")
+
+reminderEvent("UNIT_AURA", "player", { removedAuraInstanceIDs = { 51 }, addedAuras = { secret } })
+tickReminders(0.4)
+assert(iST.State.FuryPresent and iST.State.FuryExpiresAt == stableExpiry,
+    "a hidden replacement is uncertain rather than confirmed removal")
+inCombat = false
+local originalScan = C_UnitAuras.GetAuraDataByIndex
+C_UnitAuras.GetAuraDataByIndex = function(unit, index, filter)
+    assert(unit == "player" and filter == "HELPFUL" and not inCombat, "recovery scans stay out of combat")
+    if index == 1 then return { spellId = 465, name = "Devotion Aura" } end
+    if index == 2 then return { spellId = 25780, expirationTime = stableExpiry, duration = 1800, auraInstanceID = 51 } end
+end
+reminderEvent("PLAYER_REGEN_ENABLED")
+assert(iST.State.FuryPresent and iST.State.FuryExpiresAt == stableExpiry and not fury:IsShown(),
+    "a complete buff scan finds Fury even when its spell lookup still returns nil")
+iST.State.FuryKnown, iST.State.FuryPresent, iST.State.FuryExpiresAt, iST.State.FuryAuraID = true, false, nil, nil
+tickReminders(1.1)
+assert(iST.State.FuryPresent and iST.State.FuryExpiresAt == stableExpiry and not fury:IsShown(),
+    "periodic checks recover a missed aura event and a stale Missing state")
+C_UnitAuras.GetAuraDataByIndex = originalScan
+reminderEvent("UNIT_AURA", "player", {})
+tickReminders(0.31)
+assert(fury:IsShown() and iST.State.FuryPresent == false, "two complete scans still detect a genuinely removed buff")
+furySettings.enabled = false
+iST:ApplyReminderSettings()
+print("PASS: transient combat-entry reads, cached-instance recovery, split removal/replacement events, hidden replacements, complete buff scans, and automatic stale-state recovery")
+
+-- Build and operate the real settings controls, not a second implementation.
+UISpecialFrames = {}
+C_AddOns.IsAddOnLoaded = function() return false end
+iST:SetSealStackMode("ALTERNATE")
+assert(loadfile("iSealTwist_OptionsPanel.lua"))("iSealTwist", iST)
+iST:CreateOptionsPanel()
+assert(iST.SettingsFrame and UISpecialFrames[#UISpecialFrames] == "iSTSettingsFrame", "the full settings panel builds and keeps Escape support")
+local reminderTab, modeDropdown
+for _, frame in ipairs(frames) do
+    if type(frame.text) == "table" and frame.text.GetText and frame.text:GetText() == "Reminders" then reminderTab = frame end
+    if frame.menu and frame.text:GetText() == "Back and forth" then modeDropdown = frame end
+end
+assert(reminderTab and modeDropdown, "the new reminder page and seal-mode dropdown are reachable")
+modeDropdown.OnClick(modeDropdown)
+modeDropdown.menu.buttons[2].OnClick()
+assert(iSTSettings.sealStackMode == "FROM_ONLY" and modeDropdown.text:GetText() == "Always stack From", "the styled dropdown saves and refreshes the mode")
+reminderTab.OnClick(reminderTab)
+local reminderContent
+for _, frame in ipairs(frames) do
+    if frame.Text and frame.Text:GetText() == "Enable Reminder" then reminderContent = frame.parent; break end
+end
+assert(reminderContent and reminderContent.parent.parent:IsShown(), "selecting Reminders opens its own scroll page")
+local checkboxes, tracks, previews = {}, {}, {}
+for _, frame in ipairs(frames) do
+    if frame.parent == reminderContent then
+        if frame.Text and frame.OnClick then checkboxes[frame.Text:GetText()] = checkboxes[frame.Text:GetText()] or {}; table.insert(checkboxes[frame.Text:GetText()], frame) end
+        if frame.OnMouseWheel and frame:GetWidth() == 420 then tracks[#tracks + 1] = frame end
+        if frame.text == "Preview / Move" then previews[#previews + 1] = frame end
+    end
+end
+assert(#checkboxes["Enable Reminder"] == 2 and #tracks == 4 and #previews == 2, "both reminders have independent controls")
+local enableFury = checkboxes["Enable Reminder"][1]
+enableFury:SetChecked(true)
+enableFury.OnClick(enableFury)
+assert(furySettings.enabled and fury:IsShown(), "the enable control applies the saved reminder state")
+local oldThreshold, oldSealThreshold, oldScale = furySettings.warningSeconds, sealSettings.warningSeconds, sealSettings.scale
+tracks[1].OnMouseWheel(tracks[1], 1)
+tracks[3].OnMouseWheel(tracks[3], 1)
+tracks[4].OnMouseWheel(tracks[4], 1)
+assert(furySettings.warningSeconds == oldThreshold + 5 and sealSettings.warningSeconds == oldSealThreshold + 1,
+    "threshold controls change each reminder independently")
+assert(math.abs(sealSettings.scale - oldScale - 0.05) < 0.0001 and seal:GetScale() == sealSettings.scale,
+    "the scale control applies immediately")
+previews[2].OnClick()
+assert(seal:IsShown() and seal.strata == "DIALOG", "the preview button opens the correct movable reminder above settings")
+previews[2].OnClick()
+assert(not seal:IsShown(), "closing the preview preserves its disabled setting")
+local sealCombatOnly = assert(checkboxes["Only Show In Combat"])[1]
+assert(sealCombatOnly and not sealSettings.onlyInCombat, "the seal reminder has its own opt-in combat setting")
+iST:ClearCurrentSeal()
+local enableSeal = checkboxes["Enable Reminder"][2]
+enableSeal:SetChecked(true)
+enableSeal.OnClick(enableSeal)
+assert(seal:IsShown(), "the seal reminder can still warn outside combat when the option is off")
+sealCombatOnly:SetChecked(true)
+sealCombatOnly.OnClick(sealCombatOnly)
+assert(not seal:IsShown() and fury:IsShown(), "combat-only hides the seal reminder without affecting Fury")
+inCombat = true
+reminderEvent("PLAYER_REGEN_DISABLED")
+assert(seal:IsShown(), "entering combat shows an eligible seal warning immediately")
+inCombat = false
+reminderEvent("PLAYER_REGEN_ENABLED")
+assert(not seal:IsShown(), "leaving combat hides the seal warning immediately")
+previews[2].OnClick()
+assert(seal:IsShown(), "the movable seal preview remains available outside combat")
+previews[2].OnClick()
+assert(not seal:IsShown(), "closing the preview restores combat-only visibility")
+sealCombatOnly:SetChecked(false)
+sealCombatOnly.OnClick(sealCombatOnly)
+assert(seal:IsShown(), "turning off combat-only restores normal reminder visibility")
+print("PASS: settings construction, sidebar navigation, styled mode dropdown, independent reminder controls, live scale/threshold changes, and preview buttons")

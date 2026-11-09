@@ -113,7 +113,7 @@ function iST:UpdateWrathDisplay(now)
     if not bar or not bar.wrathCueFrame then return end
     now = now or GetTime()
     -- Previews supply their own count; drawing the cue does not change live stacks.
-    local count, active, armed = self:GetWrathDisplayState(now)
+    local count, active, armed, wrongSeal = self:GetWrathDisplayState(now)
     count = math.max(0, math.min(3, math.floor(count or 0)))
     local style = iSTSettings.wrathCue or "BAR_COLOR"
     local color = self:GetWrathCueColor(count)
@@ -147,7 +147,9 @@ function iST:UpdateWrathDisplay(now)
     -- Once the replacement seal is active, the next attack releases the stored stacks.
     if armed and ready == "Switch now" then ready = L["WrathAttackNow"] end
     local cueText
-    if active and style == "COUNTER" then
+    if wrongSeal and style ~= "OFF" then
+        cueText = L["WrongSeal"]
+    elseif active and style == "COUNTER" then
         cueText = string.format(L["WrathCounter"], count)
         if count == 3 then
             -- Keep the counter alone if the ready message would spill past the bar.
@@ -164,13 +166,14 @@ function iST:UpdateWrathDisplay(now)
     -- Give the release message this space until its short display time is over.
     if cueText and (self.State.TwistResultDuration or 0) <= 0 then
         bar.wrathCueText:SetText(cueText)
-        bar.wrathCueText:SetTextColor(color.r, color.g, color.b, color.a or 1)
+        if wrongSeal then bar.wrathCueText:SetTextColor(1, 0.12, 0.08, 1)
+        else bar.wrathCueText:SetTextColor(color.r, color.g, color.b, color.a or 1) end
         bar.wrathCueFrame:Show()
     else
         bar.wrathCueText:SetText("")
         bar.wrathCueFrame:Hide()
     end
-    local circlesVisible = active and style == "CIRCLES" and (self.State.TwistResultDuration or 0) <= 0
+    local circlesVisible = active and not wrongSeal and style == "CIRCLES" and (self.State.TwistResultDuration or 0) <= 0
     if circlesVisible then self:RenderStackBubbles(bar.wrathCircles, count, color) end
     bar.wrathCircles:SetShown(circlesVisible)
     self:UpdatePlayerWrathBubbles(now)

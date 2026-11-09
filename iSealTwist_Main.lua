@@ -251,6 +251,7 @@ iST.State = {
     SealCastTime = 0,
     SealExpiresAt = 0,
     SealGeneration = 0,
+    SealStatusKnown = false,
     UnsealedWrathKnown = nil,
 }
 iST.WrathTracker = iST:NewWrathTracker()
@@ -289,6 +290,7 @@ iST.SettingsDefault = {
     borderNormalColor = { r = 0.3,  g = 0.3,  b = 0.3,  a = 0.8 },
     twistFromSeal     = "Seal of Command",
     twistIntoSeal     = "Seal of Justice",
+    sealStackMode     = "ALTERNATE",
     MinimapButton = { hide = false, minimapPos = 220, showInCompartment = true },
 }
 
@@ -318,7 +320,11 @@ function iST:InitializeSettings()
     -- Replace removed cue choices and move the old shared color to stage colors.
     local validCues = { BAR_COLOR = true, SWORD_IMAGES = true, COUNTER = true, TEXT = true, CIRCLES = true, OFF = true }
     if not validCues[iSTSettings.wrathCue] then iSTSettings.wrathCue = self.SettingsDefault.wrathCue end
+    if iSTSettings.sealStackMode ~= "ALTERNATE" and iSTSettings.sealStackMode ~= "FROM_ONLY" then
+        iSTSettings.sealStackMode = self.SettingsDefault.sealStackMode
+    end
     self:InitializeWrathColors(legacyWrathColor)
+    self:InitializeReminderSettings()
     iSTSettings.wrathCueColor = nil
     iSTSettings.twistWarningColor = nil
 end
@@ -726,6 +732,7 @@ function iST:UpdateBarVisibility()
     if not self.BarFrame then return end
     if self:ShouldShowBar() then self:ShowBar() else self:HideBar() end
     self:UpdatePlayerWrathBubbles()
+    self:UpdateReminders()
 end
 
 -- Stack release message
@@ -889,7 +896,7 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
             self:DebugMsg(string.format("Unsealed Wrath%s: %d/3 stacks; stored seal: %s%s.",
                 iSTSettings.fakeUnsealedWrath and " test" or " estimate", self.WrathTracker.count,
                 self.WrathTracker.seal or "none", consumed > 0 and ("; released " .. consumed) or ""), 3)
-            C_Timer.After(0, function() iST:ObserveWrathAura() end)
+            self:ScheduleWrathAuraCheck()
         end
     end
     self.State.Idle = false
@@ -997,6 +1004,7 @@ end
 function iST:SetFakeUnsealedWrath(enabled)
     -- Start fresh when switching between real and fake talent tracking.
     iSTSettings.fakeUnsealedWrath = enabled == true
+    self:CancelWrathAuraChecks()
     self:StopTestMode()
     self.WrathTracker:Reset()
     self.State.WrathAuraInstanceID = nil
@@ -1014,6 +1022,7 @@ function iST:RefreshUnsealedWrathState()
     self.State.UnsealedWrathKnown = nil
     self.State.NextWrathTalentCheck = 0
     if not self:IsWrathTrackingEnabled() then
+        self:CancelWrathAuraChecks()
         self.WrathTracker:Reset()
         self.State.WrathAuraInstanceID = nil
         self.State.TwistResultDuration = 0
@@ -1036,38 +1045,127 @@ function iST:GetWrathDisplayState(now)
     -- Once the seal is changed, the next attack is the release step.
     local armed = count > 0 and self.WrathTracker.seal ~= nil
         and self.State.CurrentSealName ~= nil and self.State.CurrentSealName ~= self.WrathTracker.seal
-    return count, self:IsWrathTrackingEnabled(), armed
+    local active = self:IsWrathTrackingEnabled()
+    local wrongSeal = active and iSTSettings.sealStackMode == "FROM_ONLY"
+        and self.State.CurrentSealName ~= nil and self.State.CurrentSealName ~= iSTSettings.twistFromSeal
+        and not (armed and self.WrathTracker.seal == iSTSettings.twistFromSeal
+            and self.State.CurrentSealName == iSTSettings.twistIntoSeal)
+    return count, active, armed, wrongSeal
 end
 
-function iST:ObserveWrathAura(updateInfo)
+function iST:SetSealStackMode(mode)
+    if mode ~= "ALTERNATE" and mode ~= "FROM_ONLY" then return end
+    iSTSettings.sealStackMode = mode
+    self:UpdateWrathDisplay()
+    self:DebugMsg("Seal stacking mode: " .. mode .. ".", 3)
+end
+
+function iST:CancelWrathAuraChecks()
+    self.State.WrathAuraCheckGeneration = (self.State.WrathAuraCheckGeneration or 0) + 1
+    self.State.WrathAuraCheckPending = nil
+end
+
+function iST:ScheduleWrathAuraCheck()
+    if self.State.WrathAuraCheckPending or iSTSettings.fakeUnsealedWrath then return end
+    self.State.WrathAuraCheckPending = true
+    local generation = self.State.WrathAuraCheckGeneration or 0
+    -- Read after the swing's aura update has settled. Coalesce requests so a
+    -- burst of aura events cannot build an unbounded queue of checks.
+    for _, delay in ipairs({ 0.1, 0.3 }) do
+        local final = delay == 0.3
+        C_Timer.After(delay, function()
+            if generation ~= (iST.State.WrathAuraCheckGeneration or 0) then return end
+            if final then iST.State.WrathAuraCheckPending = nil end
+            iST:ObserveWrathAura(nil, true)
+        end)
+    end
+end
+
+local function IsWrathAura(aura)
+    if IsSecret(aura) or type(aura) ~= "table" then return false end
+    local ok, name, spellID, instanceID = pcall(function() return aura.name, aura.spellId, aura.auraInstanceID end)
+    if not ok then return false end
+    if not IsSecret(instanceID) and iST.State.WrathAuraInstanceID and instanceID == iST.State.WrathAuraInstanceID then return true end
+    if not IsSecret(spellID) and iST.State.WrathAuraSpellID and spellID == iST.State.WrathAuraSpellID then return true end
+    return not IsSecret(name) and name == (iST.State.WrathAuraName or "Unsealed Wrath")
+end
+
+function iST:ApplyWrathAura(aura, source, refreshed)
+    if IsSecret(aura) or type(aura) ~= "table" then return false end
+    local ok, count, expiresAt, instanceID, spellID, name = pcall(function()
+        return aura.applications, aura.expirationTime, aura.auraInstanceID, aura.spellId, aura.name
+    end)
+    if not ok then return false end
+    local state, tracker = self.State, self.WrathTracker
+    -- Cache public identity fields even if this particular count is hidden.
+    if not IsSecret(instanceID) and type(instanceID) == "number" and instanceID > 0 then state.WrathAuraInstanceID = instanceID end
+    if not IsSecret(spellID) and type(spellID) == "number" and spellID > 0 then state.WrathAuraSpellID = spellID end
+    if not IsSecret(name) and type(name) == "string" then state.WrathAuraName = name end
+    if IsSecret(count) then
+        if not state.WrathCountRestricted then self:DebugMsg("Unsealed Wrath stack count is restricted; keeping the swing estimate.", 3) end
+        state.WrathCountRestricted = true
+        return false
+    end
+    if IsSecret(expiresAt) then expiresAt = nil end
+    local previous, previousEstimated = tracker.count, tracker.estimated
+    if not tracker:Observe(count, expiresAt, state.CurrentSealName, GetTime(), refreshed) then return false end
+    state.WrathCountRestricted = nil
+    if previous ~= tracker.count or previousEstimated then
+        self:DebugMsg(string.format("Unsealed Wrath confirmed by %s: %d -> %d/3; timer %s.",
+            source, previous, tracker.count, tracker.expiryEstimated and "estimated" or "confirmed"), 3)
+    end
+    self:UpdateWrathDisplay()
+    return true
+end
+
+function iST:ObserveWrathAura(updateInfo, delayed)
     if iSTSettings.fakeUnsealedWrath then return end
     if not self:HasUnsealedWrath() then return end
     local state, tracker = self.State, self.WrathTracker
-    -- Clear stacks when the exact buff we observed is removed.
-    -- A missing or hidden lookup alone does not tell us the stacks are gone.
-    if not IsSecret(updateInfo) and type(updateInfo) == "table" and state.WrathAuraInstanceID then
-        local readOK, removed = pcall(function() return updateInfo.removedAuraInstanceIDs end)
-        if readOK and not IsSecret(removed) and type(removed) == "table" then
+    local removedCurrent = false
+    local reader = C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID
+    if not IsSecret(updateInfo) and type(updateInfo) == "table" then
+        local readOK, added, updated, removed = pcall(function()
+            return updateInfo.addedAuras, updateInfo.updatedAuraInstanceIDs, updateInfo.removedAuraInstanceIDs
+        end)
+        if readOK and not IsSecret(added) and type(added) == "table" then
+            for _, aura in ipairs(added) do
+                if IsWrathAura(aura) and self:ApplyWrathAura(aura, "UNIT_AURA addition", true) then return end
+            end
+        end
+        if readOK and not IsSecret(updated) and type(updated) == "table" and type(reader) == "function" then
+            for _, id in ipairs(updated) do
+                if not IsSecret(id) and type(id) == "number" and id > 0 then
+                    local ok, aura = pcall(reader, "player", id)
+                    if ok and IsWrathAura(aura) and self:ApplyWrathAura(aura, "UNIT_AURA update", true) then return end
+                end
+            end
+        end
+        if readOK and not IsSecret(removed) and type(removed) == "table" and state.WrathAuraInstanceID then
             for _, instanceID in ipairs(removed) do
                 if not IsSecret(instanceID) and instanceID == state.WrathAuraInstanceID then
-                    tracker:Reset()
-                    state.WrathAuraInstanceID = nil
+                    removedCurrent = true
                     break
                 end
             end
         end
     end
-    local reader = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
-    if IsSecret(reader) or type(reader) ~= "function" then return end
-    local ok, aura = pcall(reader, "player", "Unsealed Wrath", "HELPFUL")
-    if not ok or IsSecret(aura) or type(aura) ~= "table" then return end
-    local fieldsOK, count, expiresAt, instanceID = pcall(function()
-        return aura.applications, aura.expirationTime, aura.auraInstanceID
-    end)
-    if not fieldsOK or IsSecret(count) or IsSecret(expiresAt) or IsSecret(instanceID) then return end
-    if tracker:Observe(count, expiresAt, state.CurrentSealName, GetTime()) then
-        state.WrathAuraInstanceID = instanceID
+    if removedCurrent then
+        tracker:Reset()
+        state.WrathAuraInstanceID = nil
+        self:UpdateWrathDisplay()
+    else
+        if state.WrathAuraInstanceID and type(reader) == "function" then
+            local ok, aura = pcall(reader, "player", state.WrathAuraInstanceID)
+            if ok and self:ApplyWrathAura(aura, "cached aura instance") then return end
+        end
+        local byName = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+        if type(byName) == "function" then
+            local ok, aura = pcall(byName, "player", state.WrathAuraName or "Unsealed Wrath", "HELPFUL")
+            if ok and self:ApplyWrathAura(aura, "spell-name lookup") then return end
+        end
     end
+    if not delayed then self:ScheduleWrathAuraCheck() end
 end
 
 function iST:SetCurrentSeal(spellID, observedExpirationTime, sourceEvent)
@@ -1076,6 +1174,7 @@ function iST:SetCurrentSeal(spellID, observedExpirationTime, sourceEvent)
     if not name then return end
 
     local previousRemaining = math.max(0, (self.State.SealExpiresAt or 0) - GetTime())
+    self.State.SealStatusKnown = true
     self.State.CurrentSealID = spellID
     self.State.CurrentSealName = name
     self.State.CurrentSealIcon = C_Spell.GetSpellTexture(spellID)
@@ -1135,6 +1234,7 @@ function iST:ScanForActiveSealOutOfCombat(sourceEvent)
 end
 
 function iST:ClearCurrentSeal()
+    self.State.SealStatusKnown = true
     self.State.CurrentSealID = nil
     self.State.CurrentSealName = nil
     self.State.CurrentSealIcon = nil
@@ -1668,6 +1768,7 @@ local function OnEvent(self, event, ...)
     end
 
     if event == "PLAYER_DEAD" then
+        iST:CancelWrathAuraChecks()
         iST.State.ParryTimingCheck = nil
         iST:ClearParryAnimation()
         iST:StopTestMode()
@@ -1767,6 +1868,7 @@ function iST:OnAddonLoaded()
 
     self:CreateSwingBar()
     self:RestoreBarPosition()
+    self:InitializeReminders()
 
     self:UpdateBarVisibility()
 
