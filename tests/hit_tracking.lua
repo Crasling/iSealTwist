@@ -85,9 +85,73 @@ for _, flags in ipairs({ "", "CRITICAL", "GLANCING", "BLOCK_REDUCED" }) do
     reset()
     swing(); feedback(.5, "WOUND", flags)
     assert(count() == 1, "all physical WOUND outcomes count regardless of damage flags")
-    assert(not feedback(.01) and count() == 1, "duplicate feedback cannot count the same swing twice")
+    assert(not feedback(.16) and count() == 1, "later unrelated feedback cannot count the same swing twice")
 end
 print("PASS: avoided replacement attacks preserve stacks; landed, glancing, critical, and partially blocked attacks count")
+
+for _, separateEvents in ipairs({ false, true }) do
+    reset()
+    swing()
+    if separateEvents then now = now + .02; swing() end
+    assert(#iST.WrathHitMatcher.pending == 1 and #timers == 1,
+        "closely spaced native events use one burst and one cleanup timer")
+    assert(feedback(.5) and count() == 1)
+    assert(feedback(.02) and count() == 2, "two close physical hits award two stacks")
+    assert(not feedback(.01) and count() == 2, "the burst cannot count a third hit")
+    now = now + 3
+    swing(); assert(feedback(.5) and count() == 3, "ordinary swings still work after the burst")
+end
+reset()
+swing()
+assert(feedback(.5) and count() == 1)
+local firstHitExpiry = iST.WrathTracker.expiresAt
+assert(not iST:ObserveWrathHitFeedback("target", "WOUND", "", secret, 2))
+assert(not iST:ObserveWrathHitFeedback("target", "WOUND", "", secret, 32))
+assert(count() == 1 and iST.WrathTracker.expiresAt == firstHitExpiry,
+    "Holy and Shadow procs cannot supply the extra physical hit")
+assert(feedback(.02, "DODGE") and count() == 1 and iST.WrathTracker.expiresAt == firstHitExpiry,
+    "an avoided extra attack neither adds a stack nor refreshes its deadline")
+for _, action in ipairs({ "MISS", "DODGE", "PARRY" }) do
+    reset()
+    swing(); now = now + .02; swing()
+    assert(feedback(.5, action) and count() == 0)
+    assert(feedback(.02) and count() == 1, "two explicit swings can contain one avoided and one landed attack")
+end
+reset()
+swing(); feedback(.5)
+iST:CancelPendingWrathHits(true)
+assert(not feedback(.02) and count() == 1, "target changes cancel the extra-hit window")
+reset()
+swing(); feedback(.5)
+iST:ObserveWrathFeedbackCast(123456)
+assert(not feedback(.02) and count() == 1, "unknown casts still invalidate the extra-hit window")
+reset()
+iST.WrathTracker:Attack("Seal of Command", now)
+iST.State.CurrentSealName = "Seal of Righteousness"
+swing()
+assert(feedback(.5) and count() == 0 and iST.releases == 1)
+assert(feedback(.02) and count() == 1 and iST.releases == 1,
+    "a landed extra attack can build the replacement seal after the first hit releases stacks")
+reset()
+iSTSettings.fakeUnsealedWrath, iST.talent = false, true
+iST.WrathTracker:Attack("Seal of Command", now)
+iST.State.CurrentSealName = "Seal of Righteousness"
+swing()
+iST.WrathTracker:Reset()
+iST.State.WrathAuraRevision = 1
+assert(feedback(.5) and count() == 0 and iST.releases == 1)
+assert(feedback(.02) and count() == 0 and iST.releases == 1,
+    "a readable aura removal wins across the burst and shows release only once")
+reset()
+swing()
+assert(feedback(1.19) and feedback(.1) and count() == 2,
+    "a late first hit still gets its bounded extra-hit window")
+reset()
+swing(); feedback(.5)
+now = now + 2
+for _, timer in ipairs(timers) do timer.run() end
+assert(#iST.WrathHitMatcher.pending == 0, "cleanup removes an unused extra-hit opportunity")
+print("PASS: one/two swing events with two physical hits, avoided extras, burst limit, proc filtering, cancellation, release, aura precedence, and cleanup")
 
 reset()
 swing()
