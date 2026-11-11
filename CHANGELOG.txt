@@ -2,6 +2,12 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.6 - Settings and Stacks
+--------------------------------------------------------------------------------
+[IMPROVED] Settings are easier to navigate
+[IMPROVED] Stack counting after repeated buff updates
+[IMPROVED] Stack counter is less likely to count another player's hit
+
 v0.8.5 - Seal Reminders
 --------------------------------------------------------------------------------
 [ADDED] Seal and Righteous Fury reminders with adjustable warning times
@@ -233,7 +239,7 @@ v0.2.1 - Release
 v0.2.0 - Release
 --------------------------------------------------------------------------------
 
- [NEW] Settings panel overhaul — iWR-style sidebar tabs
+ [NEW] Settings panel overhaul — sidebar navigation
   - General tab: bar appearance sliders, twist timing, latency toggle
   - Display tab: visibility, twist feedback, position controls
   - About tab: addon info, author, CurseForge link

@@ -71,6 +71,15 @@ L["SlashHelp5"] = Colors.Yellow .. "  /ist test" .. Colors.Reset .. " — Simula
 
 -- Settings panel
 L["SettingsTitle"] = Colors.iST .. "iSealTwist — Settings"
+L["SettingsLabel"] = "Settings"
+L["SettingsSavedAutomatically"] = "Changes are saved automatically."
+L["SettingsGeneralSummary"] = "Choose your seals, macro and when the swing timer appears."
+L["SettingsTimingSummary"] = "Adjust the swing bar size and latency display."
+L["SettingsIndicatorsSummary"] = "Choose the information and stack cues shown on the bar."
+L["SettingsCustomizationSummary"] = "Adjust fonts, colors and previews."
+L["SettingsRemindersSummary"] = "Configure seal and Righteous Fury reminders."
+L["SettingsAboutSummary"] = "Addon information and testing options."
+L["SettingsCompanionSummary"] = "Information and settings for this addon."
 
 -- Sidebar
 L["TabGeneral"] = "General"

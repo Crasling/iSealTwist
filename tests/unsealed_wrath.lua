@@ -4,20 +4,42 @@ local now, timers, frames, chatMessages = 100, {}, {}, {}
 local playerClass, playerDead, inCombat = "PALADIN", false, false
 local function widget(parent)
     local object = { parent = parent, widgetWidth = 250, widgetHeight = 25, shown = false, alpha = 1,
-        Text = false, ScrollBar = false }
+        Text = false, ScrollBar = false, ScrollUpButton = false, ScrollDownButton = false }
+    if parent then
+        parent.children = parent.children or {}
+        parent.children[#parent.children + 1] = object
+    end
     local methods = {}
     function methods:SetSize(w, h) self.widgetWidth, self.widgetHeight = w, h end
     function methods:SetWidth(w) self.widgetWidth = w end
     function methods:SetHeight(h) self.widgetHeight = h end
     function methods:GetWidth() return self.widgetWidth end
     function methods:GetHeight() return self.widgetHeight end
-    function methods:Show() self.shown = true end
-    function methods:Hide() self.shown = false end
+    function methods:GetLeft() return self.left or 0 end
+    function methods:Show()
+        if self.shown then return end
+        self.shown = true
+        if self.OnShow then self.OnShow(self) end
+    end
+    function methods:Hide()
+        if not self.shown then return end
+        self.shown = false
+        if self.OnHide then self.OnHide(self) end
+    end
     function methods:IsShown() return self.shown end
     function methods:IsVisible()
         return self.shown and (not self.parent or self.parent:IsVisible())
     end
-    function methods:SetShown(value) self.shown = value end
+    function methods:SetShown(value) if value then self:Show() else self:Hide() end end
+    function methods:GetParent() return self.parent end
+    function methods:GetChildren() return table.unpack(self.frameChildren or {}) end
+    function methods:IsObjectType(kind) return self.objectType == kind end
+    function methods:SetScrollChild(value) self.scrollChild = value end
+    function methods:SetVerticalScroll(value) self.verticalScroll = value end
+    function methods:GetVerticalScroll() return self.verticalScroll or 0 end
+    function methods:Disable() self.enabled = false; if self.OnDisable then self.OnDisable(self) end end
+    function methods:Enable() self.enabled = true; if self.OnEnable then self.OnEnable(self) end end
+    function methods:IsEnabled() return self.enabled ~= false end
     function methods:SetAlpha(value) self.alpha = value end
     function methods:SetText(value) self.text = value end
     function methods:SetTextColor(...) self.textColor = { ... } end
@@ -38,6 +60,8 @@ local function widget(parent)
     end
     function methods:SetColorTexture(...) self.color = { ... } end
     function methods:SetVertexColor(...) self.color = { ... } end
+    function methods:SetBackdrop(value) self.backdrop = value end
+    function methods:SetBackdropColor(...) self.backdropColor = { ... } end
     function methods:SetBackdropBorderColor(...) self.borderColor = { ... } end
     function methods:SetPoint(...) self.point = { ... } end
     function methods:GetPoint() return table.unpack(self.point or { "CENTER", nil, "CENTER", 0, 0 }) end
@@ -76,6 +100,14 @@ local function widget(parent)
         self.masks[#self.masks + 1] = mask
     end
     function methods:CreateLine() return widget(self) end
+    for _, kind in ipairs({ "Normal", "Pushed", "Highlight", "Checked", "Thumb" }) do
+        local textureKind = kind
+        methods["Set" .. textureKind .. "Texture"] = function(self, path)
+            self[textureKind .. "Texture"] = widget(self)
+            self[textureKind .. "Texture"]:SetTexture(path)
+        end
+        methods["Get" .. textureKind .. "Texture"] = function(self) return self[textureKind .. "Texture"] end
+    end
     function methods:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "OUTLINE" end
     function methods:SetFont(path, size, flags) self.font = { path, size, flags } end
     return setmetatable(object, { __index = function(_, key)
@@ -93,10 +125,22 @@ PlayerFrame.manabar = widget(PlayerFrame)
 PlayerFrame.manabar:Show()
 function PlayerFrame_GetManaBar() return PlayerFrame and PlayerFrame.manabar end
 ChatFrame1 = { AddMessage = function(_, message) chatMessages[#chatMessages + 1] = message end }
-function CreateFrame(_, name, parent, template)
+function CreateFrame(kind, name, parent, template)
     local frame = widget(parent)
+    frame.objectType = kind
+    if parent then
+        parent.frameChildren = parent.frameChildren or {}
+        parent.frameChildren[#parent.frameChildren + 1] = frame
+    end
     frame.name = name
-    if template == "UIPanelScrollFrameTemplate" then frame.ScrollBar = widget(frame) end
+    if template == "UIPanelScrollFrameTemplate" then
+        frame.ScrollBar = widget(frame)
+        frame.ScrollBar.objectType = "Slider"
+        frame.ScrollBar.frameChildren = { CreateFrame("Button", nil, frame.ScrollBar),
+            CreateFrame("Button", nil, frame.ScrollBar) }
+        frame.ScrollBar.frameChildren[1]:Show()
+        frame.ScrollBar.frameChildren[2]:Show()
+    end
     frames[#frames + 1] = frame
     return frame
 end
@@ -141,7 +185,7 @@ end }
 
 local iST = {}
 for _, file in ipairs({ "Localization/enUS.lua", "iSealTwist_Stacks.lua",
-    "iSealTwist_Main.lua", "iSealTwist_HitTracking.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua", "iSealTwist_Reminders.lua" }) do
+    "iSealTwist_Main.lua", "iSealTwist_HitTracking.lua", "iSealTwist_HitDebug.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua", "iSealTwist_Reminders.lua" }) do
     assert(loadfile(file))("iSealTwist", iST)
 end
 local events = frames[1]
@@ -269,6 +313,35 @@ assert(count() == 3 and iST.State.WrathAuraInstanceID == 202, "a replacement aur
 C_UnitAuras.GetAuraDataByAuraInstanceID = nil
 event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 202 } })
 assert(count() == 0, "a genuine removal still clears confirmed combat stacks")
+
+-- The aura API may return the previous stack count until after melee feedback.
+-- Re-reading that unchanged snapshot must not hide the hit or the release.
+iST:SetCurrentSeal(20154)
+auraResult = { applications = 1, expirationTime = now + 15, auraInstanceID = 300 }
+event("UNIT_AURA", "player", {})
+assert(count() == 1)
+event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
+local beforeRepeatedRead = iST.State.WrathAuraRevision
+event("UNIT_AURA", "player", {})
+assert(iST.State.WrathAuraRevision == beforeRepeatedRead,
+    "reading the same aura again is not a new stack update")
+now = now + 0.5
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
+assert(count() == 2, "a delayed hit advances the counter despite an unchanged aura read")
+event("UNIT_AURA", "player", {})
+assert(count() == 2, "an old aura snapshot cannot undo the matched hit")
+auraResult = { applications = 2, expirationTime = now + 15, auraInstanceID = 300 }
+event("UNIT_AURA", "player", {})
+iST:SetCurrentSeal(20375)
+event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
+event("UNIT_AURA", "player", {})
+now = now + 0.5
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
+assert(count() == 0, "a repeated aura read cannot hide the next seal's release")
+event("UNIT_AURA", "player", {})
+assert(count() == 0, "an old aura snapshot cannot restore released stacks")
+event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 300 } })
+auraResult = nil
 iST:CancelWrathAuraChecks()
 inCombat = false
 print("PASS: readable combat stack corrections with hidden metadata, instance updates, cue repainting, delayed reconciliation, bounded retries, and aura replacement/removal")
@@ -1447,6 +1520,12 @@ iST:SetSealStackMode("ALTERNATE")
 assert(loadfile("iSealTwist_OptionsPanel.lua"))("iSealTwist", iST)
 iST:CreateOptionsPanel()
 assert(iST.SettingsFrame and UISpecialFrames[#UISpecialFrames] == "iSTSettingsFrame", "the full settings panel builds and keeps Escape support")
+assert(iST.SettingsFrame:GetWidth() == 820 and iST.SettingsFrame:GetHeight() == 580
+    and iST.SettingsFrame.backdrop.edgeSize == 1,
+    "the settings window uses the wider layout and thin border")
+assert(iST.SettingsFrame.pageHeader.title:GetText() == iST.L.TabGeneral
+    and iST.SettingsFrame.pageHeader.subtitle:GetText() == iST.L.SettingsGeneralSummary,
+    "the selected page has its own title and summary")
 local reminderTab, modeDropdown
 for _, frame in ipairs(frames) do
     if type(frame.text) == "table" and frame.text.GetText and frame.text:GetText() == "Reminders" then reminderTab = frame end
@@ -1454,9 +1533,33 @@ for _, frame in ipairs(frames) do
 end
 assert(reminderTab and modeDropdown, "the new reminder page and seal-mode dropdown are reachable")
 modeDropdown.OnClick(modeDropdown)
+assert(modeDropdown.menu:IsShown() and modeDropdown.menu.dismiss:IsShown(),
+    "opening a dropdown enables its outside-click dismissal")
+modeDropdown.menu.dismiss.OnClick(modeDropdown.menu.dismiss)
+assert(not modeDropdown.menu:IsShown() and not modeDropdown.menu.dismiss:IsShown(),
+    "clicking outside closes both the choices and the transparent blocker")
+modeDropdown.OnEnter(modeDropdown)
+modeDropdown.OnMouseDown(modeDropdown)
+modeDropdown.OnLeave(modeDropdown)
+modeDropdown.OnMouseUp(modeDropdown)
+assert(modeDropdown.backdropColor[1] == 0.035, "releasing outside does not leave a button highlighted")
+modeDropdown:Disable()
+assert(modeDropdown.alpha == 0.45, "disabled settings controls stay visibly dimmed")
+modeDropdown:Enable()
+assert(modeDropdown.alpha == 1, "enabling a settings control restores its opacity")
+modeDropdown.OnClick(modeDropdown)
 modeDropdown.menu.buttons[2].OnClick()
 assert(iSTSettings.sealStackMode == "FROM_ONLY" and modeDropdown.text:GetText() == "Always stack From", "the styled dropdown saves and refreshes the mode")
 reminderTab.OnClick(reminderTab)
+assert(iST.SettingsFrame.pageHeader.title:GetText() == iST.L.TabReminders
+    and iST.SettingsFrame.pageHeader.subtitle:GetText() == iST.L.SettingsRemindersSummary,
+    "navigation updates the fixed page header")
+for _, button in ipairs(frames) do
+    if button.parent == iST.SettingsFrame.sidebar and button.bg then
+        assert(button.bg:IsShown() == (button == reminderTab),
+            "only the selected navigation row has an amber background")
+    end
+end
 local reminderContent
 for _, frame in ipairs(frames) do
     if frame.Text and frame.Text:GetText() == "Enable Reminder" then reminderContent = frame.parent; break end
@@ -1471,6 +1574,49 @@ for _, frame in ipairs(frames) do
     end
 end
 assert(#checkboxes["Enable Reminder"] == 2 and #tracks == 4 and #previews == 2, "both reminders have independent controls")
+local circularThumb
+for _, candidate in ipairs(frames) do
+    if candidate.parent == tracks[1] and candidate.OnMouseDown and candidate:GetWidth() == 14 then
+        circularThumb = candidate
+        break
+    end
+end
+assert(circularThumb and circularThumb.children[1].texture == "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
+    and circularThumb.children[2].texture == "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask",
+    "the slider keeps both original circular handle textures and its 14px size")
+local oldCursorReader = GetCursorPosition
+GetCursorPosition = function() return 420, 0 end
+local beforeDrag = furySettings.warningSeconds
+circularThumb.OnMouseDown(circularThumb)
+tracks[1].OnUpdate(tracks[1])
+assert(furySettings.warningSeconds > beforeDrag, "dragging the circular handle still updates the live setting")
+circularThumb.OnMouseUp(circularThumb)
+local afterDrag = furySettings.warningSeconds
+GetCursorPosition = function() return 0, 0 end
+tracks[1].OnUpdate(tracks[1])
+assert(furySettings.warningSeconds == afterDrag, "releasing the handle stops changing the setting")
+furySettings.warningSeconds = beforeDrag
+GetCursorPosition = oldCursorReader
+local reminderScroll = reminderContent.parent
+reminderContent.parent.parent.OnMouseWheel(reminderContent.parent.parent, -1)
+assert(reminderScroll:GetVerticalScroll() == 30 and reminderScroll.ScrollBar:GetWidth() == 8
+    and reminderScroll.ScrollBar:GetThumbTexture().color[1] == 0.72,
+    "wheel scrolling and the visible thin gold scrollbar remain usable")
+for _, arrow in ipairs({ reminderScroll.ScrollBar:GetChildren() }) do
+    if arrow:IsObjectType("Button") then
+        assert(not arrow:IsShown() and arrow.alpha == 0 and arrow.mouseEnabled == false,
+            "unnamed template arrows are hidden and cannot intercept clicks")
+        arrow:Show()
+        assert(not arrow:IsShown(), "template refreshes cannot restore the arrows")
+    end
+end
+assert(reminderScroll.ScrollBar:GetThumbTexture():GetWidth() == 8,
+    "removing arrow buttons preserves the scrollbar handle")
+modeDropdown.OnClick(modeDropdown)
+reminderTab.OnClick(reminderTab)
+assert(not modeDropdown.menu:IsShown() and not modeDropdown.menu.dismiss:IsShown()
+    and reminderScroll:GetVerticalScroll() == 30,
+    "switching pages dismisses floating menus without resetting the page scroll")
 local enableFury = checkboxes["Enable Reminder"][1]
 enableFury:SetChecked(true)
 enableFury.OnClick(enableFury)
@@ -1511,16 +1657,25 @@ sealCombatOnly:SetChecked(false)
 sealCombatOnly.OnClick(sealCombatOnly)
 assert(seal:IsShown(), "turning off combat-only restores normal reminder visibility")
 print("PASS: settings construction, sidebar navigation, styled mode dropdown, independent reminder controls, live scale/threshold changes, and preview buttons")
+iST:SettingsOpen()
+modeDropdown.OnClick(modeDropdown)
+iST:SettingsClose()
+assert(not iST.SettingsFrame:IsShown() and not modeDropdown.menu:IsShown()
+    and not modeDropdown.menu.dismiss:IsShown(), "closing settings also removes floating dropdowns and click blockers")
+print("PASS: page headings, thin surfaces, active navigation, circular slider drag/release, scrollbar, outside clicks, and menu cleanup")
 
 SlashCmdList = {}
 string.trim = string.trim or function(value) return value:match("^%s*(.-)%s*$") end
 iST:RegisterSlashCommands()
-assert(iST.HitDebug == nil and iST.HandleHitDebugCommand == nil,
-    "the release files do not load the development recorder or command handler")
+assert(iST.HitDebug and not iST.HitDebug:IsActive() and type(iST.HandleHitDebugCommand) == "function",
+    "the live hit recorder loads idle and leaves combat events unregistered")
+SlashCmdList.ISEALTWIST("hitdebug status")
+assert(chatMessages[#chatMessages]:find("Hit capture: stopped", 1, true),
+    "the live hit command is available without starting a capture")
 local wasLocked = iSTSettings.barLocked
 SlashCmdList.ISEALTWIST("lock")
 assert(iSTSettings.barLocked ~= wasLocked, "normal slash commands remain available")
-print("PASS: release files load without the hit recorder; normal slash commands still work")
+print("PASS: live hit recorder loads idle; hit and normal slash commands work")
 
 -- Run the new matcher through the actual event handler and cue renderer.
 playerDead, inCombat = false, true

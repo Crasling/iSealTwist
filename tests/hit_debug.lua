@@ -29,7 +29,7 @@ function CreateFrame(_, name)
     return result
 end
 function GetTime() return now end
-local combat, auraRestricted, auraReads = false, false, 0
+local combat, auraRestricted, auraReads, auraScans = false, false, 0, 0
 function InCombatLockdown() return combat end
 function UnitGUID() return "Player-Test" end
 function UnitExists() return true end
@@ -43,6 +43,17 @@ C_UnitAuras = { GetAuraDataBySpellName = function()
     assert(not auraRestricted, "never query auras while the restriction predicate forbids it")
     auraReads = auraReads + 1
     return { applications = 2, expirationTime = 115, auraInstanceID = hidden }
+end, GetAuraDataByIndex = function(_, index)
+    assert(not auraRestricted, "never scan auras while the restriction predicate forbids it")
+    auraScans = auraScans + 1
+    if index == 1 then
+        return { name = "Echo of Command", spellId = 88888, applications = 2,
+            expirationTime = 115, auraInstanceID = 44 }
+    end
+    if index == 2 then
+        return { name = "Windfury Weapon", spellId = 77777, applications = hidden,
+            expirationTime = hidden, auraInstanceID = hidden }
+    end
 end }
 C_Spell = { GetSpellName = function(id)
     assert(not issecretvalue(id), "never pass a secret spell ID to a name lookup")
@@ -75,7 +86,7 @@ local iST = { Version = "0.8.5", GameVersion = "1.60.1", GameBuild = "70862",
 function iST:PrintToChat(message) messages[#messages + 1] = message end
 iSTSettings = { enabled = true, debugMode = false, fakeUnsealedWrath = false }
 assert(loadfile("Localization/enUS.lua"))("iSealTwist", iST)
-assert(loadfile("tests/dev/iSealTwist_HitDebug.lua"))("iSealTwist", iST)
+assert(loadfile("iSealTwist_HitDebug.lua"))("iSealTwist", iST)
 local debugFrame, hit = frames[1], iST.HitDebug
 assert(not hit:IsActive() and not debugFrame.shown and next(debugFrame.events) == nil and meterCalls == 0,
     "diagnostics start off and do not query or register combat events")
@@ -86,6 +97,21 @@ assert(hit:IsActive() and iSTSettings.hitDebugCapture.duration == 60 and debugFr
 assert(iSTSettings.debugMode == false, "hit capture does not change normal Debug Mode")
 local function event(name, ...) debugFrame.OnEvent(debugFrame, name, ...) end
 assert(hit:GetReport():find("Group at start: false", 1, true), "group context is preserved outside the capped event ring")
+assert(hit:GetReport():find("AURA_CANDIDATE name=Echo of Command spellID=88888 stacks=2", 1, true)
+    and hit:GetReport():find("AURA_CANDIDATE name=Windfury Weapon spellID=77777 stacks=<secret>", 1, true),
+    "public Echo and Windfury buffs are recorded without reading secret fields")
+local indexedAura = C_UnitAuras.GetAuraDataByIndex
+C_UnitAuras.GetAuraDataByIndex = function() return hidden end
+hit:Snapshot("hidden aura result")
+C_UnitAuras.GetAuraDataByIndex = indexedAura
+assert(hit:IsActive(), "a secret aura result is skipped without stopping the capture")
+local auraRestrictionCheck = C_Secrets.ShouldAurasBeSecret
+C_Secrets.ShouldAurasBeSecret = function() error("aura access unavailable") end
+local readsBeforeUnknown, scansBeforeUnknown = auraReads, auraScans
+hit:Snapshot("restriction unknown")
+assert(auraReads == readsBeforeUnknown and auraScans == scansBeforeUnknown,
+    "aura reads require an explicit unrestricted result")
+C_Secrets.ShouldAurasBeSecret = auraRestrictionCheck
 local beforeMeterEvents = iSTSettings.hitDebugCapture.count
 for category = 0, 10 do event("DAMAGE_METER_COMBAT_SESSION_UPDATED", category, 42) end
 assert(iSTSettings.hitDebugCapture.count == beforeMeterEvents + 1, "unrelated meter categories cannot fill the hit log")
@@ -121,13 +147,14 @@ hit:SampleMeter(true)
 assert(hit:GetReport():find("delta=baseline reset", 1, true), "an unexpected meter reset is labelled instead of treated as negative damage")
 
 combat, auraRestricted = true, true
-local priorAuraReads = auraReads
+local priorAuraReads, priorAuraScans = auraReads, auraScans
 event("PLAYER_REGEN_DISABLED")
 total, spellID, spellTotal = hidden, hidden, hidden
 spellResult = { hidden, { spellID = hidden, totalAmount = hidden }, { spellID = 6603, totalAmount = hidden } }
 hit:SampleMeter(true)
 event("UNIT_AURA", "player", hidden)
-assert(auraReads == priorAuraReads, "restricted aura queries are skipped")
+assert(auraReads == priorAuraReads and auraScans == priorAuraScans,
+    "restricted aura queries and scans are skipped")
 sessionResult, sourceResult = hidden, hidden
 hit:SampleMeter(true)
 sessionResult, sourceResult = { combatSources = hidden }, { combatSpells = hidden }
@@ -166,7 +193,7 @@ hit.window.edit.OnEscapePressed()
 assert(not hit.window.shown, "Escape closes the report")
 
 saved.status = "recording"
-assert(loadfile("tests/dev/iSealTwist_HitDebug.lua"))("iSealTwist", iST)
+assert(loadfile("iSealTwist_HitDebug.lua"))("iSealTwist", iST)
 hit = iST.HitDebug
 assert(not hit:IsActive() and hit:GetReport():find("interrupted by reload", 1, true),
     "the saved report survives reload without restarting the capture")

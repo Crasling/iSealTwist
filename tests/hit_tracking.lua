@@ -96,11 +96,21 @@ for _, separateEvents in ipairs({ false, true }) do
     assert(#iST.WrathHitMatcher.pending == 1 and #timers == 1,
         "closely spaced native events use one burst and one cleanup timer")
     assert(feedback(.5) and count() == 1)
-    assert(feedback(.02) and count() == 2, "two close physical hits award two stacks")
-    assert(not feedback(.01) and count() == 2, "the burst cannot count a third hit")
+    assert(feedback(.02) == separateEvents and count() == (separateEvents and 2 or 1),
+        "a second physical hit needs a second player swing, not just nearby target damage")
+    assert(not feedback(.01) and count() == (separateEvents and 2 or 1),
+        "the burst cannot count more hits than player swings")
     now = now + 3
-    swing(); assert(feedback(.5) and count() == 3, "ordinary swings still work after the burst")
+    swing(); assert(feedback(.5) and count() == (separateEvents and 3 or 2),
+        "ordinary swings still work after the burst")
 end
+reset()
+swing(); assert(feedback(.5) and count() == 1)
+assert(not feedback(.02) and count() == 1,
+    "another party member's same-target physical hit cannot use our completed swing")
+now = now + 3
+swing(); assert(feedback(.5) and count() == 2,
+    "a later player swing still earns its own stack after party feedback was ignored")
 reset()
 swing()
 assert(feedback(.5) and count() == 1)
@@ -109,8 +119,8 @@ assert(not iST:ObserveWrathHitFeedback("target", "WOUND", "", secret, 2))
 assert(not iST:ObserveWrathHitFeedback("target", "WOUND", "", secret, 32))
 assert(count() == 1 and iST.WrathTracker.expiresAt == firstHitExpiry,
     "Holy and Shadow procs cannot supply the extra physical hit")
-assert(feedback(.02, "DODGE") and count() == 1 and iST.WrathTracker.expiresAt == firstHitExpiry,
-    "an avoided extra attack neither adds a stack nor refreshes its deadline")
+assert(not feedback(.02, "DODGE") and count() == 1 and iST.WrathTracker.expiresAt == firstHitExpiry,
+    "avoidance after a completed swing cannot claim another attack")
 for _, action in ipairs({ "MISS", "DODGE", "PARRY" }) do
     reset()
     swing(); now = now + .02; swing()
@@ -130,8 +140,15 @@ iST.WrathTracker:Attack("Seal of Command", now)
 iST.State.CurrentSealName = "Seal of Righteousness"
 swing()
 assert(feedback(.5) and count() == 0 and iST.releases == 1)
+assert(not feedback(.02) and count() == 0 and iST.releases == 1,
+    "party damage after a release cannot build a replacement-seal stack")
+reset()
+iST.WrathTracker:Attack("Seal of Command", now)
+iST.State.CurrentSealName = "Seal of Righteousness"
+swing(); now = now + .02; swing()
+assert(feedback(.5) and count() == 0 and iST.releases == 1)
 assert(feedback(.02) and count() == 1 and iST.releases == 1,
-    "a landed extra attack can build the replacement seal after the first hit releases stacks")
+    "two explicit player swings may release and then build one replacement-seal stack")
 reset()
 iSTSettings.fakeUnsealedWrath, iST.talent = false, true
 iST.WrathTracker:Attack("Seal of Command", now)
@@ -140,18 +157,22 @@ swing()
 iST.WrathTracker:Reset()
 iST.State.WrathAuraRevision = 1
 assert(feedback(.5) and count() == 0 and iST.releases == 1)
-assert(feedback(.02) and count() == 0 and iST.releases == 1,
-    "a readable aura removal wins across the burst and shows release only once")
+assert(not feedback(.02) and count() == 0 and iST.releases == 1,
+    "a readable aura removal wins and same-target noise cannot release twice")
 reset()
 swing()
-assert(feedback(1.19) and feedback(.1) and count() == 2,
-    "a late first hit still gets its bounded extra-hit window")
+assert(feedback(1.19) and not feedback(.1) and count() == 1,
+    "a late first hit counts once without granting an extra-hit window")
+reset()
+swing(); now = now + .02; swing()
+assert(feedback(1.17) and feedback(.1) and count() == 2,
+    "two explicit swings can still use a bounded late-feedback window")
 reset()
 swing(); feedback(.5)
 now = now + 2
 for _, timer in ipairs(timers) do timer.run() end
 assert(#iST.WrathHitMatcher.pending == 0, "cleanup removes an unused extra-hit opportunity")
-print("PASS: one/two swing events with two physical hits, avoided extras, burst limit, proc filtering, cancellation, release, aura precedence, and cleanup")
+print("PASS: one hit per player swing, close and late second swings, party noise, proc filtering, cancellation, release, aura precedence, and cleanup")
 
 reset()
 swing()

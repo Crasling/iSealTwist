@@ -1,5 +1,5 @@
 local _, iST = ...
--- Development recorder. The release TOC does not load anything under tests.
+-- Hit capture stays idle until the player starts it with /ist hitdebug.
 local L = setmetatable({
     HitDebugHelp = "Hit debug: start [10-180 seconds], stop, mark <note>, status, show, clear. Start before combat; default capture is 60 seconds.",
     HitDebugStarted = "Hit capture started for %d seconds. Use /ist hitdebug mark <note> for misses or buff counts you see.",
@@ -19,7 +19,7 @@ local MAX_ROWS, MAX_SECONDS, COPY_LIMIT = 1000, 180, 120000
 local frame = CreateFrame("Frame")
 frame:Hide()
 local capture, active, lastSwing, swingCount, targetCount
-local playerGUID, sampleElapsed, lastMeterLine, lastMeterAt, previousTotals
+local playerGUID, lastMeterLine, lastMeterAt, previousTotals
 
 local function secret(value) return issecretvalue and issecretvalue(value) end
 local function number(value)
@@ -84,13 +84,33 @@ function HitDebug:Snapshot(reason)
     self:Record("AURA", "restricted=" .. text(restriction))
     -- This is a diagnostic, not a way around aura restrictions. Never enumerate
     -- protected buffs or try to turn their values into public strings.
-    if secret(restriction) or restriction == true then return end
+    if secret(restriction) or restriction ~= false then return end
     local aura, result = call(C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName,
         "player", state.WrathAuraName or "Unsealed Wrath", "HELPFUL")
     self:Record("AURA", "query=" .. result .. " value=" .. text(aura)
         .. " applications=" .. text(field(aura, "applications"))
         .. " expiry=" .. text(field(aura, "expirationTime"))
         .. " instance=" .. text(field(aura, "auraInstanceID")))
+    -- The real stored-seal effect may use an Echo aura rather than the talent's
+    -- name. List matching public player buffs when aura access is available.
+    local readIndex = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if type(readIndex) ~= "function" then return end
+    for index = 1, 40 do
+        local candidate, status = call(readIndex, "player", index, "HELPFUL")
+        if status ~= "returned" or secret(candidate) or candidate == nil then break end
+        local name = field(candidate, "name")
+        if not secret(name) and type(name) == "string" then
+            local lowerName = name:lower()
+            if lowerName:find("echo", 1, true) or lowerName:find("unsealed", 1, true)
+                or lowerName:find("windfury", 1, true) then
+                self:Record("AURA_CANDIDATE", "name=" .. text(name)
+                    .. " spellID=" .. text(field(candidate, "spellId"))
+                    .. " stacks=" .. text(field(candidate, "applications"))
+                    .. " expiry=" .. text(field(candidate, "expirationTime"))
+                    .. " instance=" .. text(field(candidate, "auraInstanceID")))
+            end
+        end
+    end
 end
 
 local function spellName(id)
@@ -177,7 +197,7 @@ function HitDebug:Start(seconds)
     capture.grouped, capture.raid, capture.members = text(call(IsInGroup)), text(call(IsInRaid)), text(call(GetNumGroupMembers))
     iSTSettings.hitDebugCapture = capture
     active, lastSwing, swingCount, targetCount = true, nil, 0, 1
-    sampleElapsed, lastMeterLine, lastMeterAt, previousTotals = 0, nil, 0, {}
+    lastMeterLine, lastMeterAt, previousTotals = nil, 0, {}
     local guid = call(UnitGUID, "player")
     playerGUID = not secret(guid) and type(guid) == "string" and guid or nil
     for _, event in ipairs(EVENTS) do
@@ -259,10 +279,6 @@ end)
 frame:SetScript("OnUpdate", function(_, elapsed)
     if not active then return end
     if GetTime() - capture.startedAt >= capture.duration then HitDebug:Stop("time limit"); return end
-    sampleElapsed = sampleElapsed + elapsed
-    if sampleElapsed < 0.25 then return end
-    sampleElapsed = 0
-    HitDebug:SampleMeter(false)
 end)
 
 function HitDebug:GetReport()

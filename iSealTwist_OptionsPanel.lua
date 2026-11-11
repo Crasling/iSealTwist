@@ -13,10 +13,73 @@ local openDropdown
 
 local PANEL_BACKDROP = {
     bgFile = "Interface\\BUTTONS\\WHITE8X8",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    edgeSize = 10,
-    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    edgeFile = "Interface\\BUTTONS\\WHITE8X8",
+    edgeSize = 1,
 }
+
+local function StyleSettingsSurface(frame, header)
+    frame:SetBackdrop(PANEL_BACKDROP)
+    if header then frame:SetBackdropColor(0.075, 0.058, 0.035, 0.98)
+    else frame:SetBackdropColor(0.025, 0.023, 0.020, 0.98) end
+    frame:SetBackdropBorderColor(0.32, 0.25, 0.14, 1)
+end
+
+local function StyleSettingsCheckbox(cb)
+    cb:SetSize(24, 24)
+    cb:SetNormalTexture("Interface\\BUTTONS\\WHITE8X8")
+    cb:GetNormalTexture():SetVertexColor(0, 0, 0, 0)
+    cb:SetPushedTexture("Interface\\BUTTONS\\WHITE8X8")
+    cb:GetPushedTexture():SetVertexColor(0.18, 0.13, 0.06, 1)
+    cb:SetHighlightTexture("Interface\\BUTTONS\\WHITE8X8", "ADD")
+    cb:GetHighlightTexture():SetVertexColor(0.5, 0.32, 0.09, 0.25)
+    local background = CreateFrame("Frame", nil, cb, BACKDROP_TEMPLATE)
+    background:SetAllPoints(cb)
+    background:SetFrameLevel(math.max(0, cb:GetFrameLevel() - 1))
+    background:SetBackdrop(PANEL_BACKDROP)
+    background:SetBackdropColor(0.035, 0.030, 0.022, 1)
+    background:SetBackdropBorderColor(0.42, 0.32, 0.15, 1)
+    cb:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    cb:GetCheckedTexture():SetVertexColor(1, 0.76, 0.30, 1)
+    cb:SetDisabledCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check-Disabled")
+    cb.Text:ClearAllPoints()
+    cb.Text:SetPoint("LEFT", cb, "RIGHT", 8, 0)
+end
+
+local function StyleSettingsScroll(scrollFrame)
+    local bar = scrollFrame.ScrollBar
+    if not bar then return end
+    for _, texture in ipairs({ bar:GetRegions() }) do
+        if texture.IsObjectType and texture:IsObjectType("Texture") then texture:SetAlpha(0) end
+    end
+    -- The template can expose arrows under different keys. Hide its actual
+    -- button children and prevent range updates from showing them again.
+    local hiddenButtons = {}
+    local function HideArrow(button)
+        if not button or hiddenButtons[button] then return end
+        if not button.IsObjectType or not button:IsObjectType("Button") then return end
+        hiddenButtons[button] = true
+        button:SetAlpha(0)
+        button:EnableMouse(false)
+        button:Hide()
+        button:HookScript("OnShow", function(self) self:Hide() end)
+    end
+    HideArrow(bar.ScrollUpButton)
+    HideArrow(bar.ScrollDownButton)
+    for _, owner in ipairs({ bar, scrollFrame }) do
+        for _, child in ipairs({ owner:GetChildren() }) do HideArrow(child) end
+    end
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", scrollFrame, "TOPRIGHT", 6, -3)
+    bar:SetPoint("BOTTOMLEFT", scrollFrame, "BOTTOMRIGHT", 6, 3)
+    bar:SetWidth(8)
+    local track = bar:CreateTexture(nil, "BACKGROUND")
+    track:SetAllPoints(bar)
+    track:SetColorTexture(0.11, 0.09, 0.06, 0.7)
+    bar:SetThumbTexture("Interface\\BUTTONS\\WHITE8X8")
+    bar:GetThumbTexture():SetSize(8, 28)
+    bar:GetThumbTexture():SetVertexColor(0.72, 0.48, 0.17, 1)
+    bar:GetThumbTexture():SetAlpha(1)
+end
 
 -- Layout helpers return the next free row so descriptions can wrap naturally.
 
@@ -26,9 +89,8 @@ local function CreateSectionHeader(parent, text, yOffset)
     header:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
     header:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -10, yOffset)
     if header.SetBackdrop then
-        header:SetBackdrop(PANEL_BACKDROP)
-        header:SetBackdropColor(0.045, 0.040, 0.035, 0.96)
-        header:SetBackdropBorderColor(ORANGE[1], ORANGE[2], ORANGE[3], 0.42)
+        header:SetBackdrop({ bgFile = "Interface\\BUTTONS\\WHITE8X8" })
+        header:SetBackdropColor(0.11, 0.08, 0.035, 0.6)
     end
 
     local accent = header:CreateTexture(nil, "ARTWORK")
@@ -42,7 +104,7 @@ local function CreateSectionHeader(parent, text, yOffset)
     label:SetText(text)
     label:SetTextColor(ORANGE[1], 0.75, 0.20)
 
-    return header, yOffset - 28
+    return header, yOffset - 34
 end
 
 local function CreateSettingsCheckbox(parent, label, descText, yOffset, getFunc, setFunc)
@@ -52,6 +114,7 @@ local function CreateSettingsCheckbox(parent, label, descText, yOffset, getFunc,
         cb.Text = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         cb.Text:SetPoint("LEFT", cb, "RIGHT", 4, 0)
     end
+    StyleSettingsCheckbox(cb)
     cb.Text:SetText(label)
     cb.Text:SetFontObject(GameFontHighlight)
     cb.Text:SetTextColor(0.96, 0.90, 0.78)
@@ -66,8 +129,8 @@ local function CreateSettingsCheckbox(parent, label, descText, yOffset, getFunc,
     local nextY = yOffset - math.max(24, cb:GetHeight()) - 6
     if descText and descText ~= "" then
         local desc = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        desc:SetPoint("TOPLEFT", parent, "TOPLEFT", 48, nextY)
-        desc:SetWidth(350)
+        desc:SetPoint("TOPLEFT", parent, "TOPLEFT", 52, nextY)
+        desc:SetWidth(parent:GetWidth() - 72)
         desc:SetJustifyH("LEFT")
         desc:SetWordWrap(true)
         desc:SetText(descText)
@@ -222,18 +285,32 @@ local function StyleSettingsButton(btn)
         btn:SetFontString(text)
     end
     btn:SetBackdrop(PANEL_BACKDROP)
-    btn:SetBackdropColor(0.035, 0.030, 0.022, 0.99)
-    btn:SetBackdropBorderColor(0.62, 0.39, 0.10, 1)
+    btn:SetBackdropColor(0.035, 0.030, 0.022, 1)
+    btn:SetBackdropBorderColor(0.52, 0.38, 0.17, 1)
     btn:SetNormalFontObject(GameFontNormal)
     btn:SetHighlightFontObject(GameFontHighlight)
+    local function RefreshButton(self)
+        local enabled = self:IsEnabled()
+        if enabled and self.settingsPressed then self:SetBackdropColor(0.09, 0.065, 0.025, 1)
+        elseif enabled and self.settingsHovered then self:SetBackdropColor(0.14, 0.10, 0.04, 1)
+        else self:SetBackdropColor(0.035, 0.030, 0.022, 1) end
+        if enabled and self.settingsHovered then self:SetBackdropBorderColor(0.78, 0.53, 0.18, 1)
+        else self:SetBackdropBorderColor(0.52, 0.38, 0.17, 1) end
+        self:SetAlpha(enabled and 1 or 0.45)
+    end
     btn:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(ORANGE[1], ORANGE[2], ORANGE[3], 0.15)
-        self:SetBackdropBorderColor(ORANGE[1], ORANGE[2], ORANGE[3], 1)
+        self.settingsHovered = true
+        RefreshButton(self)
     end)
     btn:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(0.035, 0.030, 0.022, 0.99)
-        self:SetBackdropBorderColor(0.62, 0.39, 0.10, 1)
+        self.settingsHovered, self.settingsPressed = false, false
+        RefreshButton(self)
     end)
+    btn:SetScript("OnMouseDown", function(self) self.settingsPressed = true; RefreshButton(self) end)
+    btn:SetScript("OnMouseUp", function(self) self.settingsPressed = false; RefreshButton(self) end)
+    btn:SetScript("OnDisable", function(self) self.settingsPressed = false; RefreshButton(self) end)
+    btn:SetScript("OnEnable", RefreshButton)
+    btn:GetFontString():SetTextColor(ORANGE[1], ORANGE[2], ORANGE[3])
 end
 
 local function CreateSettingsButton(parent, text, width, yOffset, onClick)
@@ -320,11 +397,8 @@ end
 
 local function CreateStyledDropdown(parent, width, getOptions, getValue, setValue, getOptionText, isDisabled)
     local dropdown = CreateFrame("Button", nil, parent, BACKDROP_TEMPLATE)
-    dropdown:SetSize(width, 30)
-    dropdown:SetBackdrop(PANEL_BACKDROP)
-    dropdown:SetBackdropColor(0.035, 0.030, 0.022, 0.99)
-    dropdown:SetBackdropBorderColor(0.62, 0.39, 0.10, 1)
-    dropdown:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    dropdown:SetSize(width, 28)
+    StyleSettingsButton(dropdown)
 
     dropdown.text = dropdown:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     dropdown.text:SetPoint("LEFT", dropdown, "LEFT", 11, 0)
@@ -343,9 +417,19 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
     dropdown.menu:SetClampedToScreen(true)
     dropdown.menu:SetToplevel(true)
     dropdown.menu:EnableMouse(true)
-    dropdown.menu:SetBackdrop(PANEL_BACKDROP)
-    dropdown.menu:SetBackdropColor(0.018, 0.016, 0.012, 0.995)
-    dropdown.menu:SetBackdropBorderColor(0.78, 0.48, 0.12, 1)
+    StyleSettingsSurface(dropdown.menu)
+    local dismiss = CreateFrame("Button", nil, UIParent)
+    dismiss:SetAllPoints(UIParent)
+    dismiss:SetFrameStrata("FULLSCREEN_DIALOG")
+    dropdown.menu:SetFrameLevel(dismiss:GetFrameLevel() + 1)
+    dismiss:SetScript("OnClick", function() dropdown.menu:Hide() end)
+    dismiss:Hide()
+    dropdown.menu.dismiss = dismiss
+    dropdown.menu:SetScript("OnShow", function() dismiss:Show() end)
+    dropdown.menu:SetScript("OnHide", function()
+        dismiss:Hide()
+        if openDropdown == dropdown then openDropdown = nil end
+    end)
     dropdown.menu.buttons = {}
     dropdown.menu:Hide()
 
@@ -397,7 +481,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
                 button.check:SetWidth(3)
                 button.check:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -3)
                 button.check:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 2, 3)
-                button.check:SetColorTexture(0.25, 1, 0.35, 1)
+                button.check:SetColorTexture(1, 0.67, 0.16, 1)
                 button:SetScript("OnEnter", function(menuButton)
                     if not menuButton.disabled then
                         menuButton:SetBackdropColor(ORANGE[1], ORANGE[2], ORANGE[3], 0.16)
@@ -417,7 +501,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
             if disabled then
                 button.text:SetTextColor(0.40, 0.36, 0.30)
             elseif button.selected then
-                button.text:SetTextColor(0.35, 1, 0.42)
+                button.text:SetTextColor(1, 0.76, 0.30)
             else
                 button.text:SetTextColor(0.92, 0.92, 0.92)
             end
@@ -477,7 +561,7 @@ end
 local function CreateInfoText(parent, text, yOffset, fontObj)
     local fs = parent:CreateFontString(nil, "OVERLAY", fontObj or "GameFontHighlight")
     fs:SetPoint("TOPLEFT", parent, "TOPLEFT", 25, yOffset)
-    fs:SetWidth(370)
+    fs:SetWidth(parent:GetWidth() - 50)
     fs:SetJustifyH("LEFT")
     fs:SetWordWrap(true)
     fs:SetText(text)
@@ -488,11 +572,11 @@ end
 
 local function CreateColorEditor(parent, label, yOffset, getFunc, onChange, captureOriginal)
     local button = CreateFrame("Button", nil, parent, BACKDROP_TEMPLATE)
-    button:SetSize(470, 26)
+    button:SetSize(parent:GetWidth() - 40, 28)
     button:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     button:SetBackdrop(PANEL_BACKDROP)
     button:SetBackdropColor(0.035, 0.030, 0.022, 0.92)
-    button:SetBackdropBorderColor(0.38, 0.27, 0.12, 0.85)
+    button:SetBackdropBorderColor(0.32, 0.25, 0.14, 1)
 
     local highlight = button:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetAllPoints()
@@ -600,29 +684,20 @@ end
 function iST:CreateOptionsPanel()
     if self.SettingsFrame then return end
 
-    local sidebarWidth = 150
-    local contentWidth = 550
+    local sidebarWidth = 160
+    local contentWidth = 592
 
     local settingsFrame = CreateFrame("Frame", "iSTSettingsFrame", UIParent, BACKDROP_TEMPLATE)
     -- Let WoW close the settings panel through its normal Escape-key handling.
     table.insert(UISpecialFrames, settingsFrame:GetName())
-    settingsFrame:SetSize(750, 520)
+    settingsFrame:SetSize(820, 580)
     settingsFrame:SetPoint("CENTER", UIParent, "CENTER")
     settingsFrame:SetMovable(true)
     settingsFrame:SetClampedToScreen(true)
     settingsFrame:EnableMouse(true)
     settingsFrame:SetFrameStrata("HIGH")
 
-    if settingsFrame.SetBackdrop then
-        settingsFrame:SetBackdrop({
-            bgFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-            edgeSize = 16,
-            insets = { left = 5, right = 5, top = 5, bottom = 5 },
-        })
-        settingsFrame:SetBackdropColor(0.018, 0.016, 0.012, 0.98)
-        settingsFrame:SetBackdropBorderColor(0.72, 0.44, 0.10, 0.95)
-    end
+    StyleSettingsSurface(settingsFrame)
 
     local shadow = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
     shadow:SetPoint("TOPLEFT", settingsFrame, -1, 1)
@@ -637,33 +712,24 @@ function iST:CreateOptionsPanel()
     settingsFrame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
 
     local titleBar = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
-    titleBar:SetHeight(31)
-    titleBar:SetPoint("TOPLEFT", settingsFrame, "TOPLEFT", 0, 0)
-    titleBar:SetPoint("TOPRIGHT", settingsFrame, "TOPRIGHT", 0, 0)
-    if titleBar.SetBackdrop then
-        titleBar:SetBackdrop({
-            bgFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 10,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        titleBar:SetBackdropColor(0.055, 0.043, 0.025, 1)
-        titleBar:SetBackdropBorderColor(0.58, 0.35, 0.08, 0.95)
-    end
+    titleBar:SetHeight(40)
+    titleBar:SetPoint("TOPLEFT", settingsFrame, "TOPLEFT", 1, -1)
+    titleBar:SetPoint("TOPRIGHT", settingsFrame, "TOPRIGHT", -1, -1)
+    StyleSettingsSurface(titleBar, true)
 
     local titleText = titleBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-    titleText:SetPoint("CENTER", titleBar, "CENTER", 0, 0)
-    titleText:SetText(Colors.iST .. "iSealTwist" .. Colors.Green .. " v" .. iST.Version)
+    titleText:SetPoint("LEFT", titleBar, "LEFT", 15, 0)
+    titleText:SetText(Colors.iST .. "iSealTwist|r  |cFFAAA08C" .. L["SettingsLabel"] .. "|r")
 
     local titleAccent = titleBar:CreateTexture(nil, "ARTWORK")
     titleAccent:SetHeight(1)
     titleAccent:SetPoint("BOTTOMLEFT", titleBar, "BOTTOMLEFT", 8, 2)
     titleAccent:SetPoint("BOTTOMRIGHT", titleBar, "BOTTOMRIGHT", -8, 2)
-    titleAccent:SetColorTexture(ORANGE[1], ORANGE[2], ORANGE[3], 0.70)
+    titleAccent:SetColorTexture(ORANGE[1], ORANGE[2], ORANGE[3], 0.25)
 
     local closeButton = CreateFrame("Button", nil, settingsFrame, BACKDROP_TEMPLATE)
-    closeButton:SetSize(24, 22)
-    closeButton:SetPoint("TOPRIGHT", settingsFrame, "TOPRIGHT", -7, -5)
+    closeButton:SetSize(26, 26)
+    closeButton:SetPoint("TOPRIGHT", settingsFrame, "TOPRIGHT", -8, -8)
     StyleSettingsButton(closeButton)
     closeButton:SetText("X")
     closeButton:SetScript("OnClick", function() iST:SettingsClose() end)
@@ -671,39 +737,52 @@ function iST:CreateOptionsPanel()
     -- Page navigation sits beside a shared content area.
     local sidebar = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
     sidebar:SetWidth(sidebarWidth)
-    sidebar:SetPoint("TOPLEFT", settingsFrame, "TOPLEFT", 10, -35)
-    sidebar:SetPoint("BOTTOMLEFT", settingsFrame, "BOTTOMLEFT", 10, 10)
-    if sidebar.SetBackdrop then
-        sidebar:SetBackdrop({
-            bgFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 12,
-            insets = { left = 3, right = 3, top = 3, bottom = 3 },
-        })
-        sidebar:SetBackdropColor(0.025, 0.022, 0.018, 0.98)
-        sidebar:SetBackdropBorderColor(0.48, 0.31, 0.10, 0.85)
-    end
+    sidebar:SetPoint("TOPLEFT", settingsFrame, "TOPLEFT", 10, -50)
+    sidebar:SetPoint("BOTTOMLEFT", settingsFrame, "BOTTOMLEFT", 10, 30)
+    StyleSettingsSurface(sidebar)
+    settingsFrame.sidebar = sidebar
+
+    local footer = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    footer:SetPoint("BOTTOMLEFT", settingsFrame, "BOTTOMLEFT", 14, 11)
+    footer:SetText(L["SettingsSavedAutomatically"])
+    local versionText = settingsFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    versionText:SetPoint("BOTTOMRIGHT", settingsFrame, "BOTTOMRIGHT", -14, 11)
+    versionText:SetText("v" .. iST.Version)
 
     local contentArea = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
-    contentArea:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 6, 0)
-    contentArea:SetPoint("BOTTOMRIGHT", settingsFrame, "BOTTOMRIGHT", -10, 10)
-    if contentArea.SetBackdrop then
-        contentArea:SetBackdrop({
-            bgFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 16,
-            insets = { left = 4, right = 4, top = 4, bottom = 4 },
-        })
-        contentArea:SetBackdropBorderColor(0.48, 0.31, 0.10, 0.90)
-        contentArea:SetBackdropColor(0.028, 0.025, 0.021, 0.98)
-    end
+    contentArea:SetPoint("TOPLEFT", sidebar, "TOPRIGHT", 10, 0)
+    contentArea:SetPoint("BOTTOMRIGHT", settingsFrame, "BOTTOMRIGHT", -10, 30)
+    StyleSettingsSurface(contentArea)
+
+    local pageHeader = CreateFrame("Frame", nil, contentArea)
+    pageHeader:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 1, -1)
+    pageHeader:SetPoint("TOPRIGHT", contentArea, "TOPRIGHT", -1, -1)
+    pageHeader:SetHeight(58)
+    pageHeader.title = pageHeader:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    pageHeader.title:SetPoint("TOPLEFT", pageHeader, "TOPLEFT", 20, -12)
+    pageHeader.subtitle = pageHeader:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    pageHeader.subtitle:SetPoint("TOPLEFT", pageHeader, "TOPLEFT", 20, -34)
+    pageHeader.subtitle:SetPoint("TOPRIGHT", pageHeader, "TOPRIGHT", -20, -34)
+    pageHeader.subtitle:SetJustifyH("LEFT")
+    settingsFrame.pageHeader = pageHeader
+    local pageInfo = {
+        { L["TabGeneral"], L["SettingsGeneralSummary"] },
+        { L["TabTiming"], L["SettingsTimingSummary"] },
+        { L["TabIndicators"], L["SettingsIndicatorsSummary"] },
+        { L["TabCustomization"], L["SettingsCustomizationSummary"] },
+        { L["TabAbout"], L["SettingsAboutSummary"] },
+        { L["TabIWRPromo"], L["SettingsCompanionSummary"] },
+        { L["TabINIFPromo"], L["SettingsCompanionSummary"] },
+        { L["TabIRCPromo"], L["SettingsCompanionSummary"] },
+        { L["TabReminders"], L["SettingsRemindersSummary"] },
+    }
 
     -- Each page keeps its own scroll position when switching tabs.
     local scrollChildren = {}
 
     local function CreateTabContent()
         local container = CreateFrame("Frame", nil, contentArea)
-        container:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 5, -5)
+        container:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 5, -62)
         container:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", -5, 5)
         container:Hide()
 
@@ -711,12 +790,10 @@ function iST:CreateOptionsPanel()
         scrollFrame:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
         scrollFrame:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", -22, 0)
 
-        -- Keep wheel scrolling without showing the standard scrollbar.
-        local sb = scrollFrame.ScrollBar
-        if sb then sb:SetAlpha(0) sb:SetWidth(1) end
+        StyleSettingsScroll(scrollFrame)
 
         local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-        scrollChild:SetWidth(contentWidth - 40)
+        scrollChild:SetWidth(contentWidth)
         scrollChild:SetHeight(1)
         scrollFrame:SetScrollChild(scrollChild)
         table.insert(scrollChildren, scrollChild)
@@ -760,17 +837,21 @@ function iST:CreateOptionsPanel()
 
     local function ShowTab(index)
         activeIndex = index
+        if openDropdown and openDropdown.menu then openDropdown.menu:Hide() end
+        openDropdown = nil
+        pageHeader.title:SetText(pageInfo[index][1])
+        pageHeader.subtitle:SetText(pageInfo[index][2])
         for i, content in ipairs(tabContents) do
             content:SetShown(i == index)
         end
-        for i, btn in ipairs(sidebarButtons) do
+        for i, btn in pairs(sidebarButtons) do
             if i == index then
-                btn.bg:SetColorTexture(ORANGE[1], ORANGE[2], ORANGE[3], 0.22)
+                btn.bg:Show()
                 btn.accent:Show()
                 btn.text:SetFontObject(GameFontHighlight)
                 btn.text:SetTextColor(1, 0.78, 0.24)
             else
-                btn.bg:SetColorTexture(0.04, 0.035, 0.028, 0.72)
+                btn.bg:Hide()
                 btn.accent:Hide()
                 btn.text:SetFontObject(GameFontNormal)
                 btn.text:SetTextColor(0.82, 0.76, 0.66)
@@ -792,26 +873,26 @@ function iST:CreateOptionsPanel()
         { type = "tab", label = L["TabIRCPromo"], index = 8 },
     }
 
-    local sidebarY = -8
+    local sidebarY = -10
     for _, item in ipairs(sidebarItems) do
         if item.type == "header" then
             local headerText = sidebar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            headerText:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 10, sidebarY)
+            headerText:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 12, sidebarY - 2)
             headerText:SetText(item.label)
-            sidebarY = sidebarY - 18
+            sidebarY = sidebarY - 20
         elseif item.type == "tab" then
             local tabIndex = item.index
             local btn = CreateFrame("Button", nil, sidebar)
-            btn:SetSize(sidebarWidth - 12, 26)
+            btn:SetSize(sidebarWidth - 12, 30)
             btn:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 6, sidebarY)
 
             local bg = btn:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints(btn)
-            bg:SetColorTexture(0.04, 0.035, 0.028, 0.72)
+            bg:SetColorTexture(0.85, 0.52, 0.12, 0.14)
             btn.bg = bg
 
             local accent = btn:CreateTexture(nil, "ARTWORK")
-            accent:SetWidth(3)
+            accent:SetWidth(2)
             accent:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -3)
             accent:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, 3)
             accent:SetColorTexture(ORANGE[1], ORANGE[2], ORANGE[3], 0.95)
@@ -825,12 +906,12 @@ function iST:CreateOptionsPanel()
 
             local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
             highlight:SetAllPoints(btn)
-            highlight:SetColorTexture(ORANGE[1], ORANGE[2], ORANGE[3], 0.10)
+            highlight:SetColorTexture(1, 1, 1, 0.08)
 
             btn:SetScript("OnClick", function() ShowTab(tabIndex) end)
 
             sidebarButtons[tabIndex] = btn
-            sidebarY = sidebarY - 26
+            sidebarY = sidebarY - 32
         end
     end
 
@@ -871,16 +952,7 @@ function iST:CreateOptionsPanel()
         pairCard:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
         pairCard:SetPoint("TOPRIGHT", generalContent, "TOPRIGHT", -20, y)
         pairCard:SetHeight(220)
-        if pairCard.SetBackdrop then
-            pairCard:SetBackdrop({
-                bgFile = "Interface\\BUTTONS\\WHITE8X8",
-                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                edgeSize = 10,
-                insets = { left = 2, right = 2, top = 2, bottom = 2 },
-            })
-            pairCard:SetBackdropColor(0.035, 0.030, 0.022, 0.96)
-            pairCard:SetBackdropBorderColor(1, 0.59, 0.09, 0.45)
-        end
+        StyleSettingsSurface(pairCard)
 
         local fromLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         fromLabel:SetPoint("TOP", pairCard, "TOPLEFT", 111, -12)
@@ -961,7 +1033,9 @@ function iST:CreateOptionsPanel()
         legend:SetHeight(34)
         UpdateSealDirection()
 
-        CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -178, OpenMacroWindow)
+        local macrosButton = CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -178, OpenMacroWindow)
+        macrosButton:ClearAllPoints()
+        macrosButton:SetPoint("TOP", pairCard, "TOP", 0, -178)
 
         y = y - pairCard:GetHeight() - 8
 
@@ -1326,9 +1400,7 @@ function iST:CreateOptionsPanel()
         previewCard:SetPoint("TOPLEFT", customizationContent, "TOPLEFT", 20, y)
         previewCard:SetPoint("TOPRIGHT", customizationContent, "TOPRIGHT", -20, y)
         previewCard:SetHeight(106)
-        previewCard:SetBackdrop(PANEL_BACKDROP)
-        previewCard:SetBackdropColor(0.035, 0.030, 0.022, 0.96)
-        previewCard:SetBackdropBorderColor(ORANGE[1], ORANGE[2], ORANGE[3], 0.45)
+        StyleSettingsSurface(previewCard)
 
         local previewDescription = previewCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         previewDescription:SetPoint("TOPLEFT", previewCard, "TOPLEFT", 12, -10)
@@ -1376,7 +1448,7 @@ function iST:CreateOptionsPanel()
 
         local aboutDesc = aboutContent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         aboutDesc:SetPoint("TOPLEFT", aboutContent, "TOPLEFT", 25, y)
-        aboutDesc:SetWidth(370)
+        aboutDesc:SetWidth(contentWidth - 50)
         aboutDesc:SetJustifyH("LEFT")
         aboutDesc:SetWordWrap(true)
         aboutDesc:SetText(L["AboutText"])
@@ -1504,6 +1576,9 @@ function iST:CreateOptionsPanel()
             if sidebarButtons[promo.tabIdx] then
                 sidebarButtons[promo.tabIdx].text:SetText(loaded and promo.tabLabel or promo.tabLabelPromo)
             end
+        end
+        if sidebarButtons[activeIndex] then
+            pageHeader.title:SetText(sidebarButtons[activeIndex].text:GetText())
         end
     end)
     -- Menus are parented to UIParent, so closing the window must hide them too.

@@ -1,11 +1,16 @@
 # iST timing checks
 
+The settings checks also cover page titles and summaries, selected navigation,
+circle-handle dragging, wheel scrolling, per-page scroll positions, dropdown
+dismissal, disabled controls, and cleanup when the window closes.
+
 ## Hit-based Wrath tracking
 
 Real and Fake talent modes use the same tracking. A main-hand swing queues an
 attempt; matching physical target feedback adds or releases stacks on WOUND.
 MISS, DODGE, and PARRY leave stacks and their deadline unchanged. Glancing and
 partially blocked WOUND results still count. Damage amounts are never inspected.
+Extra target feedback cannot add another stack without another player swing.
 Readable buff counts take precedence and cannot be followed by an extra
 synthetic stack for the same attack.
 
@@ -26,18 +31,19 @@ cast interference, Holy Strike/Judgement overlap, and readable-aura precedence. 
 also dispatch real swing/feedback events through Main and exercise the cue renderer.
 Normal Debug Mode explains matched, avoided, skipped, and timed-out attempts.
 
-## Development recorder
+## Live hit recorder
 
-The hit recorder is preserved at tests/dev/iSealTwist_HitDebug.lua. The release
-TOC does not load it, and .pkgmeta excludes the entire tests directory.
-The released addon has no hit-capture commands, buttons, meter polling, or
-dependency on this file. Normal Debug Mode remains available.
+The hit recorder loads idle from iSealTwist_HitDebug.lua. Run `/ist hitdebug
+start 60` to capture a fight, `/ist hitdebug mark <note>` to mark an observed
+stack count, and `/ist hitdebug show` to copy the report. Stop and clear are
+also available. Captures stop automatically after 10 to 180 seconds and keep
+the newest 1,000 rows in this character's settings. Restricted values are
+saved only as `<secret>`. The report records group context, player swings,
+target feedback, stack decisions, and any matching public Echo or Windfury
+auras. It does no polling before a capture starts.
 
-Run hit_debug.lua from the addon directory to load the recorder directly in its
-standalone fixture. It checks secret handling, timing, capture bounds, automatic
-shutdown, reload persistence, and the copy window. The development interface is
-iST:HandleHitDebugCommand with start, stop, mark, status, show, and clear.
-Captures keep the newest 1,000 rows and save restricted values only as <secret>.
+Run hit_debug.lua from the addon directory to check secret handling, timing,
+capture bounds, automatic shutdown, reload persistence, and the copy window.
 
 ## Simulated tracking checks
 

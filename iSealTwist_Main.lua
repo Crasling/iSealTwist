@@ -1005,6 +1005,7 @@ function iST:SetFakeUnsealedWrath(enabled)
     self:StopTestMode()
     self.WrathTracker:Reset()
     self.State.WrathAuraInstanceID = nil
+    self.State.WrathAuraSnapshot = nil
     self.State.TwistResultDuration = 0
     if self.BarFrame then
         self.BarFrame.twistResultText:Hide()
@@ -1023,6 +1024,7 @@ function iST:RefreshUnsealedWrathState()
         self:CancelPendingWrathHits()
         self.WrathTracker:Reset()
         self.State.WrathAuraInstanceID = nil
+        self.State.WrathAuraSnapshot = nil
         self.State.TwistResultDuration = 0
         if self.BarFrame and self.BarFrame.twistResultText then
             self.BarFrame.twistResultText:SetText("")
@@ -1105,8 +1107,21 @@ function iST:ApplyWrathAura(aura, source, refreshed)
         return false
     end
     if IsSecret(expiresAt) then expiresAt = nil end
+    local snapshot = state.WrathAuraSnapshot
+    local knownInstance = not IsSecret(instanceID) and type(instanceID) == "number" and instanceID > 0 and instanceID or nil
+    local knownExpiry = type(expiresAt) == "number" and expiresAt or nil
+    -- Repeated reads of the same buff must not cancel a pending melee hit.
+    if snapshot and snapshot.count == count
+        and (not knownInstance or not snapshot.instanceID or knownInstance == snapshot.instanceID)
+        and (not knownExpiry or not snapshot.expiresAt or knownExpiry == snapshot.expiresAt)
+        and (tracker.count == count or tracker.countUnconfirmed) then return true, false end
     local previous, previousUnconfirmed = tracker.count, tracker.countUnconfirmed
     if not tracker:Observe(count, expiresAt, state.CurrentSealName, GetTime(), refreshed) then return false end
+    state.WrathAuraSnapshot = {
+        count = count,
+        instanceID = knownInstance or (snapshot and snapshot.instanceID),
+        expiresAt = knownExpiry or (snapshot and snapshot.expiresAt),
+    }
     state.WrathAuraRevision = (state.WrathAuraRevision or 0) + 1
     state.WrathCountRestricted = nil
     if previous ~= tracker.count or previousUnconfirmed then
@@ -1114,7 +1129,7 @@ function iST:ApplyWrathAura(aura, source, refreshed)
             source, previous, tracker.count, tracker.expiryUnconfirmed and "derived from stack updates" or "confirmed by buff"), 3)
     end
     self:UpdateWrathDisplay()
-    return true
+    return true, true
 end
 
 function iST:ObserveWrathAura(updateInfo, delayed)
@@ -1129,14 +1144,20 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         end)
         if readOK and not IsSecret(added) and type(added) == "table" then
             for _, aura in ipairs(added) do
-                if IsWrathAura(aura) and self:ApplyWrathAura(aura, "UNIT_AURA addition", true) then return true end
+                if IsWrathAura(aura) then
+                    local handled, changed = self:ApplyWrathAura(aura, "UNIT_AURA addition", true)
+                    if handled then return true, changed end
+                end
             end
         end
         if readOK and not IsSecret(updated) and type(updated) == "table" and type(reader) == "function" then
             for _, id in ipairs(updated) do
                 if not IsSecret(id) and type(id) == "number" and id > 0 then
                     local ok, aura = pcall(reader, "player", id)
-                    if ok and IsWrathAura(aura) and self:ApplyWrathAura(aura, "UNIT_AURA update", true) then return true end
+                    if ok and IsWrathAura(aura) then
+                        local handled, changed = self:ApplyWrathAura(aura, "UNIT_AURA update", true)
+                        if handled then return true, changed end
+                    end
                 end
             end
         end
@@ -1153,17 +1174,24 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         tracker:Reset()
         state.WrathAuraRevision = (state.WrathAuraRevision or 0) + 1
         state.WrathAuraInstanceID = nil
+        state.WrathAuraSnapshot = nil
         self:UpdateWrathDisplay()
-        return true
+        return true, true
     else
         if state.WrathAuraInstanceID and type(reader) == "function" then
             local ok, aura = pcall(reader, "player", state.WrathAuraInstanceID)
-            if ok and self:ApplyWrathAura(aura, "cached aura instance") then return true end
+            if ok then
+                local handled, changed = self:ApplyWrathAura(aura, "cached aura instance")
+                if handled then return true, changed end
+            end
         end
         local byName = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
         if type(byName) == "function" then
             local ok, aura = pcall(byName, "player", state.WrathAuraName or "Unsealed Wrath", "HELPFUL")
-            if ok and self:ApplyWrathAura(aura, "spell-name lookup") then return true end
+            if ok then
+                local handled, changed = self:ApplyWrathAura(aura, "spell-name lookup")
+                if handled then return true, changed end
+            end
         end
     end
     if not delayed then self:ScheduleWrathAuraCheck() end
@@ -1652,9 +1680,13 @@ function iST:RegisterSlashCommands()
     SLASH_ISEALTWIST1 = "/ist"
     SLASH_ISEALTWIST2 = "/isealtwist"
     SlashCmdList["ISEALTWIST"] = function(msg)
-        local cmd = msg and msg:lower():trim() or ""
+        local input = msg and msg:trim() or ""
+        local command, argument = input:match("^(%S+)%s*(.-)%s*$")
+        local cmd = command and command:lower() or ""
 
-        if cmd == "settings" or cmd == "options" or cmd == "config" then
+        if cmd == "hitdebug" then
+            iST:HandleHitDebugCommand(argument)
+        elseif cmd == "settings" or cmd == "options" or cmd == "config" then
             iST:SettingsToggle()
         elseif cmd == "lock" then
             iSTSettings.barLocked = not iSTSettings.barLocked
@@ -1784,6 +1816,7 @@ local function OnEvent(self, event, ...)
         iST:InvalidateBarState()
         iST.WrathTracker:Reset()
         iST.State.WrathAuraInstanceID = nil
+        iST.State.WrathAuraSnapshot = nil
         iST:ClearCurrentSeal()
         return
     end

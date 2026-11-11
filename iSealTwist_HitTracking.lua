@@ -4,9 +4,9 @@ local _, iST = ...
 -- 0.43-0.57s, or 0.99s on some Command-proc swings. Match those delayed events;
 -- UNIT_COMBAT does not name the attacker.
 local MIN_DELAY, MAX_DELAY = 0.30, 1.20
--- Allow the normal attack and one closely following extra attack. A burst
--- closes after two outcomes or 150 ms; later target damage needs a new swing.
-local BURST_GAP, MAX_BURST_OUTCOMES = 0.15, 2
+-- Close player swing events can be one attack burst. Target damage alone does
+-- not prove that a second hit was ours, so each player swing permits one result.
+local BURST_GAP, MAX_BURST_SWINGS = 0.15, 2
 local TIMING_EPSILON = 0.000001
 local OUTCOMES = { WOUND = true, MISS = true, DODGE = true, PARRY = true }
 -- Successful cast IDs paired with Holy damage in the Forever captures.
@@ -41,11 +41,11 @@ function iST:NewWrathHitMatcher()
     function matcher:Add(now, seal, sealExpiresAt, revision, tracker)
         self:Expire(now)
         local previous = self.pending[#self.pending]
-        if previous and previous.outcomes == 0 and previous.swingEvents < MAX_BURST_OUTCOMES
+        if previous and previous.outcomes == 0 and previous.swingEvents < MAX_BURST_SWINGS
             and previous.target == self.targetGeneration and previous.seal == seal
             and now - previous.at <= BURST_GAP + TIMING_EPSILON then
-            -- Some extra attacks may emit their own swing event. They share
-            -- one burst budget, so two events cannot award four hits.
+            -- Some extra attacks may emit their own swing event. Only that
+            -- player event can increase the number of results we accept.
             previous.swingEvents = previous.swingEvents + 1
             return previous, false
         end
@@ -88,8 +88,7 @@ function iST:NewWrathHitMatcher()
         end
         swing.outcomes = swing.outcomes + 1
         swing.firstOutcomeAt = swing.firstOutcomeAt or now
-        if swing.outcomes >= MAX_BURST_OUTCOMES
-            or (action ~= "WOUND" and swing.swingEvents <= swing.outcomes) then
+        if swing.outcomes >= swing.swingEvents then
             table.remove(self.pending, found)
         end
         return swing, action == "WOUND" and "hit" or "avoided"
@@ -106,16 +105,29 @@ local function log(message)
     iST:DebugMsg("Wrath hit tracking: " .. message, 3)
 end
 
+local function trace(format, ...)
+    local recorder = iST.HitDebug
+    if recorder and recorder:IsActive() then
+        recorder:Record("TRACK", string.format(format, ...))
+    end
+end
+
 function iST:CancelPendingWrathHits(changeTarget)
     if self.WrathHitMatcher then self.WrathHitMatcher:Clear(changeTarget) end
 end
 
 function iST:QueueWrathSwing(now)
-    if not iSTSettings.enabled or not self:IsWrathTrackingEnabled() then return end
+    if not iSTSettings.enabled then trace("swing skipped: addon disabled"); return end
+    if not self:IsWrathTrackingEnabled() then trace("swing skipped: talent not confirmed"); return end
     local state = self.State
-    if not state.CurrentSealName or (state.SealExpiresAt or 0) <= now then return end
+    if not state.CurrentSealName or (state.SealExpiresAt or 0) <= now then
+        trace("swing skipped: no active seal")
+        return
+    end
     local pending, created = matcher():Add(now, state.CurrentSealName, state.SealExpiresAt,
         state.WrathAuraRevision or 0, self.WrathTracker)
+    trace("swing #%d queued: player swings=%d, results=%d, seal=%s, stacks=%d",
+        pending.id, pending.swingEvents, pending.outcomes, pending.seal, self.WrathTracker.count)
     if not created then
         log(string.format("swing #%d includes a second melee event; waiting for physical results.", pending.id))
         return
@@ -172,10 +184,13 @@ function iST:ObserveWrathHitFeedback(unit, action, flags, amount, school)
     local now, state = GetTime(), self.State
     local pending, outcome = self.WrathHitMatcher:Match(now, action)
     if not pending then
+        trace("%s skipped: %s; stacks=%d", action, outcome, self.WrathTracker.count)
         if outcome ~= "no matching swing" then log(outcome .. "; count unchanged.") end
         return false
     end
     if outcome ~= "hit" then
+        trace("swing #%d %s: result %d/%d; stacks=%d",
+            pending.id, action, pending.outcomes, pending.swingEvents, self.WrathTracker.count)
         log(string.format("swing #%d %s at +%.3fs; %d/3 unchanged.",
             pending.id, action, now - pending.at, self.WrathTracker:GetCount(now)))
         self:ScheduleWrathAuraCheck()
@@ -183,24 +198,30 @@ function iST:ObserveWrathHitFeedback(unit, action, flags, amount, school)
     end
     if state.CurrentSealName ~= pending.seal or (state.SealExpiresAt or 0) <= now then
         pending.invalid = true
+        trace("swing #%d hit skipped: seal changed or expired", pending.id)
         log(string.format("swing #%d seal changed or expired before feedback; count unchanged.", pending.id))
         return false
     end
-    -- A readable buff snapshot takes precedence over hit tracking. A snapshot
-    -- received since the swing must not be followed by another synthetic stack.
-    local observed = not iSTSettings.fakeUnsealedWrath and self:ObserveWrathAura(nil, true)
-    if observed or pending.revision ~= (state.WrathAuraRevision or 0) then
+    -- A changed buff snapshot takes precedence over hit tracking. Re-reading
+    -- the previous stack count must not hide this physical hit.
+    local observed, changed
+    if not iSTSettings.fakeUnsealedWrath then observed, changed = self:ObserveWrathAura(nil, true) end
+    if changed or pending.revision ~= (state.WrathAuraRevision or 0) then
         if not pending.releaseShown and pending.previousCount > 0 and pending.previousSeal ~= pending.seal
             and pending.previousExpiry > now and self.WrathTracker:GetCount(now) == 0 then
             pending.releaseShown = true
             self:ShowTwistResult()
         end
         log(string.format("swing #%d matched WOUND; readable buff state takes precedence.", pending.id))
+        trace("swing #%d hit: buff update took precedence; stacks=%d",
+            pending.id, self.WrathTracker.count)
         self:ScheduleWrathAuraCheck()
         return true
     end
     local before = self.WrathTracker:GetCount(now)
     local consumed = self.WrathTracker:Attack(pending.seal, now)
+    trace("swing #%d hit %d/%d: stacks %d -> %d; released=%d",
+        pending.id, pending.outcomes, pending.swingEvents, before, self.WrathTracker.count, consumed)
     if consumed > 0 then pending.releaseShown = true; self:ShowTwistResult() end
     log(string.format("swing #%d physical hit %d at +%.3fs; %d -> %d/3%s.", pending.id, pending.outcomes, now - pending.at,
         before, self.WrathTracker.count, consumed > 0 and "; released stored stacks" or ""))
