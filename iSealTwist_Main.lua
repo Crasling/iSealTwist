@@ -496,8 +496,8 @@ function iST:CreateSwingBar()
     function bar:UpdateModernDimensions(height)
         local iconSize = math.max(16, iSTSettings.sealIconSize or height)
         sealIconFrame:SetSize(iconSize + 6, iconSize + 6)
-        sealIconShadow:SetSize(iconSize + 8, iconSize + 8)
-        sealIconRing:SetSize(iconSize + 6, iconSize + 6)
+        sealIconShadow:SetSize(iconSize + 10, iconSize + 10)
+        sealIconRing:SetSize(iconSize + 8, iconSize + 8)
         sealIcon:SetSize(iconSize, iconSize)
         gloss:SetHeight(math.max(1, math.floor((height - CONTENT_INSET * 2) * 0.35)))
         if self.sealTimerText then iST:ApplyBarTypography() end
@@ -886,13 +886,22 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
     local now = GetTime()
     self:CheckParryPrediction(now, isMeleeAttack, sourceEvent)
 
-    -- A swing starts an attempt. Its delayed physical feedback decides whether
-    -- the counter gains or releases stacks; timing alone must not add one.
+    -- Update the cue at the swing. Waiting for target feedback makes release
+    -- late and loses hits when the target changes before feedback arrives.
     if isMeleeAttack then
         if self:IsWrathTrackingEnabled() then
             if (self.State.SealExpiresAt or 0) <= GetTime() then self:ClearCurrentSeal() end
-            self:QueueWrathSwing(now)
-            self:ScheduleWrathAuraCheck()
+            local pending = self:QueueWrathSwing(now)
+            if pending then
+                local grouped = IsInGroup and IsInGroup()
+                pending.grouped = IsSecret(grouped) or grouped == true
+                local consumed = self.WrathTracker:Attack(self.State.CurrentSealName, now)
+                pending.provisional = { count = self.WrathTracker.count, seal = self.WrathTracker.seal,
+                    expiresAt = self.WrathTracker.expiresAt, released = consumed > 0 }
+                if consumed > 0 then self:ShowTwistResult() end
+                self:UpdateWrathDisplay(now)
+                self:ScheduleWrathAuraCheck()
+            end
         end
     end
     self.State.Idle = false
@@ -1110,11 +1119,23 @@ function iST:ApplyWrathAura(aura, source, refreshed)
     local snapshot = state.WrathAuraSnapshot
     local knownInstance = not IsSecret(instanceID) and type(instanceID) == "number" and instanceID > 0 and instanceID or nil
     local knownExpiry = type(expiresAt) == "number" and expiresAt or nil
-    -- Repeated reads of the same buff must not cancel a pending melee hit.
+    -- Keep an unchanged combat snapshot from undoing a delayed melee hit.
+    -- Once combat ends, the readable buff settles both the count and timer.
+    local inCombat = state.InCombat == true
+    if not inCombat and InCombatLockdown then
+        local locked = InCombatLockdown()
+        inCombat = IsSecret(locked) or locked == true
+    end
+    if not inCombat and UnitAffectingCombat then
+        local fighting = UnitAffectingCombat("player")
+        inCombat = IsSecret(fighting) or fighting == true
+    end
     if snapshot and snapshot.count == count
-        and (not knownInstance or not snapshot.instanceID or knownInstance == snapshot.instanceID)
-        and (not knownExpiry or not snapshot.expiresAt or knownExpiry == snapshot.expiresAt)
-        and (tracker.count == count or tracker.countUnconfirmed) then return true, false end
+        and (not knownInstance or knownInstance == snapshot.instanceID)
+        and (not knownExpiry or knownExpiry == snapshot.expiresAt)
+        and ((tracker.count == count and not tracker.countUnconfirmed
+                and (not knownExpiry or (not tracker.expiryUnconfirmed and tracker.expiresAt == knownExpiry)))
+            or (inCombat and tracker.countUnconfirmed)) then return true, false end
     local previous, previousUnconfirmed = tracker.count, tracker.countUnconfirmed
     if not tracker:Observe(count, expiresAt, state.CurrentSealName, GetTime(), refreshed) then return false end
     state.WrathAuraSnapshot = {
@@ -1363,6 +1384,17 @@ function iST:UpdateLatency()
 end
 
 -- Minimap and addon compartment button
+function iST:SetBarLocked(locked, announce)
+    iSTSettings.barLocked = locked == true
+    local checkbox = self.SettingsFrame and self.SettingsFrame.barLockCheckbox
+    if checkbox then checkbox:SetChecked(iSTSettings.barLocked) end
+    if announce then print(L[iSTSettings.barLocked and "BarLocked" or "BarUnlocked"]) end
+end
+
+function iST:ToggleBarLock()
+    self:SetBarLocked(not iSTSettings.barLocked, true)
+end
+
 function iST:CreateMinimapButton()
     if not LDBroker or not LDBIcon then return end
     if self.MinimapDataObject then return end
@@ -1374,12 +1406,7 @@ function iST:CreateMinimapButton()
         iconCoords = { 0.14, 0.86, 0.10, 0.82 },
         OnClick = function(_, button)
             if button == "LeftButton" and IsShiftKeyDown() then
-                iSTSettings.barLocked = not iSTSettings.barLocked
-                if iSTSettings.barLocked then
-                    print(L["BarLocked"])
-                else
-                    print(L["BarUnlocked"])
-                end
+                iST:ToggleBarLock()
             elseif button == "LeftButton" then
                 iSTSettings.enabled = not iSTSettings.enabled
                 if iSTSettings.enabled then
@@ -1689,12 +1716,7 @@ function iST:RegisterSlashCommands()
         elseif cmd == "settings" or cmd == "options" or cmd == "config" then
             iST:SettingsToggle()
         elseif cmd == "lock" then
-            iSTSettings.barLocked = not iSTSettings.barLocked
-            if iSTSettings.barLocked then
-                print(L["BarLocked"])
-            else
-                print(L["BarUnlocked"])
-            end
+            iST:ToggleBarLock()
         elseif cmd == "reset" then
             iST:ResetBarPosition()
         elseif cmd == "test" then

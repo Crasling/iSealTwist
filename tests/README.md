@@ -6,18 +6,19 @@ dismissal, disabled controls, and cleanup when the window closes.
 
 ## Hit-based Wrath tracking
 
-Real and Fake talent modes use the same tracking. A main-hand swing queues an
-attempt; matching physical target feedback adds or releases stacks on WOUND.
-MISS, DODGE, and PARRY leave stacks and their deadline unchanged. Glancing and
-partially blocked WOUND results still count. Damage amounts are never inspected.
-Extra target feedback cannot add another stack without another player swing.
-Readable buff counts take precedence and cannot be followed by an extra
-synthetic stack for the same attack.
+Real and Fake talent modes use the same tracking. A main-hand swing updates the
+display immediately and queues its result. Delayed physical target feedback
+cannot add that swing a second time. A matched MISS, DODGE, or PARRY can restore
+the previous count in solo play. Group feedback does not identify the attacker,
+so it cannot safely undo a displayed stack. Readable buff counts and expiry
+correct the display after combat. Damage amounts are never inspected.
 
 The matching window is 0.30–1.20 seconds after the swing. It covers the observed
 0.43–0.57-second feedback and the 0.99-second Command case in the build 70862
-captures. Target changes, seal changes, expiry, overlapping swing windows, and
-unknown player casts invalidate ambiguous matches. A timeout never awards a stack.
+captures. Target changes, overlapping swing windows, and unknown player casts
+invalidate ambiguous matches. A result uses the seal and expiration saved at
+the swing, even if the player changes seals or the old seal expires before the
+feedback arrives. A timeout leaves the displayed count for later buff correction.
 Known seal casts/procs do not invalidate a pending match. Holy Strike and Judgement's Holy
 damage is ignored while a later physical hit may still count. Avoidance feedback
 during that overlap leaves the attempt pending because an avoided Holy Strike

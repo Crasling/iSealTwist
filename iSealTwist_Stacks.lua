@@ -26,8 +26,8 @@ function iST:NewWrathTracker()
             self:Reset()
             return consumed
         end
-        -- The caller has matched a landed melee outcome. Add a stack and
-        -- refresh its fifteen-second clock until readable aura data corrects it.
+        -- A swing can update the display before its hit result arrives. Add a
+        -- stack and refresh its clock until feedback or aura data corrects it.
         self.seal = seal
         self.count = math.min(3, self.count + 1)
         self.expiresAt = now + 15

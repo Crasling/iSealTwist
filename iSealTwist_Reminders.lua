@@ -1,12 +1,17 @@
 local _, iST = ...
 local L = iST.L
 local FURY_SPELL = 25780
+local SEAL_IDLE_HIDE_SECONDS = 300
+local CAPITAL_MAPS = { [1453] = "Alliance", [1454] = "Horde", [1455] = "Alliance",
+    [1456] = "Horde", [1457] = "Alliance", [1458] = "Horde" }
 
 iST.ReminderDefaults = {
     FURY = { enabled = false, showIcon = true, showTime = true, locked = true, scale = 1,
-        warningSeconds = 60, protOnly = false, point = { "CENTER", "CENTER", -180, -120 } },
+        warningSeconds = 60, protOnly = false, dungeonsOnly = false, partyOnly = false,
+        point = { "CENTER", "CENTER", -180, -120 } },
     SEAL = { enabled = false, showIcon = true, showTime = true, locked = true, scale = 1,
-        warningSeconds = 5, onlyInCombat = false, point = { "CENTER", "CENTER", 180, -120 } },
+        warningSeconds = 5, onlyInCombat = false, hideAfterIdle = false, hideInCapitals = false,
+        point = { "CENTER", "CENTER", 180, -120 } },
 }
 
 local function secret(value) return issecretvalue and issecretvalue(value) end
@@ -26,6 +31,31 @@ local function enabled()
         and (iSTSettings.reminders.FURY.enabled or iSTSettings.reminders.SEAL.enabled)
 end
 local previewUntil, nextProtectionRead = {}, 0
+local lastSealCombatAt = GetTime()
+local capitalMap, nextCapitalCheck = nil, 0
+
+local function inCapital(now)
+    if now < nextCapitalCheck then return capitalMap == true end
+    nextCapitalCheck = now + 2
+    local mapAPI = C_Map
+    local mapID = read(mapAPI and mapAPI.GetBestMapForUnit, "player")
+    if not number(mapID) then return capitalMap == true end
+    local faction = read(UnitFactionGroup, "player")
+    if faction ~= "Alliance" and faction ~= "Horde" then capitalMap = false; return false end
+    for _ = 1, 6 do
+        if CAPITAL_MAPS[mapID] then
+            capitalMap = CAPITAL_MAPS[mapID] == faction
+            return capitalMap
+        end
+        local info = read(mapAPI and mapAPI.GetMapInfo, mapID)
+        if type(info) ~= "table" then break end
+        local parentID = read(function() return info.parentMapID end)
+        if not number(parentID) or parentID <= 0 or parentID == mapID then break end
+        mapID = parentID
+    end
+    capitalMap = false
+    return false
+end
 local worker = CreateFrame("Frame")
 worker:Hide()
 local elapsed = 0
@@ -318,9 +348,24 @@ function iST:UpdateReminders()
         if secret(icon) then icon = nil end
         local remaining = number(expires) and expires > 0 and math.max(0, expires - now) or nil
         if remaining == 0 then active = false end
-        local eligible = kind ~= "FURY" or not settings.protOnly or state.ReminderProtection == true
-        if kind == "SEAL" and settings.onlyInCombat then
-            eligible = read(InCombatLockdown) == true or read(UnitAffectingCombat, "player") == true
+        local eligible = true
+        if kind == "FURY" then
+            if settings.protOnly and state.ReminderProtection ~= true then eligible = false end
+            if settings.dungeonsOnly then
+                local inInstance, instanceType = read(IsInInstance)
+                if inInstance ~= true or (instanceType ~= "party" and instanceType ~= "raid") then
+                    eligible = false
+                end
+            end
+            if settings.partyOnly and read(IsInGroup) ~= true then eligible = false end
+        else
+            local inCombat = state.ReminderCombat == true or read(InCombatLockdown) == true
+                or read(UnitAffectingCombat, "player") == true
+            if settings.onlyInCombat and not inCombat then eligible = false end
+            if settings.hideAfterIdle and not inCombat and now - lastSealCombatAt >= SEAL_IDLE_HIDE_SECONDS then
+                eligible = false
+            end
+            if settings.hideInCapitals and inCapital(now) then eligible = false end
         end
         local warning = known and (not active or wrong or (remaining and settings.warningSeconds > 0 and remaining <= settings.warningSeconds))
         local show = visible and (preview or (settings.enabled and eligible and warning))
@@ -366,6 +411,7 @@ end)
 
 local events = CreateFrame("Frame")
 for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_DEAD",
+    "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
     "UNIT_AURA", "UNIT_SPELLCAST_SUCCEEDED", "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED", "ACTIVE_TALENT_GROUP_CHANGED",
     "ACTIVE_PLAYER_SPECIALIZATION_CHANGED", "PLAYER_SPECIALIZATION_CHANGED" }) do
     if C_EventUtils.IsEventValid(event) then events:RegisterEvent(event) end
@@ -373,7 +419,14 @@ end
 events:SetScript("OnEvent", function(_, event, ...)
     if not iSTSettings or not iST.ReminderFrames then return end
     if event == "PLAYER_REGEN_DISABLED" then iST.State.ReminderCombat = true
-    elseif event == "PLAYER_REGEN_ENABLED" then iST.State.ReminderCombat = false end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        iST.State.ReminderCombat = false
+        lastSealCombatAt = GetTime()
+    elseif event == "PLAYER_LOGIN" then
+        lastSealCombatAt = GetTime()
+    end
+    if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS"
+        or event == "ZONE_CHANGED_NEW_AREA" then nextCapitalCheck = 0 end
     if event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "ACTIVE_TALENT_GROUP_CHANGED"
         or event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_SPECIALIZATION_CHANGED" then
         if event == "PLAYER_SPECIALIZATION_CHANGED" and (secret((...)) or (...) ~= "player") then return end

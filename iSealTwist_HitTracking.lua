@@ -52,7 +52,9 @@ function iST:NewWrathHitMatcher()
         self.nextID = self.nextID + 1
         local swing = { id = self.nextID, at = now, seal = seal, sealExpiresAt = sealExpiresAt,
             target = self.targetGeneration, revision = revision, outcomes = 0, swingEvents = 1,
-            previousCount = tracker:GetCount(now), previousSeal = tracker.seal, previousExpiry = tracker.expiresAt }
+            previousCount = tracker:GetCount(now), previousSeal = tracker.seal, previousExpiry = tracker.expiresAt,
+            previousCountUnconfirmed = tracker.countUnconfirmed,
+            previousExpiryUnconfirmed = tracker.expiryUnconfirmed }
         if #self.pending >= 8 then table.remove(self.pending, 1) end
         self.pending[#self.pending + 1] = swing
         return swing, true
@@ -129,20 +131,21 @@ function iST:QueueWrathSwing(now)
     trace("swing #%d queued: player swings=%d, results=%d, seal=%s, stacks=%d",
         pending.id, pending.swingEvents, pending.outcomes, pending.seal, self.WrathTracker.count)
     if not created then
-        log(string.format("swing #%d includes a second melee event; waiting for physical results.", pending.id))
-        return
+        log(string.format("swing #%d includes a second melee event; checking physical results.", pending.id))
+        return pending
     end
-    log(string.format("swing #%d pending; %d/3 unchanged; seal=%s.", pending.id, self.WrathTracker.count, pending.seal))
+    log(string.format("swing #%d queued; %d/3 before swing; seal=%s.", pending.id, self.WrathTracker.count, pending.seal))
     C_Timer.After(MAX_DELAY + BURST_GAP + 0.01, function()
         if not iST.WrathHitMatcher then return end
         for _, candidate in ipairs(iST.WrathHitMatcher.pending) do
             if candidate == pending and pending.outcomes == 0 then
-                log(string.format("swing #%d timed out without usable feedback; count unchanged.", pending.id))
+                log(string.format("swing #%d timed out without usable feedback; buff will correct the displayed count when readable.", pending.id))
                 break
             end
         end
         iST.WrathHitMatcher:Expire(GetTime())
     end)
+    return pending
 end
 
 function iST:ObserveWrathFeedbackCast(spellID)
@@ -189,23 +192,54 @@ function iST:ObserveWrathHitFeedback(unit, action, flags, amount, school)
         return false
     end
     if outcome ~= "hit" then
+        local provisional = pending.provisional
+        local tracker = self.WrathTracker
+        local canRestore = provisional and pending.swingEvents == 1 and not pending.grouped
+            and self.WrathHitMatcher.nextID == pending.id
+            and pending.revision == (state.WrathAuraRevision or 0)
+            and tracker.count == provisional.count and tracker.seal == provisional.seal
+            and tracker.expiresAt == provisional.expiresAt
+        if canRestore then
+            tracker.count, tracker.seal, tracker.expiresAt = pending.previousCount,
+                pending.previousSeal, pending.previousExpiry
+            tracker.countUnconfirmed, tracker.expiryUnconfirmed = pending.previousCountUnconfirmed,
+                pending.previousExpiryUnconfirmed
+            tracker:GetCount(now)
+            if provisional.released then
+                state.TwistResultDuration = 0
+                if self.BarFrame then
+                    self.BarFrame.twistResultText:Hide()
+                    self.BarFrame.resultOverlay:Hide()
+                end
+            end
+            self:UpdateWrathDisplay(now)
+            trace("swing #%d %s: provisional count restored to %d", pending.id, action, tracker.count)
+        end
         trace("swing #%d %s: result %d/%d; stacks=%d",
             pending.id, action, pending.outcomes, pending.swingEvents, self.WrathTracker.count)
-        log(string.format("swing #%d %s at +%.3fs; %d/3 unchanged.",
+        log(string.format("swing #%d %s at +%.3fs; %d/3 shown.",
             pending.id, action, now - pending.at, self.WrathTracker:GetCount(now)))
         self:ScheduleWrathAuraCheck()
         return true
     end
-    if state.CurrentSealName ~= pending.seal or (state.SealExpiresAt or 0) <= now then
+    -- The player may cast another seal before this delayed result arrives.
+    -- Use the seal and expiry saved at the swing, not the current buff.
+    if not pending.seal or (pending.sealExpiresAt or 0) <= pending.at then
         pending.invalid = true
-        trace("swing #%d hit skipped: seal changed or expired", pending.id)
-        log(string.format("swing #%d seal changed or expired before feedback; count unchanged.", pending.id))
+        trace("swing #%d hit skipped: no valid seal at swing", pending.id)
+        log(string.format("swing #%d had no valid seal at the swing; count unchanged.", pending.id))
         return false
     end
-    -- A changed buff snapshot takes precedence over hit tracking. Re-reading
-    -- the previous stack count must not hide this physical hit.
+    -- The swing already updated the display. A changed buff snapshot can
+    -- correct it; delayed feedback must not add the same hit a second time.
     local observed, changed
     if not iSTSettings.fakeUnsealedWrath then observed, changed = self:ObserveWrathAura(nil, true) end
+    if pending.provisional then
+        trace("swing #%d matched target hit: stacks=%d; buff changed=%s",
+            pending.id, self.WrathTracker.count, tostring(changed == true))
+        self:ScheduleWrathAuraCheck()
+        return true
+    end
     if changed or pending.revision ~= (state.WrathAuraRevision or 0) then
         if not pending.releaseShown and pending.previousCount > 0 and pending.previousSeal ~= pending.seal
             and pending.previousExpiry > now and self.WrathTracker:GetCount(now) == 0 then

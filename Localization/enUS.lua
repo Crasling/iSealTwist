@@ -132,7 +132,7 @@ L["ShowPlayerWrathBubblesDesc"] = Colors.Gray .. "Show a separate frame with thr
 L["WrathReadyText"] = "Ready Message"
 L["WrathAttackNow"] = "Attack now"
 L["WrongSeal"] = "Wrong seal"
-L["WrathTrackingDesc"] = Colors.Gray .. "Tracks stacks using main-hand swings and physical hit feedback, with buff updates when available. Missed, dodged and parried attacks do not add stacks.|r"
+L["WrathTrackingDesc"] = Colors.Gray .. "Tracks stacks from main-hand swings and hit feedback, then corrects them from the buff when readable. Misses, dodges and parries can briefly affect the displayed count.|r"
 L["SectionSealPair"] = Colors.iST .. "Seal Pair"
 
 -- Seal pair dropdowns
@@ -196,6 +196,14 @@ L["RemindersDesc"] = Colors.Gray .. "Show a reminder when a buff is missing or r
 L["ReminderEnable"] = "Enable Reminder"
 L["ReminderProtOnly"] = "Only with Protection Talents"
 L["ReminderProtOnlyDesc"] = Colors.Gray .. "Show only when Protection has more points than either other talent tree.|r"
+L["ReminderDungeonsOnly"] = "Dungeons / Raids Only"
+L["ReminderDungeonsOnlyDesc"] = Colors.Gray .. "Show only inside a dungeon or raid instance. Battlegrounds are excluded.|r"
+L["ReminderPartyOnly"] = "Party / Raid Only"
+L["ReminderPartyOnlyDesc"] = Colors.Gray .. "Show only while in a party or raid group.|r"
+L["ReminderHideAfterIdle"] = "Hide After 5 Minutes Out of Combat"
+L["ReminderHideAfterIdleDesc"] = Colors.Gray .. "Hide the seal reminder after five minutes without combat. It returns when combat starts.|r"
+L["ReminderHideInCapitals"] = "Hide in Friendly Capital Cities"
+L["ReminderHideInCapitalsDesc"] = Colors.Gray .. "Hide the seal reminder in your faction's capital cities. Enemy capitals still show it.|r"
 L["ReminderThreshold"] = "Warn with Time Left"
 L["ReminderMissingOnly"] = "Missing only"
 L["ReminderSeconds"] = "%d seconds"

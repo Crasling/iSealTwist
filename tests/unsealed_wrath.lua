@@ -1,7 +1,8 @@
 -- Run from the addon directory. These checks use no game or network access.
 unpack = unpack or table.unpack
 local now, timers, frames, chatMessages = 100, {}, {}, {}
-local playerClass, playerDead, inCombat = "PALADIN", false, false
+local playerClass, playerDead, inCombat, grouped = "PALADIN", false, false, false
+local inInstance, instanceType = false, "none"
 local function widget(parent)
     local object = { parent = parent, widgetWidth = 250, widgetHeight = 25, shown = false, alpha = 1,
         Text = false, ScrollBar = false, ScrollUpButton = false, ScrollDownButton = false }
@@ -153,6 +154,8 @@ function UnitPowerType() return 0, "MANA" end
 function UnitAttackSpeed() return 3.6 end
 function InCombatLockdown() return inCombat end
 function UnitAffectingCombat() return inCombat end
+function IsInGroup() return grouped end
+function IsInInstance() return inInstance, instanceType end
 function LibStub() return nil end
 function tostringall(...) return ... end
 local secret = {}
@@ -216,7 +219,7 @@ iST:SetCurrentSeal(20154)
 for expected = 1, 3 do attack(); assert(count() == expected, "three swings build three stacks") end
 attack(); assert(count() == 3, "stacks cap at three")
 local expiresAt = iST.WrathTracker.expiresAt
-assert(expiresAt == now + 15, "another buildup swing refreshes the fifteen-second window")
+assert(expiresAt == now + 14.5, "another buildup swing refreshes the fifteen-second window")
 iST:SetCurrentSeal(20375)
 assert(count() == 3, "casting a different seal alone preserves stacks")
 iST:SetCurrentSeal(20154)
@@ -294,6 +297,14 @@ assert(count() == 3 and iST.WrathTracker.expiryUnconfirmed and not iST.WrathTrac
     "a targeted instance update confirms three stacks without requiring a readable clock or name")
 assert(iST.BarFrame.fill.color[1] == iST:GetWrathCueColor(3).r,
     "a confirmed combat count repaints the cue immediately")
+inCombat = false
+currentWrathAura = { name = "Unsealed Wrath", spellId = 88888, applications = 3,
+    expirationTime = now + 7, auraInstanceID = 200 }
+event("PLAYER_REGEN_ENABLED")
+assert(count() == 3 and iST.WrathTracker.expiresAt == now + 7
+    and not iST.WrathTracker.expiryUnconfirmed,
+    "the readable buff expiry replaces a provisional timer after combat")
+inCombat = true
 local confirmedCountExpiry = iST.WrathTracker.expiresAt
 auraResult = { applications = 2, expirationTime = now + 8, auraInstanceID = 200 }
 iST:ScheduleWrathAuraCheck()
@@ -317,7 +328,7 @@ assert(count() == 0, "a genuine removal still clears confirmed combat stacks")
 -- The aura API may return the previous stack count until after melee feedback.
 -- Re-reading that unchanged snapshot must not hide the hit or the release.
 iST:SetCurrentSeal(20154)
-auraResult = { applications = 1, expirationTime = now + 15, auraInstanceID = 300 }
+auraResult = { applications = 1, expirationTime = now + 8, auraInstanceID = 300 }
 event("UNIT_AURA", "player", {})
 assert(count() == 1)
 event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
@@ -330,8 +341,17 @@ event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
 assert(count() == 2, "a delayed hit advances the counter despite an unchanged aura read")
 event("UNIT_AURA", "player", {})
 assert(count() == 2, "an old aura snapshot cannot undo the matched hit")
+local buffExpiresAt = auraResult.expirationTime
+assert(iST.WrathTracker.expiresAt > buffExpiresAt, "the tracked hit advanced the provisional timer")
+inCombat = false
+event("PLAYER_REGEN_ENABLED")
+assert(count() == 1 and iST.WrathTracker.expiresAt == buffExpiresAt
+    and not iST.WrathTracker.countUnconfirmed,
+    "leaving combat reconciles a provisional hit with the readable buff count and expiry")
 auraResult = { applications = 2, expirationTime = now + 15, auraInstanceID = 300 }
 event("UNIT_AURA", "player", {})
+assert(count() == 2, "a later buff update can confirm the next stack")
+inCombat = true
 iST:SetCurrentSeal(20375)
 event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
 event("UNIT_AURA", "player", {})
@@ -1321,6 +1341,54 @@ iST:SetCurrentSeal(20375)
 iST:UpdateReminders()
 assert(seal:IsShown() and seal.title:GetText() == "Switch to Seal of Righteousness", "the standalone seal reminder also supports the preferred buildup seal")
 
+sealSettings.hideAfterIdle = true
+reminderEvent("PLAYER_REGEN_ENABLED")
+tickReminders(299)
+assert(seal:IsShown(), "the seal reminder remains available during the first five idle minutes")
+tickReminders(1.1)
+assert(not seal:IsShown(), "the optional idle filter hides the seal reminder after five minutes")
+inCombat = true
+reminderEvent("PLAYER_REGEN_DISABLED")
+assert(seal:IsShown(), "combat immediately restores the seal reminder after a long idle")
+inCombat = false
+reminderEvent("PLAYER_REGEN_ENABLED")
+assert(seal:IsShown(), "combat end starts a new five-minute idle period")
+sealSettings.hideAfterIdle = false
+
+local currentReminderMap = 1454
+local reminderFaction = "Horde"
+function UnitFactionGroup(unit) assert(unit == "player"); return reminderFaction end
+C_Map = {
+    GetBestMapForUnit = function(unit) assert(unit == "player"); return currentReminderMap end,
+    GetMapInfo = function(mapID)
+        if mapID == 9999 then return { parentMapID = 1458 } end
+        return { parentMapID = 0 }
+    end,
+}
+sealSettings.hideInCapitals = true
+reminderEvent("ZONE_CHANGED_NEW_AREA")
+assert(not seal:IsShown(), "the seal reminder hides in a friendly capital city")
+iST:PreviewReminder("SEAL")
+assert(seal:IsShown(), "preview still allows positioning in a capital city")
+iST:PreviewReminder("SEAL")
+currentReminderMap = 9999
+reminderEvent("ZONE_CHANGED_INDOORS")
+assert(not seal:IsShown(), "friendly capital indoor maps inherit the city filter")
+currentReminderMap = 1453
+reminderEvent("ZONE_CHANGED_NEW_AREA")
+assert(seal:IsShown(), "an enemy capital does not hide the seal reminder")
+reminderFaction = "Alliance"
+currentReminderMap = 1455
+reminderEvent("ZONE_CHANGED_NEW_AREA")
+assert(not seal:IsShown(), "Alliance capitals hide the seal reminder for Alliance players")
+currentReminderMap = 1454
+reminderEvent("ZONE_CHANGED_NEW_AREA")
+assert(seal:IsShown(), "Horde capitals do not hide the seal reminder for Alliance players")
+currentReminderMap = 1420
+reminderEvent("ZONE_CHANGED_NEW_AREA")
+assert(seal:IsShown(), "leaving a capital restores the seal reminder")
+sealSettings.hideInCapitals = false
+
 furySettings.enabled, furySettings.protOnly = true, true
 iST:ApplyReminderSettings()
 assert(fury:IsShown() and iST.State.ReminderProtection == true, "Protection majority allows a missing Fury warning")
@@ -1440,6 +1508,44 @@ furySettings.protOnly = false
 furyAura = nil
 iST:ApplyReminderSettings()
 assert(fury:IsShown(), "Protection-only can be disabled independently")
+furySettings.dungeonsOnly = true
+iST:UpdateReminders()
+assert(not fury:IsShown(), "the dungeon filter hides Fury outdoors")
+inInstance, instanceType = true, "party"
+iST:UpdateReminders()
+assert(fury:IsShown(), "the dungeon filter allows a five-player dungeon even while solo")
+instanceType = "raid"
+iST:UpdateReminders()
+assert(fury:IsShown(), "the dungeon filter also allows raid instances")
+instanceType = "pvp"
+iST:UpdateReminders()
+assert(not fury:IsShown(), "the dungeon filter excludes battlegrounds")
+inInstance, instanceType = false, "none"
+furySettings.dungeonsOnly, furySettings.partyOnly, grouped = false, true, true
+iST:UpdateReminders()
+assert(fury:IsShown(), "the party filter allows a party outdoors")
+inInstance, instanceType = true, "raid"
+iST:UpdateReminders()
+assert(fury:IsShown(), "the party filter also allows raid groups")
+inInstance, instanceType, grouped = false, "none", false
+iST:UpdateReminders()
+assert(not fury:IsShown(), "the party filter excludes solo play")
+furySettings.dungeonsOnly, grouped = true, true
+iST:UpdateReminders()
+assert(not fury:IsShown(), "both filters require a party inside a dungeon")
+inInstance, instanceType = true, "party"
+iST:UpdateReminders()
+assert(fury:IsShown(), "both filters allow a party inside a dungeon")
+instanceType = "raid"
+iST:UpdateReminders()
+assert(fury:IsShown(), "both filters allow a raid group inside a raid")
+instanceType = secret
+iST:UpdateReminders()
+assert(not fury:IsShown(), "restricted instance data cannot pass the dungeon filter")
+inInstance, instanceType, grouped = false, "none", false
+furySettings.dungeonsOnly, furySettings.partyOnly = false, false
+iST:UpdateReminders()
+assert(fury:IsShown(), "turning the new filters off restores the usual reminder")
 playerDead = true
 iST:UpdateBarVisibility()
 assert(not fury:IsShown() and not seal:IsShown(), "death hides both reminders")
@@ -1526,6 +1632,20 @@ assert(iST.SettingsFrame:GetWidth() == 820 and iST.SettingsFrame:GetHeight() == 
 assert(iST.SettingsFrame.pageHeader.title:GetText() == iST.L.TabGeneral
     and iST.SettingsFrame.pageHeader.subtitle:GetText() == iST.L.SettingsGeneralSummary,
     "the selected page has its own title and summary")
+local lockCheckbox = iST.SettingsFrame.barLockCheckbox
+assert(lockCheckbox, "bar lock control is available in settings")
+iST:ToggleBarLock()
+assert(lockCheckbox:GetChecked() == iSTSettings.barLocked,
+    "the minimap and slash lock action updates an already built settings checkbox")
+lockCheckbox:SetChecked(not iSTSettings.barLocked)
+lockCheckbox.OnClick(lockCheckbox)
+assert(lockCheckbox:GetChecked() == iSTSettings.barLocked,
+    "the settings checkbox changes the same bar lock state")
+iSTSettings.barLocked = not iSTSettings.barLocked
+iST:SettingsOpen()
+assert(lockCheckbox:GetChecked() == iSTSettings.barLocked,
+    "opening settings refreshes the bar lock control from saved state")
+iST:SettingsClose()
 local reminderTab, modeDropdown
 for _, frame in ipairs(frames) do
     if type(frame.text) == "table" and frame.text.GetText and frame.text:GetText() == "Reminders" then reminderTab = frame end
@@ -1621,6 +1741,20 @@ local enableFury = checkboxes["Enable Reminder"][1]
 enableFury:SetChecked(true)
 enableFury.OnClick(enableFury)
 assert(furySettings.enabled and fury:IsShown(), "the enable control applies the saved reminder state")
+local dungeonOnly = assert(checkboxes["Dungeons / Raids Only"])[1]
+local partyOnly = assert(checkboxes["Party / Raid Only"])[1]
+dungeonOnly:SetChecked(true)
+dungeonOnly.OnClick(dungeonOnly)
+partyOnly:SetChecked(true)
+partyOnly.OnClick(partyOnly)
+assert(furySettings.dungeonsOnly and furySettings.partyOnly and not fury:IsShown(),
+    "the Fury dungeon and party controls save separately and apply immediately")
+dungeonOnly:SetChecked(false)
+dungeonOnly.OnClick(dungeonOnly)
+partyOnly:SetChecked(false)
+partyOnly.OnClick(partyOnly)
+assert(not furySettings.dungeonsOnly and not furySettings.partyOnly and fury:IsShown(),
+    "turning both controls off restores the reminder")
 local oldThreshold, oldSealThreshold, oldScale = furySettings.warningSeconds, sealSettings.warningSeconds, sealSettings.scale
 tracks[1].OnMouseWheel(tracks[1], 1)
 tracks[3].OnMouseWheel(tracks[3], 1)
@@ -1635,6 +1769,20 @@ previews[2].OnClick()
 assert(not seal:IsShown(), "closing the preview preserves its disabled setting")
 local sealCombatOnly = assert(checkboxes["Only Show In Combat"])[1]
 assert(sealCombatOnly and not sealSettings.onlyInCombat, "the seal reminder has its own opt-in combat setting")
+local sealIdle = assert(checkboxes["Hide After 5 Minutes Out of Combat"])[1]
+local sealCapital = assert(checkboxes["Hide in Friendly Capital Cities"])[1]
+assert(not sealSettings.hideAfterIdle and not sealSettings.hideInCapitals,
+    "the new seal visibility filters are opt-in")
+sealIdle:SetChecked(true)
+sealIdle.OnClick(sealIdle)
+sealCapital:SetChecked(true)
+sealCapital.OnClick(sealCapital)
+assert(sealSettings.hideAfterIdle and sealSettings.hideInCapitals,
+    "the seal visibility controls save their options independently")
+sealIdle:SetChecked(false)
+sealIdle.OnClick(sealIdle)
+sealCapital:SetChecked(false)
+sealCapital.OnClick(sealCapital)
 iST:ClearCurrentSeal()
 local enableSeal = checkboxes["Enable Reminder"][2]
 enableSeal:SetChecked(true)
@@ -1674,34 +1822,37 @@ assert(chatMessages[#chatMessages]:find("Hit capture: stopped", 1, true),
     "the live hit command is available without starting a capture")
 local wasLocked = iSTSettings.barLocked
 SlashCmdList.ISEALTWIST("lock")
-assert(iSTSettings.barLocked ~= wasLocked, "normal slash commands remain available")
+assert(iSTSettings.barLocked ~= wasLocked and iST.SettingsFrame.barLockCheckbox:GetChecked() == iSTSettings.barLocked,
+    "the slash lock command and settings checkbox remain in sync")
 print("PASS: live hit recorder loads idle; hit and normal slash commands work")
 
--- Run the new matcher through the actual event handler and cue renderer.
+-- Keep the cue responsive while delayed feedback checks individual swings.
 playerDead, inCombat = false, true
 iSTSettings.enabled, iSTSettings.wrathCue = true, "COUNTER"
 iSTSettings.sealStackMode = "ALTERNATE"
 iST:SetFakeUnsealedWrath(true)
 iST:SetCurrentSeal(20375)
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
-assert(count() == 0, "the real swing handler queues an attempt without adding a stack")
+assert(count() == 1 and bar.wrathCueText:GetText() == string.format(iST.L["WrathCounter"], 1),
+    "the swing updates the counter immediately")
 now = now + .5
 event("UNIT_COMBAT", "target", "WOUND", "BLOCK_REDUCED", secret, 1)
-assert(count() == 1 and bar.wrathCueText:GetText() == string.format(iST.L["WrathCounter"], 1),
-    "matched feedback immediately repaints the actual counter")
+assert(count() == 1, "delayed hit feedback cannot add the same stack twice")
 now = now + 2.5
+local beforeDodgeExpiry = iST.WrathTracker.expiresAt
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
-local confirmedExpiry = iST.WrathTracker.expiresAt
+assert(count() == 2, "the next swing also updates immediately")
 now = now + .5
 event("UNIT_COMBAT", "target", "DODGE", "", secret, 1)
-assert(count() == 1 and iST.WrathTracker.expiresAt == confirmedExpiry,
-    "a dodged attack through the real event handler cannot refresh stacks")
+assert(count() == 1 and iST.WrathTracker.expiresAt == beforeDodgeExpiry,
+    "a matched solo dodge restores the count and timer")
 now = now + 2.5
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+assert(count() == 2, "a swing remains visible while its target changes")
 event("PLAYER_TARGET_CHANGED")
 now = now + .5
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
-assert(count() == 1, "feedback from a newly selected target cannot count the old swing")
+assert(count() == 2, "new-target feedback cannot add another stack")
 now = now + 2.5
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
 iST:SetFakeUnsealedWrath(false)
@@ -1714,32 +1865,55 @@ iST:SetCurrentSeal(20375)
 local sealDeadline = iST.State.SealExpiresAt
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
 local swingDeadline = iST.State.NextSwingTime
+assert(count() == 1, "a new swing updates the counter before delayed feedback")
 now = now + .185
 event("UNIT_SPELLCAST_SUCCEEDED", "player", "holy-strike-cast", 1866)
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 2)
-assert(count() == 0 and iST.State.SealExpiresAt == sealDeadline
+assert(count() == 1 and iST.State.SealExpiresAt == sealDeadline
     and iST.State.NextSwingTime == swingDeadline,
-    "Holy Strike neither counts as a melee hit nor resets the seal or swing timer")
+    "Holy Strike neither adds a second stack nor resets the seal or swing timer")
 now = now + .807
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
 assert(count() == 1 and bar.wrathCueText:GetText() == string.format(iST.L["WrathCounter"], 1),
-    "a later melee hit after Holy Strike updates the real counter")
+    "a later melee hit after Holy Strike confirms the existing count")
 spellNames[20271] = "Judgement"
 now = now + 2.008
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
 local judgementSwingDeadline = iST.State.NextSwingTime
+assert(count() == 2, "the swing after Judgement is ready before feedback")
 now = now + .2
 event("UNIT_SPELLCAST_SUCCEEDED", "player", "judgement-cast", 20271)
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 2)
-assert(count() == 1 and iST.State.SealExpiresAt == sealDeadline
+assert(count() == 2 and iST.State.SealExpiresAt == sealDeadline
     and iST.State.NextSwingTime == judgementSwingDeadline,
-    "Judgement neither counts as a melee hit nor resets the seal or swing timer")
+    "Judgement neither adds a second stack nor resets the seal or swing timer")
 now = now + .3
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
-assert(count() == 2, "Judgement does not prevent the pending melee hit from adding a stack")
-iST:SetCurrentSeal(20375)
+assert(count() == 2, "Judgement does not prevent the melee hit from being confirmed")
+iST:SetCurrentSeal(20154)
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+assert(count() == 0 and iST.State.TwistResultDuration > 0,
+    "the release cue appears on the swing instead of waiting for target feedback")
 playerDead = true
 event("PLAYER_DEAD")
 assert(#iST.WrathHitMatcher.pending == 0, "death cancels pending swing feedback")
+playerDead, grouped = false, true
+iST:SetFakeUnsealedWrath(true)
+iST:SetCurrentSeal(20375)
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+assert(count() == 1, "a group swing remains responsive")
+now = now + .5
+event("UNIT_COMBAT", "target", "MISS", "", secret, 1)
+assert(count() == 1, "unattributed group feedback cannot erase a player's stack")
+grouped = false
+iST:CancelPendingWrathHits()
+iST.WrathTracker:Reset()
+iST:SetCurrentSeal(20375)
+event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
+assert(count() == 1 and iST.WrathTracker.seal == "Seal of Command")
+iST:SetCurrentSeal(20154)
+now = now + .5
+event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
+assert(count() == 1 and iST.WrathTracker.seal == "Seal of Command",
+    "feedback keeps the seal captured at swing time after the player switches")
 print("PASS: real Fake-mode swing/feedback dispatch, cue update, missed-hit deadline, Holy Strike/Judgement overlap without timer resets, target changes, mode switches, and death")

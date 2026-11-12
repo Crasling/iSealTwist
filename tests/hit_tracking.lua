@@ -200,10 +200,19 @@ swing(); iST:CancelPendingWrathHits(true)
 assert(not feedback(.5) and count() == 0, "switching targets invalidates the previous swing")
 reset()
 swing(); iST.State.CurrentSealName = "Seal of Righteousness"
-assert(not feedback(.5) and count() == 0, "a seal change during dispatch is ambiguous")
+assert(feedback(.5) and count() == 1 and iST.WrathTracker.seal == "Seal of Command",
+    "feedback uses the seal saved at the swing even after a new seal is cast")
+reset()
+iST.WrathTracker:Attack("Seal of Command", now)
+iST.State.CurrentSealName = "Seal of Righteousness"
+swing()
+iST.State.CurrentSealName = "Seal of Command"
+assert(feedback(.5) and count() == 0 and iST.releases == 1,
+    "a release still uses the replacement seal from the swing after another cast")
 reset()
 swing(); iST.State.SealExpiresAt = now + .1
-assert(not feedback(.5) and count() == 0, "an expired seal cannot gain a stack")
+assert(feedback(.5) and count() == 1,
+    "a seal expiring after the swing does not erase that swing's result")
 print("PASS: target changes, proc timing, secret metadata, unrelated schools, expiry, and timeouts")
 
 reset()

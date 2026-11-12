@@ -1165,9 +1165,17 @@ function iST:CreateOptionsPanel()
             if kind == "FURY" then
                 _, y = CreateSettingsCheckbox(remindersContent, L["ReminderProtOnly"], L["ReminderProtOnlyDesc"], y,
                     function() return settings.protOnly end, function(value) set("protOnly", value) end)
+                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderDungeonsOnly"], L["ReminderDungeonsOnlyDesc"], y,
+                    function() return settings.dungeonsOnly end, function(value) set("dungeonsOnly", value) end)
+                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderPartyOnly"], L["ReminderPartyOnlyDesc"], y,
+                    function() return settings.partyOnly end, function(value) set("partyOnly", value) end)
             else
                 _, y = CreateSettingsCheckbox(remindersContent, L["OnlyInCombat"], nil, y,
                     function() return settings.onlyInCombat end, function(value) set("onlyInCombat", value) end)
+                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderHideAfterIdle"], L["ReminderHideAfterIdleDesc"], y,
+                    function() return settings.hideAfterIdle end, function(value) set("hideAfterIdle", value) end)
+                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderHideInCapitals"], L["ReminderHideInCapitalsDesc"], y,
+                    function() return settings.hideInCapitals end, function(value) set("hideInCapitals", value) end)
             end
             y = y - 6
             _, y = CreateCustomSlider(remindersContent, L["ReminderThreshold"], y,
@@ -1381,9 +1389,9 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSectionHeader(customizationContent, L["SectionPosition"], y)
 
-        _, y = CreateSettingsCheckbox(customizationContent, L["LockBar"], L["LockBarDesc"], y,
+        settingsFrame.barLockCheckbox, y = CreateSettingsCheckbox(customizationContent, L["LockBar"], L["LockBarDesc"], y,
             function() return iSTSettings.barLocked end,
-            function(v) iSTSettings.barLocked = v end
+            function(v) iST:SetBarLocked(v) end
         )
 
         CreateSettingsButtonAt(customizationContent, L["CenterHorizontally"], 170, 20, y, function()
@@ -1565,6 +1573,7 @@ function iST:CreateOptionsPanel()
 
     -- Recheck when opening because another addon may have loaded since creation.
     settingsFrame:HookScript("OnShow", function()
+        settingsFrame.barLockCheckbox:SetChecked(iSTSettings.barLocked)
         for _, promo in ipairs(promoData) do
             local loaded = C_AddOns.IsAddOnLoaded(promo.addonName)
             if installedFrames[promo.tabIdx] then

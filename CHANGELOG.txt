@@ -2,6 +2,13 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.7 - Reminders and Stacks
+--------------------------------------------------------------------------------
+[ADDED] Show Righteous Fury reminders only in groups or instances
+[ADDED] Hide seal reminders in friendly capitals or after five minutes out of combat
+[IMPROVED] Unsealed Wrath stack updates during fights
+[FIXED] The bar lock stays in sync between settings and the minimap
+
 v0.8.6 - Settings and Stacks
 --------------------------------------------------------------------------------
 [IMPROVED] Settings are easier to navigate
