@@ -85,14 +85,12 @@ function HitDebug:Snapshot(reason)
     -- This is a diagnostic, not a way around aura restrictions. Never enumerate
     -- protected buffs or try to turn their values into public strings.
     if secret(restriction) or restriction ~= false then return end
-    local aura, result = call(C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName,
-        "player", state.WrathAuraName or "Unsealed Wrath", "HELPFUL")
-    self:Record("AURA", "query=" .. result .. " value=" .. text(aura)
+    local aura, result = call(iST.FindWrathEchoAura, iST)
+    self:Record("AURA", "echoQuery=" .. result .. " value=" .. text(aura)
         .. " applications=" .. text(field(aura, "applications"))
         .. " expiry=" .. text(field(aura, "expirationTime"))
         .. " instance=" .. text(field(aura, "auraInstanceID")))
-    -- The real stored-seal effect may use an Echo aura rather than the talent's
-    -- name. List matching public player buffs when aura access is available.
+    -- List matching public player buffs when aura access is available.
     local readIndex = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
     if type(readIndex) ~= "function" then return end
     for index = 1, 40 do

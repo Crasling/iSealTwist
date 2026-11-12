@@ -5,6 +5,12 @@ local function CopyColor(color)
     return { r = color.r, g = color.g, b = color.b, a = color.a or 1 }
 end
 
+local function CombatLocked()
+    if type(InCombatLockdown) ~= "function" then return false end
+    local locked = InCombatLockdown()
+    return (issecretvalue and issecretvalue(locked)) or locked == true
+end
+
 -- Each palette runs from no stacks to three stacks.
 local COLOR_SCHEMES = {
     GOLD = {
@@ -57,6 +63,25 @@ function iST:GetWrathCueColor(stage)
     return scheme and scheme[stage + 1] or iSTSettings["wrathColor" .. stage]
 end
 
+function iST:ApplyStackCounterColor()
+    local bar = self.BarFrame
+    if not bar then return end
+    if CombatLocked() then
+        self.State.PendingStackCounterColor = true
+        return
+    end
+    local color = iSTSettings.stackCounterColor or self.SettingsDefault.stackCounterColor
+    local function ColorText(fontString)
+        if fontString then fontString:SetTextColor(color.r, color.g, color.b, color.a or 1) end
+    end
+    ColorText(bar.stackCountValue)
+    ColorText(bar.stackCountTotal)
+    if bar.stackManagedTexts then
+        for _, fontString in ipairs(bar.stackManagedTexts) do ColorText(fontString) end
+    end
+    self.State.PendingStackCounterColor = nil
+end
+
 function iST:SetWrathColorScheme(scheme)
     if not COLOR_SCHEMES[scheme] and scheme ~= "CUSTOM" then return end
     iSTSettings.wrathColorScheme = scheme
@@ -87,6 +112,28 @@ end
 function iST:CreateWrathCue(bar)
     if bar.wrathCueFrame then return end
 
+    local stackFrame = CreateFrame("Frame", nil, bar)
+    stackFrame:SetPoint("BOTTOM", bar, "TOP", 0, 9)
+    stackFrame:SetSize(104, 26)
+    stackFrame:SetFrameLevel(bar:GetFrameLevel() + 6)
+    stackFrame:EnableMouse(false)
+    stackFrame:Hide()
+    bar.stackCountFrame = stackFrame
+
+    local stackValue = stackFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    stackValue:SetPoint("RIGHT", stackFrame, "CENTER", -4, 0)
+    stackValue:SetText("?")
+    stackValue:SetShadowOffset(1, -1)
+    stackValue:SetShadowColor(0, 0, 0, 1)
+    bar.stackCountValue = stackValue
+
+    local stackTotal = stackFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    stackTotal:SetPoint("LEFT", stackFrame, "CENTER", 0, 0)
+    stackTotal:SetText("/ 3")
+    stackTotal:SetShadowOffset(1, -1)
+    stackTotal:SetShadowColor(0, 0, 0, 1)
+    bar.stackCountTotal = stackTotal
+
     local cueFrame = CreateFrame("Frame", nil, bar)
     cueFrame:SetPoint("BOTTOM", bar, "TOP", 0, 9)
     cueFrame:SetHeight(24)
@@ -106,6 +153,290 @@ function iST:CreateWrathCue(bar)
     bar.wrathCircles:SetPoint("BOTTOM", bar, "TOP", 0, 7)
     bar.wrathCircles:SetFrameLevel(bar:GetFrameLevel() + 4)
     self:CreatePlayerWrathFrame()
+    self:ApplyStackCounterColor()
+end
+
+local function StackSpellFilter(slot)
+    local fake = iSTSettings.fakeUnsealedWrath
+    local spellIDs = {}
+    if slot.fake and fake then
+        spellIDs[20050] = true
+        local learnedID = iSTSettings.vengeanceDisplaySpellID
+        if type(learnedID) == "number" and learnedID > 0 then spellIDs[learnedID] = true end
+    elseif not slot.fake and not fake then
+        spellIDs[slot.spellID] = true
+    end
+    return { includeSpellIDs = spellIDs }
+end
+
+local function StackFilterKey()
+    if not iSTSettings.fakeUnsealedWrath then return "echo" end
+    return "vengeance:" .. tostring(iSTSettings.vengeanceDisplaySpellID or 20050)
+end
+
+function iST:LayoutManagedStackReadout(initial)
+    local bar = self.BarFrame
+    if not bar or not bar.stackManagedRows or not bar.stackCountLayout or CombatLocked() then return end
+    local layout = bar.stackCountLayout
+    local function layoutRow(row)
+        local button, count, total = row.button, row.count, row.total
+        button:SetSize(layout.rowWidth, layout.rowHeight)
+        count:SetFont(layout.fontPath, layout.fontSize, "THICKOUTLINE")
+        total:SetFont(layout.fontPath, layout.fontSize, "THICKOUTLINE")
+        count:ClearAllPoints()
+        count:SetPoint("RIGHT", button, "CENTER", -4, 0)
+        count:SetSize(layout.countWidth, layout.rowHeight)
+        count:SetJustifyH("RIGHT")
+        total:ClearAllPoints()
+        total:SetPoint("LEFT", button, "CENTER", 0, 0)
+        total:SetSize(layout.totalWidth, layout.rowHeight)
+        total:SetJustifyH("LEFT")
+    end
+    if initial then
+        -- A slot is still editable while its own initialization callback runs.
+        layoutRow(bar.stackManagedRows[#bar.stackManagedRows])
+    else
+        for _, row in ipairs(bar.stackManagedRows) do pcall(layoutRow, row) end
+    end
+end
+
+function iST:CreateStackManagedDisplay()
+    local bar = self.BarFrame
+    if not bar or not self:IsWrathTrackingEnabled() or iSTSettings.wrathCue ~= "COUNTER"
+        or bar.stackManagedContainerFailed or CombatLocked() then return end
+    if bar.stackManagedContainer then
+        self:UpdateStackManagedFilter()
+        return
+    end
+    if not (C_AddOns and C_AddOns.LoadAddOn) and not C_AuraContainerUtil then
+        self:DebugMsg("Stack display: WoW's aura container API is unavailable.", 2)
+        return
+    end
+
+    local ok, container = pcall(function()
+        if C_AddOns and C_AddOns.LoadAddOn and C_AddOns.IsAddOnLoaded
+            and not C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") then
+            C_AddOns.LoadAddOn("Blizzard_AuraContainer")
+        end
+        assert(C_AuraContainerUtil, "Blizzard's custom aura container API is unavailable")
+        local frame = CreateFrame("AuraContainer", nil, bar.stackCountFrame, "CustomAuraContainerTemplate")
+        frame:SetAllPoints(bar.stackCountFrame)
+        frame:SetFrameLevel(bar.stackCountFrame:GetFrameLevel() + 1)
+        frame:SetUnit("player")
+        local formatter = C_StringUtil and C_StringUtil.CreateAbbreviatedNumberFormatter
+            and C_StringUtil.CreateAbbreviatedNumberFormatter() or nil
+        bar.stackManagedSlots = {}
+        bar.stackManagedRows = {}
+        bar.stackManagedTexts = {}
+        bar.stackManagedButtons = {}
+        for _, spell in ipairs(self.WrathEchoSpells) do
+            bar.stackManagedSlots[#bar.stackManagedSlots + 1] = {
+                key = "echo" .. spell.id, spellID = spell.id,
+            }
+        end
+        bar.stackManagedSlots[#bar.stackManagedSlots + 1] = { key = "vengeance", fake = true }
+        for _, slot in ipairs(bar.stackManagedSlots) do
+            frame:AddAuraSlot(slot.key, "HELPFUL", {
+                candidateFilters = StackSpellFilter(slot),
+                initializeFrame = function(button)
+                    button:SetSize(104, 26)
+                    button:SetPoint("CENTER", button:GetParent(), "CENTER", 0, 0)
+                    button:EnableMouse(false)
+
+                    local count = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    count:SetPoint("RIGHT", button, "CENTER", -4, 0)
+                    count:SetSize(32, 26)
+                    count:SetJustifyH("RIGHT")
+                    count:SetJustifyV("MIDDLE")
+                    count:SetShadowOffset(1, -1)
+                    count:SetShadowColor(0, 0, 0, 1)
+
+                    local total = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    total:SetPoint("LEFT", button, "CENTER", 0, 0)
+                    total:SetSize(64, 26)
+                    total:SetShadowOffset(1, -1)
+                    total:SetShadowColor(0, 0, 0, 1)
+                    total:SetText("/ 3")
+                    bar.stackManagedRows[#bar.stackManagedRows + 1] = {
+                        button = button, count = count, total = total,
+                    }
+                    bar.stackManagedTexts[#bar.stackManagedTexts + 1] = count
+                    bar.stackManagedTexts[#bar.stackManagedTexts + 1] = total
+                    bar.stackManagedButtons[#bar.stackManagedButtons + 1] = button
+                    self:LayoutManagedStackReadout(true)
+                    button:SetApplicationCount(count, { formatter = formatter })
+                end,
+            })
+        end
+        frame:SetEnabled(true)
+        return frame
+    end)
+    if ok then
+        bar.stackManagedContainer = container
+        bar.stackManagedContainerVisible = true
+        bar.stackManagedFilterKey = StackFilterKey()
+        self:ApplyStackCounterColor()
+        self:DebugMsg("Stack counter is using WoW's buff display.", 3)
+    else
+        bar.stackManagedContainerFailed = true
+        self:DebugMsg("Stack counter failed: " .. tostring(container), 2)
+    end
+end
+
+function iST:UpdateStackManagedFilter()
+    local bar = self.BarFrame
+    if not bar or not bar.stackManagedContainer or CombatLocked() then return end
+    local filterKey = StackFilterKey()
+    if bar.stackManagedFilterKey == filterKey then return end
+    local allUpdated = true
+    for _, slot in ipairs(bar.stackManagedSlots or {}) do
+        local ok = pcall(bar.stackManagedContainer.SetAuraSlotCandidateFilters,
+            bar.stackManagedContainer, slot.key, StackSpellFilter(slot))
+        if not ok then
+            allUpdated = false
+            self:DebugMsg("Stack counter buff filter could not be updated.", 2)
+        end
+    end
+    if allUpdated then bar.stackManagedFilterKey = filterKey end
+end
+
+function iST:RefreshVengeanceStackAura(updateInfo)
+    if not iSTSettings.fakeUnsealedWrath then return end
+    if self.BarFrame and self.BarFrame.stackManagedContainer and CombatLocked() then return end
+    local state = self.State
+    local function IsSecret(value)
+        return issecretvalue and issecretvalue(value) or false
+    end
+    if not IsSecret(updateInfo) and type(updateInfo) == "table" then
+        local added = updateInfo.addedAuras
+        if not IsSecret(added) and type(added) == "table" then
+            for _, aura in ipairs(added) do
+                if not IsSecret(aura) and type(aura) == "table" then
+                    local name, instanceID = aura.name, aura.auraInstanceID
+                    if not IsSecret(name) and name == "Vengeance"
+                        and not IsSecret(instanceID) and type(instanceID) == "number" then
+                        if state.VengeanceStackAuraID ~= instanceID then
+                            self:DebugMsg("Vengeance stack display found its buff.", 3)
+                        end
+                        state.VengeanceStackAuraID = instanceID
+                        break
+                    end
+                end
+            end
+        end
+        local removed = updateInfo.removedAuraInstanceIDs
+        if not IsSecret(removed) and type(removed) == "table" then
+            for _, instanceID in ipairs(removed) do
+                if not IsSecret(instanceID) and instanceID == state.VengeanceStackAuraID then
+                    state.VengeanceStackAuraID = nil
+                    break
+                end
+            end
+        end
+    end
+    local reader = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+    if type(reader) ~= "function" then return end
+    local ok, aura = pcall(reader, "player", "Vengeance", "HELPFUL")
+    if not ok or IsSecret(aura) or type(aura) ~= "table" then return end
+    local instanceID, spellID = aura.auraInstanceID, aura.spellId
+    if not IsSecret(instanceID) and type(instanceID) == "number" then
+        if state.VengeanceStackAuraID ~= instanceID then
+            self:DebugMsg("Vengeance stack display found its buff.", 3)
+        end
+        state.VengeanceStackAuraID = instanceID
+    end
+    if not IsSecret(spellID) and type(spellID) == "number" and spellID > 0
+        and iSTSettings.vengeanceDisplaySpellID ~= spellID then
+        iSTSettings.vengeanceDisplaySpellID = spellID
+        self:UpdateStackManagedFilter()
+        self:DebugMsg("Vengeance buff spell ID recorded for the stack display: " .. spellID .. ".", 3)
+    end
+end
+
+function iST:UpdateStackCountDisplay(now, active, count)
+    local bar = self.BarFrame
+    if not bar or not bar.stackCountFrame then return end
+    now = now or GetTime()
+    if bar.stackManagedContainer and not CombatLocked() then
+        local shouldShow = active and not self.State.TestMode
+        if bar.stackManagedContainerVisible ~= shouldShow then
+            local ok = pcall(bar.stackManagedContainer.SetShown, bar.stackManagedContainer, shouldShow)
+            if ok then bar.stackManagedContainerVisible = shouldShow end
+        end
+    end
+    bar.stackCountFrame:SetShown(active)
+    if not active then return end
+    local managed = bar.stackManagedContainer and not self.State.TestMode
+    if managed then
+        -- Only draw zero after an out-of-combat aura check. In combat the
+        -- managed buff button owns the count, so no second number can overlap it.
+        local showZero = false
+        if not CombatLocked() then
+            if not bar.nextStackPresenceCheck or now >= bar.nextStackPresenceCheck then
+                bar.nextStackPresenceCheck = now + 0.25
+                if iSTSettings.fakeUnsealedWrath then
+                    local reader = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+                    if type(reader) == "function" then
+                        local ok, aura = pcall(reader, "player", "Vengeance", "HELPFUL")
+                        bar.stackZeroAbsent = ok and not (issecretvalue and issecretvalue(aura)) and aura == nil
+                    else
+                        bar.stackZeroAbsent = false
+                    end
+                else
+                    local aura, known = self:FindWrathEchoAura()
+                    bar.stackZeroAbsent = known == true and aura == nil
+                end
+            end
+            showZero = bar.stackZeroAbsent == true
+            if showZero then
+                for _, button in ipairs(bar.stackManagedButtons or {}) do
+                    local ok, visible = pcall(button.IsShown, button)
+                    if ok and not (issecretvalue and issecretvalue(visible)) and visible == true then
+                        showZero = false
+                        break
+                    end
+                end
+            end
+        end
+        if showZero then bar.stackCountValue:SetText("0") end
+        bar.stackCountValue:SetShown(showZero)
+        bar.stackCountTotal:SetShown(showZero)
+        return
+    end
+    bar.stackCountValue:Show()
+    bar.stackCountTotal:Show()
+    if self.State.TestMode then
+        bar.stackCountValue:SetText(count)
+        return
+    end
+    if bar.nextStackCountDisplay and now < bar.nextStackCountDisplay then return end
+    bar.nextStackCountDisplay = now + 0.1
+
+    local instanceID
+    if iSTSettings.fakeUnsealedWrath then instanceID = self.State.VengeanceStackAuraID
+    else instanceID = self.State.WrathAuraInstanceID end
+    local displayCount = C_UnitAuras and C_UnitAuras.GetAuraApplicationDisplayCount
+    if type(instanceID) == "number" and type(displayCount) == "function" then
+        local maximum = iSTSettings.fakeUnsealedWrath and 5 or 3
+        local ok, display = pcall(displayCount, "player", instanceID, 1, maximum)
+        if ok then
+            -- The string may be secret in combat. Pass it straight to the text widget.
+            bar.stackCountValue:SetText(display)
+            bar.stackCountDisplayFailed = nil
+            return
+        end
+        if not bar.stackCountDisplayFailed then
+            self:DebugMsg("Stack display could not read the buff count; showing ?.", 2)
+            bar.stackCountDisplayFailed = true
+        end
+        if iSTSettings.fakeUnsealedWrath then self.State.VengeanceStackAuraID = nil end
+    end
+
+    if not iSTSettings.fakeUnsealedWrath and not self.WrathTracker.countUnconfirmed then
+        bar.stackCountValue:SetText(count)
+    else
+        bar.stackCountValue:SetText("?")
+    end
 end
 
 function iST:UpdateWrathDisplay(now)
@@ -115,8 +446,11 @@ function iST:UpdateWrathDisplay(now)
     -- Previews supply their own count; drawing the cue does not change live stacks.
     local count, active, armed, wrongSeal = self:GetWrathDisplayState(now)
     count = math.max(0, math.min(3, math.floor(count or 0)))
-    local style = iSTSettings.wrathCue or "BAR_COLOR"
+    local style = iSTSettings.wrathCue or "COUNTER"
     local color = self:GetWrathCueColor(count)
+    self:UpdateStackCountDisplay(now,
+        active and style == "COUNTER" and not wrongSeal and (self.State.TwistResultDuration or 0) <= 0,
+        count)
 
     -- Stack colors belong on the fill for this cue. The other cues, and
     -- characters without the talent, keep the chosen normal bar color.
@@ -149,16 +483,6 @@ function iST:UpdateWrathDisplay(now)
     local cueText
     if wrongSeal and style ~= "OFF" then
         cueText = L["WrongSeal"]
-    elseif active and style == "COUNTER" then
-        cueText = string.format(L["WrathCounter"], count)
-        if count == 3 then
-            -- Keep the counter alone if the ready message would spill past the bar.
-            local combined = string.format(L["WrathCounterReady"], count, ready)
-            local fontSize = iSTSettings.twistTextSize or 16
-            if #combined * fontSize * 0.58 <= math.max(100, bar:GetWidth()) then
-                cueText = combined
-            end
-        end
     elseif active and style == "TEXT" and count == 3 then
         cueText = ready
     end

@@ -1089,54 +1089,20 @@ function iST:CreateOptionsPanel()
         )
 
         _, y = CreateSectionHeader(indicatorsContent, L["SectionUnsealedWrath"], y)
-
-        _, y = CreateSettingsDropdown(indicatorsContent, L["WrathCueStyle"], y, 250,
-            function()
-                return {
-                    { value = "BAR_COLOR", text = L["WrathCueBarColor"] },
-                    { value = "SWORD_IMAGES", text = L["WrathCueSwordImages"] },
-                    { value = "CIRCLES", text = L["WrathCueCircles"] },
-                    { value = "COUNTER", text = L["WrathCueCounter"] },
-                    { value = "TEXT", text = L["WrathCueText"] },
-                    { value = "OFF", text = L["WrathCueOff"] },
-                }
-            end,
-            function() return iSTSettings.wrathCue end,
-            function(value)
-                iSTSettings.wrathCue = value
-                iST:UpdateWrathDisplay()
-            end
-        )
-
         _, y = CreateInfoText(indicatorsContent, L["WrathCueDesc"], y, "GameFontDisableSmall")
         y = y - 8
+        y, settingsFrame.refreshStackCounterColor = CreateColorEditor(indicatorsContent,
+            L["StackCounterColor"], y,
+            function() return iSTSettings.stackCounterColor end,
+            function() iST:ApplyStackCounterColor() end)
 
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowPlayerWrathBubbles"], L["ShowPlayerWrathBubblesDesc"], y,
-            function() return iSTSettings.showPlayerWrathBubbles end,
+        _, y = CreateCustomSlider(indicatorsContent, L["StackCounterTextSize"], y - 8, 8, 40, 1,
+            function() return iSTSettings.stackCounterTextSize end,
             function(value)
-                iSTSettings.showPlayerWrathBubbles = value
-                iST:UpdateWrathDisplay()
-                iST:UpdateBarVisibility()
-            end
-        )
-
-        _, y = CreateSettingsDropdown(indicatorsContent, L["WrathReadyText"], y, 250,
-            function()
-                return {
-                    { value = "Switch now", text = "Switch now" },
-                    { value = "Unleash!", text = "Unleash!" },
-                    { value = "3 stacks ready", text = "3 stacks ready" },
-                }
+                iSTSettings.stackCounterTextSize = value
+                iST:ApplyBarTypography()
             end,
-            function() return iSTSettings.wrathReadyText end,
-            function(value)
-                iSTSettings.wrathReadyText = value
-                iST:UpdateWrathDisplay()
-            end
-        )
-
-        _, y = CreateInfoText(indicatorsContent, L["WrathTrackingDesc"], y, "GameFontDisableSmall")
-        y = y - 8
+            function(value) return value .. "pt" end)
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowTwistSuccess"], L["ShowTwistSuccessDesc"], y,
             function() return iSTSettings.showTwistSuccess end,
@@ -1307,66 +1273,12 @@ function iST:CreateOptionsPanel()
         AddColorEditor(L["ColorTwistSuccess"],
             function() return iSTSettings.twistSuccessColor end, nil)
 
-        _, y = CreateSectionHeader(customizationContent, L["SectionStackColors"], y)
-
-        local schemeDropdown
-        local function RefreshStackColors()
-            if schemeDropdown then schemeDropdown:Refresh() end
-            for _, refresh in ipairs(colorRefreshers) do refresh() end
-            iST:UpdateWrathDisplay()
-        end
-
-        schemeDropdown, y = CreateSettingsDropdown(customizationContent, L["WrathColorScheme"], y, 250,
-            function()
-                return {
-                    { value = "GOLD", text = L["WrathSchemeGold"] },
-                    { value = "TRAFFIC", text = L["WrathSchemeTraffic"] },
-                    { value = "BLUE", text = L["WrathSchemeBlue"] },
-                    { value = "CUSTOM", text = L["WrathSchemeCustom"] },
-                }
-            end,
-            function() return iSTSettings.wrathColorScheme end,
-            function(value)
-                iST:SetWrathColorScheme(value)
-                RefreshStackColors()
-            end)
-
-        _, y = CreateInfoText(customizationContent, L["WrathStageColorsDesc"], y, "GameFontDisableSmall")
-        y = y - 8
-
-        -- Editing a preset can switch to custom colors. Cancel restores the
-        -- previous scheme and all four colors, not just the edited swatch.
-        local function CaptureStackColors()
-            local scheme, colors = iSTSettings.wrathColorScheme, {}
-            for stage = 0, 3 do
-                local color = iSTSettings["wrathColor" .. stage]
-                colors[stage] = { r = color.r, g = color.g, b = color.b, a = color.a }
-            end
-            return function()
-                for stage = 0, 3 do iSTSettings["wrathColor" .. stage] = colors[stage] end
-                iST:SetWrathColorScheme(scheme)
-            end
-        end
-
-        for stage = 0, 3 do
-            local stackStage = stage
-            AddColorEditor(string.format(L["WrathStageColor"], stackStage),
-                function()
-                    local color = iST:GetWrathCueColor(stackStage)
-                    return { r = color.r, g = color.g, b = color.b, a = color.a }
-                end,
-                function(color)
-                    if color then iST:SetWrathStageColor(stackStage, color) end
-                    RefreshStackColors()
-                end,
-                CaptureStackColors)
-        end
-
         _, y = CreateSettingsButton(customizationContent, L["DefaultColors"], 140, y - 4, function()
             local colorKeys = {
                 "barColor",
                 "borderNormalColor",
                 "twistSuccessColor",
+                "stackCounterColor",
             }
 
             for _, key in ipairs(colorKeys) do
@@ -1382,9 +1294,10 @@ function iST:CreateOptionsPanel()
             for _, refresh in ipairs(colorRefreshers) do
                 refresh()
             end
+            if settingsFrame.refreshStackCounterColor then settingsFrame.refreshStackCounterColor() end
 
             if iST.InvalidateBarState then iST:InvalidateBarState() end
-            RefreshStackColors()
+            iST:ApplyStackCounterColor()
         end)
 
         _, y = CreateSectionHeader(customizationContent, L["SectionPosition"], y)

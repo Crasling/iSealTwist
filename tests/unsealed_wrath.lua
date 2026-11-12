@@ -176,13 +176,23 @@ C_Traits = {
     GetDefinitionInfo = function() return { spellID = 999999 } end,
 }
 C_Spell = {
-    GetSpellName = function(id) return id == 999999 and talentName or nil end,
+    GetSpellName = function(id)
+        if id == 999999 then return talentName end
+        return ({ [1311703] = "Echo of Command", [1311701] = "Echo of Fury",
+            [1311705] = "Echo of Justice", [1328198] = "Echo of Light",
+            [1311704] = "Echo of Righteousness", [1328206] = "Echo of Wisdom" })[id]
+    end,
     GetSpellTexture = function() return 1 end,
 }
 local auraResult
 C_UnitAuras = { GetAuraDataBySpellName = function(unit, spellName, filter)
-    assert(unit == "player" and spellName == "Unsealed Wrath" and filter == "HELPFUL",
+    assert(unit == "player" and filter == "HELPFUL",
         "aura lookup uses the documented unit, spellName, filter argument order")
+    if spellName ~= "Echo of Command" then return nil end
+    if type(auraResult) == "table" and not issecretvalue(auraResult) then
+        auraResult.name = auraResult.name or "Echo of Command"
+        auraResult.spellId = auraResult.spellId or 1311703
+    end
     return auraResult
 end }
 
@@ -195,8 +205,17 @@ local events = frames[1]
 iST:InitializeSettings()
 assert(iSTSettings.fakeUnsealedWrath == false and iSTSettings.debugMode == false,
     "fake talent and debug diagnostics start disabled")
-assert(iSTSettings.wrathCue == "BAR_COLOR", "new characters default to swing bar stack colors")
+assert(iSTSettings.wrathCue == "COUNTER", "new characters default to the buff stack counter")
+iSTSettings.wrathCue, iSTSettings.stackCounterDefaultMigrated = "BAR_COLOR", nil
+iST:InitializeSettings()
+assert(iSTSettings.wrathCue == "COUNTER", "the previous default moves to the buff counter once")
+iSTSettings.wrathCue = "BAR_COLOR"
+iST:InitializeSettings()
+assert(iSTSettings.wrathCue == "BAR_COLOR", "a later bar-color choice remains saved")
+iSTSettings.wrathCue = "COUNTER"
 iST:CreateSwingBar()
+assert(iST.BarFrame.stackCountValue.font[2] == iSTSettings.stackCounterTextSize,
+    "the buff counter uses its own text size")
 iST:RefreshUnsealedWrathState()
 local function event(name, ...) events.OnEvent(events, name, ...) end
 local function attack()
@@ -286,7 +305,7 @@ C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, id)
     return { name = "Holy Shield", spellId = 20925, applications = 3, expirationTime = now + 10, auraInstanceID = id }
 end
 event("UNIT_AURA", "player", { addedAuras = {
-    { name = "Unsealed Wrath", spellId = 88888, applications = secret, expirationTime = secret, auraInstanceID = 200 },
+    { name = "Echo of Command", spellId = 1311703, applications = secret, expirationTime = secret, auraInstanceID = 200 },
 } })
 assert(iST.State.WrathAuraInstanceID == 200 and count() == 0,
     "public identity can be learned before the combat stack count becomes readable")
@@ -298,7 +317,7 @@ assert(count() == 3 and iST.WrathTracker.expiryUnconfirmed and not iST.WrathTrac
 assert(iST.BarFrame.fill.color[1] == iST:GetWrathCueColor(3).r,
     "a confirmed combat count repaints the cue immediately")
 inCombat = false
-currentWrathAura = { name = "Unsealed Wrath", spellId = 88888, applications = 3,
+currentWrathAura = { name = "Echo of Command", spellId = 1311703, applications = 3,
     expirationTime = now + 7, auraInstanceID = 200 }
 event("PLAYER_REGEN_ENABLED")
 assert(count() == 3 and iST.WrathTracker.expiresAt == now + 7
@@ -318,12 +337,30 @@ local queuedChecks = #timers
 for _ = 1, 25 do event("UNIT_AURA", "player", { updatedAuraInstanceIDs = { 201 } }) end
 assert(#timers == queuedChecks and count() == 3, "unrelated buffs and repeated hidden updates cannot grow the pending check queue")
 event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 200 }, addedAuras = {
-    { name = "Unsealed Wrath", spellId = 88888, applications = 3, expirationTime = now + 10, auraInstanceID = 202 },
+    { name = "Echo of Command", spellId = 1311703, applications = 3, expirationTime = now + 10, auraInstanceID = 202 },
 } })
 assert(count() == 3 and iST.State.WrathAuraInstanceID == 202, "a replacement aura is processed before removal of the old instance")
 C_UnitAuras.GetAuraDataByAuraInstanceID = nil
 event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 202 } })
 assert(count() == 0, "a genuine removal still clears confirmed combat stacks")
+event("UNIT_AURA", "player", { addedAuras = {
+    { name = "Unsealed Wrath", spellId = 1310735, applications = 3,
+        expirationTime = now + 10, auraInstanceID = 299 },
+} })
+assert(count() == 0 and iST.State.WrathAuraInstanceID == nil,
+    "the passive talent is not mistaken for an Echo stack buff")
+for index, spell in ipairs(iST.WrathEchoSpells) do
+    local instanceID = 300 + index
+    event("UNIT_AURA", "player", { addedAuras = {
+        { name = spell.name, spellId = spell.id, applications = 2,
+            expirationTime = now + 10, auraInstanceID = instanceID },
+    } })
+    assert(count() == 2 and iST.State.WrathAuraInstanceID == instanceID
+        and iST.WrathTracker.seal == spell.seal,
+        spell.name .. " confirms its own stack count")
+    event("UNIT_AURA", "player", { removedAuraInstanceIDs = { instanceID } })
+    assert(count() == 0, spell.name .. " removal clears its stacks")
+end
 
 -- The aura API may return the previous stack count until after melee feedback.
 -- Re-reading that unchanged snapshot must not hide the hit or the release.
@@ -389,7 +426,8 @@ iST:UpdateWrathDisplay()
 assert(iST.BarFrame.fill.color[2] == iST:GetWrathCueColor(1).g, "the fill follows changes in stack count")
 iSTSettings.wrathCue = "COUNTER"
 iST:UpdateWrathDisplay()
-assert(iST.BarFrame.wrathCueText.text == "1 / 3", "counter style replaces bar-color cues")
+assert(iST.BarFrame.stackCountFrame.shown and not iST.BarFrame.wrathCueFrame.shown,
+    "counter style uses the buff readout instead of the old cue text")
 assert(iST.BarFrame.fill.color[2] == iSTSettings.barColor.g, "counter style restores the normal fill color")
 assert(iST.BarFrame.borderColor[1] == iSTSettings.borderNormalColor.r,
     "counter style restores the configured normal border")
@@ -492,8 +530,8 @@ for _, scheme in ipairs({ "GOLD", "TRAFFIC", "BLUE" }) do
             "every preset supplies all four stack-stage colors")
         iSTSettings.wrathCue = "COUNTER"
         iST:UpdateWrathDisplay()
-        assert(matchesColor(iST.BarFrame.wrathCueText.textColor, color),
-            scheme .. " counter uses the configured " .. stage .. "/3 color")
+        assert(iST.BarFrame.stackCountFrame.shown and not iST.BarFrame.wrathCueFrame.shown,
+            scheme .. " counter uses the buff readout at " .. stage .. "/3")
         assert(matchesColor(iST.BarFrame.borderColor, iSTSettings.borderNormalColor),
             "stage-specific counter colors preserve the normal border")
         iSTSettings.wrathCue = "BAR_COLOR"
@@ -537,8 +575,8 @@ for stage = 0, 3 do
     assert(color ~= customColors[stage + 1], "saved colors do not alias the input color table")
     iSTSettings.wrathCue = "COUNTER"
     iST:UpdateWrathDisplay()
-    assert(matchesColor(iST.BarFrame.wrathCueText.textColor, color),
-        "each custom stack color reaches the counter renderer")
+    assert(iST.BarFrame.stackCountFrame.shown and not iST.BarFrame.wrathCueFrame.shown,
+        "the buff counter stays separate from experimental stage colors")
     iSTSettings.wrathCue = "BAR_COLOR"
     iST:UpdateWrathDisplay()
     assert(matchesColor(iST.BarFrame.fill.color, color), "custom stack colors and opacity reach the swing fill at every stage")
@@ -693,15 +731,173 @@ iST:RefreshUnsealedWrathState()
 attack()
 assert(not iST:HasUnsealedWrath() and count() == 0, "an unselected talent disables buildup")
 
-iSTSettings.wrathCue = "SWORD_IMAGES"
+iSTSettings.wrathCue = "COUNTER"
 iST:UpdateWrathDisplay()
 assert(not imageSword.shown, "unselected talent hides the image cue")
 iST:SetFakeUnsealedWrath(true)
 assert(iSTSettings.fakeUnsealedWrath and iST:IsWrathTrackingEnabled(), "fake talent enables only addon tracking")
 assert(not iST:HasUnsealedWrath(), "fake talent does not change the real selected talent")
+assert(iST.BarFrame.stackCountFrame.shown and iST.BarFrame.stackCountValue.text == "?",
+    "the stack readout waits for a real test aura")
+assert(iST.BarFrame.stackCountTotal.text == "/ 3", "the stack readout shows the three-stack goal")
+local originalAuraReader = C_UnitAuras.GetAuraDataBySpellName
+local vengeanceAura = { name = "Vengeance", auraInstanceID = 444 }
+C_UnitAuras.GetAuraDataBySpellName = function(unit, spellName, filter)
+    if spellName == "Vengeance" then return vengeanceAura end
+    return originalAuraReader(unit, spellName, filter)
+end
+C_UnitAuras.GetAuraApplicationDisplayCount = function(unit, instanceID, minimum, maximum)
+    assert(unit == "player" and instanceID == 444 and minimum == 1 and maximum == 5,
+        "the display API reads Vengeance's player aura instance")
+    return secret
+end
+event("UNIT_AURA", "player", { addedAuras = { vengeanceAura } })
+assert(iST.BarFrame.stackCountValue.text == secret,
+    "the protected application count goes directly to the text widget")
+assert(count() == 0, "the Vengeance readout does not change stored Seal stacks")
+local originalCreateFrame = CreateFrame
+local originalLoadAddOn, originalIsAddOnLoaded = C_AddOns.LoadAddOn, C_AddOns.IsAddOnLoaded
+local originalAuraUtil, originalStringUtil = C_AuraContainerUtil, C_StringUtil
+local originalContainerMixin = CustomAuraContainerInboundMixin
+C_AddOns.LoadAddOn = function() return true end
+C_AddOns.IsAddOnLoaded = function() return true end
+C_AuraContainerUtil = {}
+CustomAuraContainerInboundMixin = {}
+C_StringUtil = { CreateAbbreviatedNumberFormatter = function() return { kind = "count" } end }
+CreateFrame = function(frameType, name, parent, template)
+    if frameType ~= "AuraContainer" then return originalCreateFrame(frameType, name, parent, template) end
+    assert(template == "CustomAuraContainerTemplate", "the Blizzard managed aura template is selected")
+    local container = widget(parent)
+    container.slots = {}
+    function container:AddAuraSlot(key, filter, options)
+        assert(filter == "HELPFUL" and not self.slots[key], "each helpful buff gets its own slot")
+        local button = widget(self)
+        function button:SetApplicationCount(fontString, countOptions)
+            self.applicationCount = fontString
+            self.countFormatter = countOptions.formatter
+        end
+        options.initializeFrame(button)
+        self.slots[key] = { button = button, filters = options.candidateFilters }
+        return button
+    end
+    function container:SetAuraSlotCandidateFilters(key, filters) self.slots[key].filters = filters end
+    function container:ShowAura(spellID)
+        for _, slot in pairs(self.slots) do
+            slot.button:SetShown(slot.filters.includeSpellIDs[spellID] == true)
+        end
+    end
+    return container
+end
+iST:CreateStackManagedDisplay()
+local managed = assert(iST.BarFrame.stackManagedContainer, "the secure buff display is created")
+assert(#iST.BarFrame.stackManagedSlots == #iST.WrathEchoSpells + 1,
+    "every Echo and the Vengeance test buff have independent display slots")
+managed.slot = managed.slots.vengeance.button
+assert(managed.slots.vengeance.filters.includeSpellIDs[20050],
+    "Vengeance's known buff ID is in its own filter")
+assert(managed.slot.applicationCount and managed.slot.countFormatter,
+    "the secure button owns its count text and a formatter that also shows one stack")
+assert(managed.slot.applicationCount.font[2] == iSTSettings.stackCounterTextSize,
+    "the managed buff count matches the stack indicator text size")
+local originalCounterSize = iSTSettings.stackCounterTextSize
+iSTSettings.stackCounterTextSize = 28
+iST:ApplyBarTypography()
+assert(managed.slot.applicationCount.font[2] == 28
+    and iST.BarFrame.stackCountValue.font[2] == 28
+    and iST.BarFrame.twistResultText.font[2] == iSTSettings.twistTextSize,
+    "counter size changes without resizing release text")
+iSTSettings.stackCounterTextSize = originalCounterSize
+iST:ApplyBarTypography()
+local originalCounterColor = iSTSettings.stackCounterColor
+iSTSettings.stackCounterColor = { r = 0.25, g = 0.5, b = 0.75, a = 0.9 }
+iST:ApplyStackCounterColor()
+assert(managed.slot.applicationCount.textColor[1] == 0.25
+    and managed.slot.applicationCount.textColor[4] == 0.9
+    and iST.BarFrame.stackCountValue.textColor[3] == 0.75,
+    "the custom counter color reaches the buff count and the zero fallback")
+iSTSettings.stackCounterColor = originalCounterColor
+iST:ApplyStackCounterColor()
+assert(managed.slot.applicationCount.widgetWidth >= 32,
+    "the managed count has enough width to show its full digit")
+assert(iST.BarFrame.stackCountFrame.point[5] == iST.BarFrame.wrathCueFrame.point[5],
+    "the buff count occupies the original counter's position")
+iST:UpdateWrathDisplay()
+assert(not iST.BarFrame.stackCountValue.shown,
+    "the fallback cannot overlap a present buff")
+local recordedVengeanceAura = vengeanceAura
+vengeanceAura = nil
+iST.BarFrame.nextStackPresenceCheck = nil
+iST:UpdateWrathDisplay()
+assert(iST.BarFrame.stackCountValue.text == "0" and iST.BarFrame.stackCountValue.shown,
+    "the counter shows zero outside combat while the buff is absent")
+inCombat = true
+iST:UpdateWrathDisplay()
+assert(not iST.BarFrame.stackCountValue.shown,
+    "the fallback never overlaps the managed buff count in combat")
+inCombat = false
+vengeanceAura = recordedVengeanceAura
+iST.BarFrame.nextStackPresenceCheck = nil
+iST:UpdateWrathDisplay()
+assert(not iST.BarFrame.stackCountValue.shown,
+    "the buff count replaces zero when the buff returns")
+vengeanceAura.spellId = 20052
+iST:RefreshVengeanceStackAura()
+assert(managed.slots.vengeance.filters.includeSpellIDs[20052],
+    "a buff spell ID learned out of combat updates the secure filter")
+iSTSettings.fakeUnsealedWrath = false
+iST:UpdateStackManagedFilter()
+for _, spell in ipairs(iST.WrathEchoSpells) do
+    local slot = managed.slots["echo" .. spell.id]
+    assert(slot.filters.includeSpellIDs[spell.id],
+        "the real talent has a separate slot for " .. spell.name)
+    for _, other in ipairs(iST.WrathEchoSpells) do
+        if other.id ~= spell.id then
+            assert(not slot.filters.includeSpellIDs[other.id],
+                "the " .. spell.name .. " slot cannot display another Echo")
+        end
+    end
+    managed:ShowAura(spell.id)
+    for _, other in ipairs(iST.WrathEchoSpells) do
+        assert(managed.slots["echo" .. other.id].button.shown == (other.id == spell.id),
+            "only the active Echo's box is visible")
+    end
+end
+assert(not managed.slots.vengeance.filters.includeSpellIDs[20050],
+    "the Vengeance test box is disabled for the real talent")
+managed:ShowAura(nil)
+for _, slot in pairs(managed.slots) do
+    assert(not slot.button.shown, "all buff boxes disappear when the Echo expires")
+end
+local commandKey = "echo" .. iST.WrathEchoSpells[1].id
+managed:ShowAura(iST.WrathEchoSpells[1].id)
+assert(managed.slots[commandKey].button.shown,
+    "the matching Echo box reappears when its buff returns")
+iSTSettings.fakeUnsealedWrath = true
+iST:UpdateStackManagedFilter()
+assert(managed.slots.vengeance.filters.includeSpellIDs[20050],
+    "Vengeance's box returns when the fake talent is enabled")
+for _, spell in ipairs(iST.WrathEchoSpells) do
+    assert(not managed.slots["echo" .. spell.id].filters.includeSpellIDs[spell.id],
+        "real Echo boxes are disabled in fake mode")
+end
+CreateFrame = originalCreateFrame
+C_AddOns.LoadAddOn, C_AddOns.IsAddOnLoaded = originalLoadAddOn, originalIsAddOnLoaded
+C_AuraContainerUtil, C_StringUtil = originalAuraUtil, originalStringUtil
+CustomAuraContainerInboundMixin = originalContainerMixin
+iST.BarFrame.stackManagedContainer = nil
+iST.BarFrame.stackManagedFilterKey = nil
+iST.BarFrame.stackManagedButtons = nil
+iST.BarFrame.stackManagedRows = nil
+iST.BarFrame.stackManagedSlots = nil
+iST.BarFrame.stackManagedTexts = nil
+iSTSettings.vengeanceDisplaySpellID = nil
+C_UnitAuras.GetAuraDataBySpellName = originalAuraReader
+C_UnitAuras.GetAuraApplicationDisplayCount = nil
+iST.State.VengeanceStackAuraID = nil
 iST.State.InCombat = true
 iST:SetCurrentSeal(20154)
 for expected = 1, 3 do attack(); assert(count() == expected, "real swings build simulated talent stacks") end
+iSTSettings.wrathCue = "SWORD_IMAGES"
 iST:UpdateWrathDisplay()
 assert(imageSword.shown, "fake talent can exercise the image sword during real swings")
 auraResult = { applications = 1, expirationTime = now + 5, auraInstanceID = 127 }
@@ -713,6 +909,8 @@ iST:SetFakeUnsealedWrath(false)
 assert(not iST.State.TestMode and count() == 0, "disabling fake talent ends preview and resets its stacks")
 assert(not iST:IsWrathTrackingEnabled() and not imageSword.shown,
     "disabling fake talent without the real talent hides its cues")
+assert(not iST.BarFrame.stackCountFrame.shown,
+    "the buff readout hides when neither the fake nor real talent is enabled")
 talentRank = 1
 iST:RefreshUnsealedWrathState()
 iST:SetFakeUnsealedWrath(true)
@@ -1833,8 +2031,8 @@ iSTSettings.sealStackMode = "ALTERNATE"
 iST:SetFakeUnsealedWrath(true)
 iST:SetCurrentSeal(20375)
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
-assert(count() == 1 and bar.wrathCueText:GetText() == string.format(iST.L["WrathCounter"], 1),
-    "the swing updates the counter immediately")
+assert(count() == 1 and bar.stackCountFrame:IsShown() and not bar.wrathCueFrame:IsShown(),
+    "the selected counter uses the buff readout instead of the old cue text")
 now = now + .5
 event("UNIT_COMBAT", "target", "WOUND", "BLOCK_REDUCED", secret, 1)
 assert(count() == 1, "delayed hit feedback cannot add the same stack twice")
@@ -1874,8 +2072,8 @@ assert(count() == 1 and iST.State.SealExpiresAt == sealDeadline
     "Holy Strike neither adds a second stack nor resets the seal or swing timer")
 now = now + .807
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
-assert(count() == 1 and bar.wrathCueText:GetText() == string.format(iST.L["WrathCounter"], 1),
-    "a later melee hit after Holy Strike confirms the existing count")
+assert(count() == 1 and bar.stackCountFrame:IsShown() and not bar.wrathCueFrame:IsShown(),
+    "a later melee hit after Holy Strike keeps the buff readout selected")
 spellNames[20271] = "Judgement"
 now = now + 2.008
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)

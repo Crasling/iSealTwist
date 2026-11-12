@@ -75,6 +75,18 @@ iST.CONSTANTS = {
     PARRY_EVENT_DELAY = 0.65,     -- Observed offset between Forever's parry and swing event streams
 }
 
+-- Unsealed Wrath stores stacks on a separate Echo buff for each Seal.
+iST.WrathEchoSpells = {
+    { id = 1311703, name = "Echo of Command", seal = "Seal of Command" },
+    { id = 1311701, name = "Echo of Fury", seal = "Seal of Fury" },
+    { id = 1311705, name = "Echo of Justice", seal = "Seal of Justice" },
+    { id = 1328198, name = "Echo of Light", seal = "Seal of Light" },
+    { id = 1311704, name = "Echo of Righteousness", seal = "Seal of Righteousness" },
+    { id = 1328206, name = "Echo of Wisdom", seal = "Seal of Wisdom" },
+}
+iST.WrathEchoSpellIDs = {}
+for _, spell in ipairs(iST.WrathEchoSpells) do iST.WrathEchoSpellIDs[spell.id] = spell.seal end
+
 iST.FONT_CHOICES = {
     { value = "FRIZQT",   label = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
     { value = "ARIALN",   label = "Arial Narrow",   path = "Fonts\\ARIALN.TTF" },
@@ -274,11 +286,13 @@ iST.SettingsDefault = {
     barPoint = { "CENTER", nil, "CENTER", 0, -200 },
     showTwistSuccess = true,
     twistTextSize     = 16,
+    stackCounterTextSize = 16,
     sealTextSize      = 10,
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
     twistSuccessColor = { r = 0.2, g = 1.0, b = 0.2, a = 1.0 },
-    wrathCue = "BAR_COLOR",
+    wrathCue = "COUNTER",
+    stackCounterColor = { r = 1, g = 0.78, b = 0.24, a = 1 },
     showPlayerWrathBubbles = false,
     wrathReadyText = "Switch now",
     wrathColorScheme = "GOLD",
@@ -297,6 +311,10 @@ iST.SettingsDefault = {
 -- Fill in new settings without replacing the player's saved choices.
 function iST:InitializeSettings()
     if not iSTSettings then iSTSettings = {} end
+    -- Keep the counter's previous size when giving it a separate slider.
+    if iSTSettings.stackCounterTextSize == nil and type(iSTSettings.twistTextSize) == "number" then
+        iSTSettings.stackCounterTextSize = iSTSettings.twistTextSize
+    end
     local legacyWrathColor = iSTSettings.wrathColorScheme == nil and iSTSettings.wrathCueColor or nil
     for key, value in pairs(self.SettingsDefault) do
         if iSTSettings[key] == nil then
@@ -320,6 +338,11 @@ function iST:InitializeSettings()
     -- Replace removed cue choices and move the old shared color to stage colors.
     local validCues = { BAR_COLOR = true, SWORD_IMAGES = true, COUNTER = true, TEXT = true, CIRCLES = true, OFF = true }
     if not validCues[iSTSettings.wrathCue] then iSTSettings.wrathCue = self.SettingsDefault.wrathCue end
+    -- Move the previous default to the new counter once. Later choices stay saved.
+    if not iSTSettings.stackCounterDefaultMigrated then
+        if iSTSettings.wrathCue == "BAR_COLOR" then iSTSettings.wrathCue = "COUNTER" end
+        iSTSettings.stackCounterDefaultMigrated = true
+    end
     if iSTSettings.sealStackMode ~= "ALTERNATE" and iSTSettings.sealStackMode ~= "FROM_ONLY" then
         iSTSettings.sealStackMode = self.SettingsDefault.sealStackMode
     end
@@ -356,6 +379,30 @@ function iST:ApplyBarTypography()
     ApplyFont(bar.speedText, speedSize or 11, "OUTLINE")
     ApplyFont(bar.latencyText, iSTSettings.latencyTextSize or 9, "OUTLINE")
     ApplyFont(bar.sealText, iSTSettings.sealTextSize or 10, "OUTLINE")
+    local stackSize = iSTSettings.stackCounterTextSize or 16
+    ApplyFont(bar.stackCountValue, stackSize, "THICKOUTLINE")
+    ApplyFont(bar.stackCountTotal, stackSize, "THICKOUTLINE")
+    if bar.stackCountFrame then
+        local countWidth = math.max(32, math.ceil(stackSize * 1.5))
+        local totalWidth = math.max(64, math.ceil(stackSize * 2.5))
+        local rowWidth = countWidth + totalWidth + 8
+        local rowHeight = stackSize + 10
+        bar.stackCountLayout = {
+            fontPath = fontPath, fontSize = stackSize,
+            countWidth = countWidth, totalWidth = totalWidth,
+            rowWidth = rowWidth, rowHeight = rowHeight,
+        }
+        bar.stackCountFrame:SetSize(rowWidth, rowHeight)
+        bar.stackCountValue:ClearAllPoints()
+        bar.stackCountValue:SetPoint("RIGHT", bar.stackCountFrame, "CENTER", -4, 0)
+        bar.stackCountValue:SetSize(countWidth, rowHeight)
+        bar.stackCountValue:SetJustifyH("RIGHT")
+        bar.stackCountTotal:ClearAllPoints()
+        bar.stackCountTotal:SetPoint("LEFT", bar.stackCountFrame, "CENTER", 0, 0)
+        bar.stackCountTotal:SetSize(totalWidth, rowHeight)
+        bar.stackCountTotal:SetJustifyH("LEFT")
+        if self.LayoutManagedStackReadout then self:LayoutManagedStackReadout() end
+    end
     local iconSize = math.max(16, iSTSettings.sealIconSize or iSTSettings.barHeight or 25)
     local sealTimerSize = math.floor(iconSize * 0.46 + 0.5)
     ApplyFont(bar.sealTimerText, sealTimerSize, "THICKOUTLINE")
@@ -592,6 +639,7 @@ function iST:CreateSwingBar()
     self.BarFrame = bar
     self:CreateWrathCue(bar)
     self:ApplyBarTypography()
+    self:CreateStackManagedDisplay()
 end
 
 -- Bar position
@@ -1014,13 +1062,21 @@ function iST:SetFakeUnsealedWrath(enabled)
     self:StopTestMode()
     self.WrathTracker:Reset()
     self.State.WrathAuraInstanceID = nil
+    self.State.WrathEchoSeal = nil
     self.State.WrathAuraSnapshot = nil
+    self.State.VengeanceStackAuraID = nil
     self.State.TwistResultDuration = 0
     if self.BarFrame then
         self.BarFrame.twistResultText:Hide()
         self.BarFrame.resultOverlay:Hide()
     end
     self:RefreshUnsealedWrathState()
+    if enabled then
+        self:CreateStackManagedDisplay()
+        self:RefreshVengeanceStackAura()
+    end
+    self:UpdateStackManagedFilter()
+    if self.BarFrame then self.BarFrame.nextStackCountDisplay = nil end
     self:UpdateWrathDisplay()
     self:DebugMsg("Fake Unsealed Wrath " .. (enabled and "enabled" or "disabled") .. ".", 3)
 end
@@ -1033,6 +1089,7 @@ function iST:RefreshUnsealedWrathState()
         self:CancelPendingWrathHits()
         self.WrathTracker:Reset()
         self.State.WrathAuraInstanceID = nil
+        self.State.WrathEchoSeal = nil
         self.State.WrathAuraSnapshot = nil
         self.State.TwistResultDuration = 0
         if self.BarFrame and self.BarFrame.twistResultText then
@@ -1095,8 +1152,29 @@ local function IsWrathAura(aura)
     local ok, name, spellID, instanceID = pcall(function() return aura.name, aura.spellId, aura.auraInstanceID end)
     if not ok then return false end
     if not IsSecret(instanceID) and iST.State.WrathAuraInstanceID and instanceID == iST.State.WrathAuraInstanceID then return true end
-    if not IsSecret(spellID) and iST.State.WrathAuraSpellID and spellID == iST.State.WrathAuraSpellID then return true end
-    return not IsSecret(name) and name == (iST.State.WrathAuraName or "Unsealed Wrath")
+    if not IsSecret(spellID) and iST.WrathEchoSpellIDs[spellID] then return true end
+    if IsSecret(name) or type(name) ~= "string" then return false end
+    for _, spell in ipairs(iST.WrathEchoSpells) do
+        if name == GetLocalizedSpellName(spell.id, spell.name) then return true end
+    end
+    return false
+end
+
+-- Name lookups are a fallback when UNIT_AURA does not provide a usable update.
+-- A nil second result means a protected read, not a confirmed missing Echo.
+function iST:FindWrathEchoAura()
+    local reader = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+    if type(reader) ~= "function" then return nil, nil end
+    for _, spell in ipairs(self.WrathEchoSpells) do
+        local name = GetLocalizedSpellName(spell.id, spell.name)
+        local ok, aura = pcall(reader, "player", name, "HELPFUL")
+        if not ok or IsSecret(aura) then return nil, nil end
+        if aura ~= nil then
+            if IsWrathAura(aura) then return aura, true end
+            return nil, nil
+        end
+    end
+    return nil, true
 end
 
 function iST:ApplyWrathAura(aura, source, refreshed)
@@ -1108,7 +1186,20 @@ function iST:ApplyWrathAura(aura, source, refreshed)
     local state, tracker = self.State, self.WrathTracker
     -- Cache public identity fields even if this particular count is hidden.
     if not IsSecret(instanceID) and type(instanceID) == "number" and instanceID > 0 then state.WrathAuraInstanceID = instanceID end
-    if not IsSecret(spellID) and type(spellID) == "number" and spellID > 0 then state.WrathAuraSpellID = spellID end
+    local echoSeal
+    if not IsSecret(spellID) then echoSeal = self.WrathEchoSpellIDs[spellID] end
+    if not echoSeal and not IsSecret(name) and type(name) == "string" then
+        for _, spell in ipairs(self.WrathEchoSpells) do
+            if name == GetLocalizedSpellName(spell.id, spell.name) then
+                echoSeal = spell.seal
+                break
+            end
+        end
+    end
+    if echoSeal then state.WrathEchoSeal = echoSeal end
+    if not IsSecret(spellID) and type(spellID) == "number" and spellID > 0 then
+        state.WrathAuraSpellID = spellID
+    end
     if not IsSecret(name) and type(name) == "string" then state.WrathAuraName = name end
     if IsSecret(count) then
         if not state.WrathCountRestricted then self:DebugMsg("Unsealed Wrath stack count is restricted; continuing hit tracking.", 3) end
@@ -1137,7 +1228,8 @@ function iST:ApplyWrathAura(aura, source, refreshed)
                 and (not knownExpiry or (not tracker.expiryUnconfirmed and tracker.expiresAt == knownExpiry)))
             or (inCombat and tracker.countUnconfirmed)) then return true, false end
     local previous, previousUnconfirmed = tracker.count, tracker.countUnconfirmed
-    if not tracker:Observe(count, expiresAt, state.CurrentSealName, GetTime(), refreshed) then return false end
+    if not tracker:Observe(count, expiresAt, state.WrathEchoSeal or state.CurrentSealName, GetTime(), refreshed) then return false end
+    if state.WrathEchoSeal then tracker.seal = state.WrathEchoSeal end
     state.WrathAuraSnapshot = {
         count = count,
         instanceID = knownInstance or (snapshot and snapshot.instanceID),
@@ -1195,6 +1287,7 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         tracker:Reset()
         state.WrathAuraRevision = (state.WrathAuraRevision or 0) + 1
         state.WrathAuraInstanceID = nil
+        state.WrathEchoSeal = nil
         state.WrathAuraSnapshot = nil
         self:UpdateWrathDisplay()
         return true, true
@@ -1206,13 +1299,10 @@ function iST:ObserveWrathAura(updateInfo, delayed)
                 if handled then return true, changed end
             end
         end
-        local byName = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
-        if type(byName) == "function" then
-            local ok, aura = pcall(byName, "player", state.WrathAuraName or "Unsealed Wrath", "HELPFUL")
-            if ok then
-                local handled, changed = self:ApplyWrathAura(aura, "spell-name lookup")
-                if handled then return true, changed end
-            end
+        local aura = self:FindWrathEchoAura()
+        if aura then
+            local handled, changed = self:ApplyWrathAura(aura, "Echo buff lookup")
+            if handled then return true, changed end
         end
     end
     if not delayed then self:ScheduleWrathAuraCheck() end
@@ -1813,6 +1903,9 @@ local function OnEvent(self, event, ...)
         iST:UpdateBarVisibility()
         iST:ScanForActiveSealOutOfCombat("PLAYER_REGEN_ENABLED")
         iST:ObserveWrathAura()
+        iST:CreateStackManagedDisplay()
+        iST:RefreshVengeanceStackAura()
+        if iST.State.PendingStackCounterColor then iST:ApplyStackCounterColor() end
         if iST.State.PendingMacroRefresh then
             iST:RequestTwistMacroRefresh()
         end
@@ -1824,6 +1917,12 @@ local function OnEvent(self, event, ...)
         if not IsSecret(unit) and unit == "player" then
             iST:ScanForActiveSealOutOfCombat("UNIT_AURA")
             iST:ObserveWrathAura(updateInfo)
+            iST:RefreshVengeanceStackAura(updateInfo)
+            if iST.BarFrame then
+                iST.BarFrame.nextStackCountDisplay = nil
+                iST.BarFrame.nextStackPresenceCheck = nil
+            end
+            iST:UpdateWrathDisplay()
         end
         return
     end
@@ -1838,6 +1937,7 @@ local function OnEvent(self, event, ...)
         iST:InvalidateBarState()
         iST.WrathTracker:Reset()
         iST.State.WrathAuraInstanceID = nil
+        iST.State.WrathEchoSeal = nil
         iST.State.WrathAuraSnapshot = nil
         iST:ClearCurrentSeal()
         return
@@ -1915,6 +2015,9 @@ end
 -- Startup
 function iST:OnAddonLoaded()
     self:InitializeSettings()
+    -- Start with the buff counter now that the other cues are hidden from settings.
+    iSTSettings.wrathCue = "COUNTER"
+    iSTSettings.showPlayerWrathBubbles = false
 
     if iSTSettings.twistIntoSeal == iSTSettings.twistFromSeal then
         iSTSettings.twistIntoSeal = iSTSettings.twistFromSeal == "Seal of Justice"
@@ -1958,6 +2061,8 @@ function iST:OnPlayerLogin()
             iST:RefreshUnsealedWrathState()
             iST:ScanForActiveSealOutOfCombat("PLAYER_LOGIN")
             iST:ObserveWrathAura()
+            iST:CreateStackManagedDisplay()
+            iST:RefreshVengeanceStackAura()
         end
     end)
 end

@@ -2,6 +2,12 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.8 - Stack Counter
+--------------------------------------------------------------------------------
+[CHANGED] The Echo stack counter is now the default; other indicators are hidden for now
+[IMPROVED] The counter shows stacks from the active Echo buff
+[ADDED] Choose the counter's text color and size
+
 v0.8.7 - Reminders and Stacks
 --------------------------------------------------------------------------------
 [ADDED] Show Righteous Fury reminders only in groups or instances
