@@ -767,7 +767,6 @@ function iST:CreateOptionsPanel()
     settingsFrame.pageHeader = pageHeader
     local pageInfo = {
         { L["TabGeneral"], L["SettingsGeneralSummary"] },
-        { L["TabTiming"], L["SettingsTimingSummary"] },
         { L["TabIndicators"], L["SettingsIndicatorsSummary"] },
         { L["TabCustomization"], L["SettingsCustomizationSummary"] },
         { L["TabAbout"], L["SettingsAboutSummary"] },
@@ -811,7 +810,6 @@ function iST:CreateOptionsPanel()
     end
 
     local generalContainer, generalContent = CreateTabContent()
-    local timingContainer, timingContent = CreateTabContent()
     local indicatorsContainer, indicatorsContent = CreateTabContent()
     local customizationContainer, customizationContent = CreateTabContent()
     local aboutContainer, aboutContent = CreateTabContent()
@@ -822,7 +820,6 @@ function iST:CreateOptionsPanel()
 
     local tabContents = {
         generalContainer,
-        timingContainer,
         indicatorsContainer,
         customizationContainer,
         aboutContainer,
@@ -862,15 +859,14 @@ function iST:CreateOptionsPanel()
     local sidebarItems = {
         { type = "header", label = Colors.iST .. "iSealTwist" },
         { type = "tab", label = L["TabGeneral"], index = 1 },
-        { type = "tab", label = L["TabTiming"], index = 2 },
-        { type = "tab", label = L["TabIndicators"], index = 3 },
-        { type = "tab", label = L["TabReminders"], index = 9 },
-        { type = "tab", label = L["TabCustomization"], index = 4 },
-        { type = "tab", label = L["TabAbout"], index = 5 },
+        { type = "tab", label = L["TabIndicators"], index = 2 },
+        { type = "tab", label = L["TabReminders"], index = 8 },
+        { type = "tab", label = L["TabCustomization"], index = 3 },
+        { type = "tab", label = L["TabAbout"], index = 4 },
         { type = "header", label = Colors.iST .. L["SidebarOtherAddons"] },
-        { type = "tab", label = L["TabIWRPromo"], index = 6 },
-        { type = "tab", label = L["TabINIFPromo"], index = 7 },
-        { type = "tab", label = L["TabIRCPromo"], index = 8 },
+        { type = "tab", label = L["TabIWRPromo"], index = 5 },
+        { type = "tab", label = L["TabINIFPromo"], index = 6 },
+        { type = "tab", label = L["TabIRCPromo"], index = 7 },
     }
 
     local sidebarY = -10
@@ -951,7 +947,7 @@ function iST:CreateOptionsPanel()
         local pairCard = CreateFrame("Frame", nil, generalContent, BACKDROP_TEMPLATE)
         pairCard:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
         pairCard:SetPoint("TOPRIGHT", generalContent, "TOPRIGHT", -20, y)
-        pairCard:SetHeight(220)
+        pairCard:SetHeight(166)
         StyleSettingsSurface(pairCard)
 
         local fromLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -966,9 +962,8 @@ function iST:CreateOptionsPanel()
         direction:SetPoint("CENTER", pairCard, "TOP", 0, -47)
 
         local function UpdateSealDirection()
-            local fromOnly = iSTSettings.sealStackMode == "FROM_ONLY"
-            direction:SetText((fromOnly and Colors.iST .. "-->" or Colors.Green .. "< -- >") .. Colors.Reset)
-            if legend then legend:SetText(fromOnly and L["SealPairFromOnlyLegend"] or L["SealPairLegend"]) end
+            direction:SetText(Colors.Green .. "< -- >" .. Colors.Reset)
+            if legend then legend:SetText(L["SealPairLegend"]) end
         end
 
         local function SealDropdownText(option)
@@ -1014,28 +1009,16 @@ function iST:CreateOptionsPanel()
             function(option) return option.text end,
             function(option) return option.value == iSTSettings.twistFromSeal end)
         intoDropdown:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -32)
-        local modeLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        modeLabel:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -76)
-        modeLabel:SetText(L["SealStackMode"])
-        local modeDropdown = CreateStyledDropdown(pairCard, 260,
-            function() return {
-                { value = "ALTERNATE", text = L["SealStackAlternate"] },
-                { value = "FROM_ONLY", text = L["SealStackFromOnly"] },
-            } end,
-            function() return iSTSettings.sealStackMode end,
-            function(value) iST:SetSealStackMode(value); UpdateSealDirection() end)
-        modeDropdown:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -94)
-
         legend = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        legend:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -134)
-        legend:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -134)
+        legend:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -78)
+        legend:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -78)
         legend:SetJustifyH("LEFT")
         legend:SetHeight(34)
         UpdateSealDirection()
 
-        local macrosButton = CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -178, OpenMacroWindow)
+        local macrosButton = CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -124, OpenMacroWindow)
         macrosButton:ClearAllPoints()
-        macrosButton:SetPoint("TOP", pairCard, "TOP", 0, -178)
+        macrosButton:SetPoint("TOP", pairCard, "TOP", 0, -124)
 
         y = y - pairCard:GetHeight() - 8
 
@@ -1049,23 +1032,15 @@ function iST:CreateOptionsPanel()
         scrollChildren[1]:SetHeight(math.abs(y) + 10)
     end
 
-    -- Timing guides.
-    do
-        local y = -10
-        _, y = CreateSectionHeader(timingContent, L["SectionTimingGuides"], y)
-
-        _, y = CreateSettingsCheckbox(timingContent, L["ShowLatency"], L["ShowLatencyDesc"], y,
-            function() return iSTSettings.showLatency end,
-            function(v) iSTSettings.showLatency = v end
-        )
-
-        scrollChildren[2]:SetHeight(math.abs(y) + 10)
-    end
-
     -- Indicators: seal information and Unsealed Wrath cues.
     do
         local y = -10
         _, y = CreateSectionHeader(indicatorsContent, L["SectionBarInformation"], y)
+
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowLatency"], L["ShowLatencyDesc"], y,
+            function() return iSTSettings.showLatency end,
+            function(v) iSTSettings.showLatency = v end
+        )
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowSealIcon"], L["ShowSealIconDesc"], y,
             function() return iSTSettings.showSealIcon end,
@@ -1104,12 +1079,7 @@ function iST:CreateOptionsPanel()
             end,
             function(value) return value .. "pt" end)
 
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowTwistSuccess"], L["ShowTwistSuccessDesc"], y,
-            function() return iSTSettings.showTwistSuccess end,
-            function(v) iSTSettings.showTwistSuccess = v end
-        )
-
-        scrollChildren[3]:SetHeight(math.abs(y) + 10)
+        scrollChildren[2]:SetHeight(math.abs(y) + 10)
     end
 
     -- Reminders have their own position and do not depend on the swing bar being visible.
@@ -1164,7 +1134,7 @@ function iST:CreateOptionsPanel()
                 function() iST:ResetReminderPosition(reminderKind) end)
             y = y - 50
         end
-        scrollChildren[9]:SetHeight(math.abs(y) + 10)
+        scrollChildren[8]:SetHeight(math.abs(y) + 10)
     end
 
     -- Appearance, position, and previews.
@@ -1184,7 +1154,10 @@ function iST:CreateOptionsPanel()
             function() return iSTSettings.barWidth end,
             function(v)
                 iSTSettings.barWidth = v
-                if iST.BarFrame then iST.BarFrame:SetWidth(v) end
+                if iST.BarFrame then
+                    iST.BarFrame:SetWidth(v)
+                    iST:ApplyBarTypography()
+                end
             end,
             function(v) return v .. "px" end
         )
@@ -1218,10 +1191,10 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSectionHeader(customizationContent, L["SectionTextAppearance"], y)
 
-        _, y = CreateCustomSlider(customizationContent, L["TwistTextSize"], y, 8, 32, 1,
-            function() return iSTSettings.twistTextSize end,
+        _, y = CreateCustomSlider(customizationContent, L["SwingTextSize"], y, 8, 28, 1,
+            function() return iSTSettings.swingTextSize end,
             function(v)
-                iSTSettings.twistTextSize = v
+                iSTSettings.swingTextSize = v
                 iST:ApplyBarTypography()
             end,
             function(v) return v .. "pt" end
@@ -1270,14 +1243,10 @@ function iST:CreateOptionsPanel()
         AddColorEditor(L["ColorBorderNormal"],
             function() return iSTSettings.borderNormalColor end, nil)
 
-        AddColorEditor(L["ColorTwistSuccess"],
-            function() return iSTSettings.twistSuccessColor end, nil)
-
         _, y = CreateSettingsButton(customizationContent, L["DefaultColors"], 140, y - 4, function()
             local colorKeys = {
                 "barColor",
                 "borderNormalColor",
-                "twistSuccessColor",
                 "stackCounterColor",
             }
 
@@ -1320,7 +1289,7 @@ function iST:CreateOptionsPanel()
         local previewCard = CreateFrame("Frame", nil, customizationContent, BACKDROP_TEMPLATE)
         previewCard:SetPoint("TOPLEFT", customizationContent, "TOPLEFT", 20, y)
         previewCard:SetPoint("TOPRIGHT", customizationContent, "TOPRIGHT", -20, y)
-        previewCard:SetHeight(106)
+        previewCard:SetHeight(74)
         StyleSettingsSurface(previewCard)
 
         local previewDescription = previewCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -1336,15 +1305,12 @@ function iST:CreateOptionsPanel()
         CreateSettingsButtonAt(previewCard, L["PreviewStacks"], 140, 159, -34, function()
             iST:StartStackTestMode()
         end, true)
-        CreateSettingsButtonAt(previewCard, L["PreviewSuccess"], 140, 306, -34, function()
-            iST:StartTwistSuccessTestMode()
-        end, true)
-        CreateSettingsButtonAt(previewCard, L["PreviewParryHaste"], 140, 12, -68, function()
+        CreateSettingsButtonAt(previewCard, L["PreviewParryHaste"], 140, 306, -34, function()
             iST:StartParryHasteTestMode()
         end, true)
         y = y - previewCard:GetHeight() - 8
 
-        scrollChildren[4]:SetHeight(math.abs(y) + 10)
+        scrollChildren[3]:SetHeight(math.abs(y) + 10)
     end
 
     -- Addon information and testing settings.
@@ -1402,25 +1368,25 @@ function iST:CreateOptionsPanel()
             L["ISTCurseForgeLink"],
             y, "GameFontDisableSmall")
 
-        scrollChildren[5]:SetHeight(math.abs(y) + 10)
+        scrollChildren[4]:SetHeight(math.abs(y) + 10)
     end
 
     -- Other addon pages show a settings shortcut when installed, or a link otherwise.
     local promoData = {
-        { content = iWRContent, scrollIdx = 6, name = "iWillRemember", addonName = "iWillRemember", tabIdx = 6,
+        { content = iWRContent, scrollIdx = 5, name = "iWillRemember", addonName = "iWillRemember", tabIdx = 5,
           tabLoaded = "iWillRemember", tabLabel = "iWillRemember",
           desc = L["IWRPromoDesc"], link = L["IWRPromoLink"],
           installedDesc = Colors.iST .. "iWillRemember" .. Colors.Reset .. " is installed. Open its settings to manage player notes and sync.",
           buttonText = "Open iWR Settings",
           tabLabel = L["TabIWR"], tabLabelPromo = L["TabIWRPromo"],
           getFrame = function() return _G.iWR and _G.iWR.SettingsFrame end },
-        { content = iNIFContent, scrollIdx = 7, name = "iNeedIfYouNeed", addonName = "iNeedIfYouNeed", tabIdx = 7,
+        { content = iNIFContent, scrollIdx = 6, name = "iNeedIfYouNeed", addonName = "iNeedIfYouNeed", tabIdx = 6,
           desc = L["INIFPromoDesc"], link = L["INIFPromoLink"],
           installedDesc = Colors.iST .. "iNeedIfYouNeed" .. Colors.Reset .. " is installed. Open its settings to configure loot options.",
           buttonText = "Open iNIF Settings",
           tabLabel = L["TabINIF"], tabLabelPromo = L["TabINIFPromo"],
           getFrame = function() return _G["iNIFSettingsFrame"] end },
-        { content = iRCContent, scrollIdx = 8, name = "iRC: Guild Connect", addonName = "iRC", tabIdx = 8,
+        { content = iRCContent, scrollIdx = 7, name = "iRC: Guild Connect", addonName = "iRC", tabIdx = 7,
           desc = L["IRCPromoDesc"], link = L["IRCPromoLink"],
           installedDesc = Colors.iST .. "iRC: Guild Connect" .. Colors.Reset .. " is installed. Open its panel to manage guild connections, rules, verification, and community tools.",
           buttonText = "Open iRC Panel",

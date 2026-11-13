@@ -112,7 +112,8 @@ end
 function iST:CreateWrathCue(bar)
     if bar.wrathCueFrame then return end
 
-    local stackFrame = CreateFrame("Frame", nil, bar)
+    -- The counter stays visible when the combat-only swing bar fades out.
+    local stackFrame = CreateFrame("Frame", nil, UIParent)
     stackFrame:SetPoint("BOTTOM", bar, "TOP", 0, 9)
     stackFrame:SetSize(104, 26)
     stackFrame:SetFrameLevel(bar:GetFrameLevel() + 6)
@@ -364,57 +365,36 @@ function iST:UpdateStackCountDisplay(now, active, count)
             if ok then bar.stackManagedContainerVisible = shouldShow end
         end
     end
-    bar.stackCountFrame:SetShown(active)
-    if not active then return end
+    local visible = active and self:ShouldShowBar()
+    local shown = bar.stackCountFrame:IsShown()
+    if not (issecretvalue and issecretvalue(shown)) and shown ~= visible then
+        bar.stackCountFrame:SetShown(visible)
+    end
+    if not visible then return end
     local managed = bar.stackManagedContainer and not self.State.TestMode
     if managed then
-        -- Only draw zero after an out-of-combat aura check. In combat the
-        -- managed buff button owns the count, so no second number can overlap it.
-        local showZero = false
-        if not CombatLocked() then
-            if not bar.nextStackPresenceCheck or now >= bar.nextStackPresenceCheck then
-                bar.nextStackPresenceCheck = now + 0.25
-                if iSTSettings.fakeUnsealedWrath then
-                    local reader = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
-                    if type(reader) == "function" then
-                        local ok, aura = pcall(reader, "player", "Vengeance", "HELPFUL")
-                        bar.stackZeroAbsent = ok and not (issecretvalue and issecretvalue(aura)) and aura == nil
-                    else
-                        bar.stackZeroAbsent = false
-                    end
-                else
-                    local aura, known = self:FindWrathEchoAura()
-                    bar.stackZeroAbsent = known == true and aura == nil
-                end
-            end
-            showZero = bar.stackZeroAbsent == true
-            if showZero then
-                for _, button in ipairs(bar.stackManagedButtons or {}) do
-                    local ok, visible = pcall(button.IsShown, button)
-                    if ok and not (issecretvalue and issecretvalue(visible)) and visible == true then
-                        showZero = false
-                        break
-                    end
-                end
-            end
-        end
-        if showZero then bar.stackCountValue:SetText("0") end
-        bar.stackCountValue:SetShown(showZero)
-        bar.stackCountTotal:SetShown(showZero)
+        -- The aura button supplies a number only while an Echo buff exists.
+        bar.stackCountValue:Hide()
+        bar.stackCountTotal:Hide()
         return
     end
-    bar.stackCountValue:Show()
-    bar.stackCountTotal:Show()
     if self.State.TestMode then
+        bar.stackCountValue:SetShown(count > 0)
+        bar.stackCountTotal:SetShown(count > 0)
+        if count == 0 then return end
         bar.stackCountValue:SetText(count)
         return
     end
-    if bar.nextStackCountDisplay and now < bar.nextStackCountDisplay then return end
-    bar.nextStackCountDisplay = now + 0.1
-
     local instanceID
     if iSTSettings.fakeUnsealedWrath then instanceID = self.State.VengeanceStackAuraID
     else instanceID = self.State.WrathAuraInstanceID end
+    local showCount = count > 0 or type(instanceID) == "number"
+    bar.stackCountValue:SetShown(showCount)
+    bar.stackCountTotal:SetShown(showCount)
+    if not showCount then return end
+    if bar.nextStackCountDisplay and now < bar.nextStackCountDisplay then return end
+    bar.nextStackCountDisplay = now + 0.1
+
     local displayCount = C_UnitAuras and C_UnitAuras.GetAuraApplicationDisplayCount
     if type(instanceID) == "number" and type(displayCount) == "function" then
         local maximum = iSTSettings.fakeUnsealedWrath and 5 or 3
@@ -444,13 +424,11 @@ function iST:UpdateWrathDisplay(now)
     if not bar or not bar.wrathCueFrame then return end
     now = now or GetTime()
     -- Previews supply their own count; drawing the cue does not change live stacks.
-    local count, active, armed, wrongSeal = self:GetWrathDisplayState(now)
+    local count, active, armed = self:GetWrathDisplayState(now)
     count = math.max(0, math.min(3, math.floor(count or 0)))
     local style = iSTSettings.wrathCue or "COUNTER"
     local color = self:GetWrathCueColor(count)
-    self:UpdateStackCountDisplay(now,
-        active and style == "COUNTER" and not wrongSeal and (self.State.TwistResultDuration or 0) <= 0,
-        count)
+    self:UpdateStackCountDisplay(now, active and style == "COUNTER", count)
 
     -- Stack colors belong on the fill for this cue. The other cues, and
     -- characters without the talent, keep the chosen normal bar color.
@@ -481,23 +459,19 @@ function iST:UpdateWrathDisplay(now)
     -- Once the replacement seal is active, the next attack releases the stored stacks.
     if armed and ready == "Switch now" then ready = L["WrathAttackNow"] end
     local cueText
-    if wrongSeal and style ~= "OFF" then
-        cueText = L["WrongSeal"]
-    elseif active and style == "TEXT" and count == 3 then
+    if active and style == "TEXT" and count == 3 then
         cueText = ready
     end
 
-    -- Give the release message this space until its short display time is over.
-    if cueText and (self.State.TwistResultDuration or 0) <= 0 then
+    if cueText then
         bar.wrathCueText:SetText(cueText)
-        if wrongSeal then bar.wrathCueText:SetTextColor(1, 0.12, 0.08, 1)
-        else bar.wrathCueText:SetTextColor(color.r, color.g, color.b, color.a or 1) end
+        bar.wrathCueText:SetTextColor(color.r, color.g, color.b, color.a or 1)
         bar.wrathCueFrame:Show()
     else
         bar.wrathCueText:SetText("")
         bar.wrathCueFrame:Hide()
     end
-    local circlesVisible = active and not wrongSeal and style == "CIRCLES" and (self.State.TwistResultDuration or 0) <= 0
+    local circlesVisible = active and style == "CIRCLES"
     if circlesVisible then self:RenderStackBubbles(bar.wrathCircles, count, color) end
     bar.wrathCircles:SetShown(circlesVisible)
     self:UpdatePlayerWrathBubbles(now)

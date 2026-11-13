@@ -30,7 +30,6 @@ function iST:ObserveWrathAura()
     self.WrathTracker:Observe(self.observed, now + 15, self.State.CurrentSealName, now)
     return true
 end
-function iST:ShowTwistResult() self.releases = self.releases + 1 end
 assert(loadfile("iSealTwist_Stacks.lua"))("iSealTwist", iST)
 assert(loadfile("iSealTwist_HitTracking.lua"))("iSealTwist", iST)
 local function reset()
@@ -39,7 +38,7 @@ local function reset()
     iSTSettings.enabled, iSTSettings.fakeUnsealedWrath = true, true
     iST.State = { CurrentSealName = "Seal of Command", SealExpiresAt = now + 300, WrathAuraRevision = 0 }
     iST.WrathTracker, iST.WrathHitMatcher = iST:NewWrathTracker(), nil
-    iST.talent, iST.observed, iST.releases, iST.displayCount = false, nil, 0, 0
+    iST.talent, iST.observed, iST.displayCount = false, nil, 0
 end
 local function count() return iST.WrathTracker:GetCount(now) end
 local function swing() iST:QueueWrathSwing(now) end
@@ -75,11 +74,11 @@ for _, action in ipairs({ "MISS", "DODGE", "PARRY" }) do
     now = now + 2
     iST.State.CurrentSealName = "Seal of Righteousness"
     swing(); feedback(.5, action)
-    assert(count() == 1 and iST.WrathTracker.expiresAt == expiry and iST.releases == 0,
+    assert(count() == 1 and iST.WrathTracker.expiresAt == expiry,
         action .. " must not add, refresh, or release the stored Command stack")
     now = now + 2
     swing(); feedback(.5)
-    assert(count() == 0 and iST.releases == 1, "only the landed replacement attack releases")
+    assert(count() == 0, "only the landed replacement attack releases")
 end
 for _, flags in ipairs({ "", "CRITICAL", "GLANCING", "BLOCK_REDUCED" }) do
     reset()
@@ -139,15 +138,15 @@ reset()
 iST.WrathTracker:Attack("Seal of Command", now)
 iST.State.CurrentSealName = "Seal of Righteousness"
 swing()
-assert(feedback(.5) and count() == 0 and iST.releases == 1)
-assert(not feedback(.02) and count() == 0 and iST.releases == 1,
+assert(feedback(.5) and count() == 0)
+assert(not feedback(.02) and count() == 0,
     "party damage after a release cannot build a replacement-seal stack")
 reset()
 iST.WrathTracker:Attack("Seal of Command", now)
 iST.State.CurrentSealName = "Seal of Righteousness"
 swing(); now = now + .02; swing()
-assert(feedback(.5) and count() == 0 and iST.releases == 1)
-assert(feedback(.02) and count() == 1 and iST.releases == 1,
+assert(feedback(.5) and count() == 0)
+assert(feedback(.02) and count() == 1,
     "two explicit player swings may release and then build one replacement-seal stack")
 reset()
 iSTSettings.fakeUnsealedWrath, iST.talent = false, true
@@ -156,8 +155,8 @@ iST.State.CurrentSealName = "Seal of Righteousness"
 swing()
 iST.WrathTracker:Reset()
 iST.State.WrathAuraRevision = 1
-assert(feedback(.5) and count() == 0 and iST.releases == 1)
-assert(not feedback(.02) and count() == 0 and iST.releases == 1,
+assert(feedback(.5) and count() == 0)
+assert(not feedback(.02) and count() == 0,
     "a readable aura removal wins and same-target noise cannot release twice")
 reset()
 swing()
@@ -207,7 +206,7 @@ iST.WrathTracker:Attack("Seal of Command", now)
 iST.State.CurrentSealName = "Seal of Righteousness"
 swing()
 iST.State.CurrentSealName = "Seal of Command"
-assert(feedback(.5) and count() == 0 and iST.releases == 1,
+assert(feedback(.5) and count() == 0,
     "a release still uses the replacement seal from the swing after another cast")
 reset()
 swing(); iST.State.SealExpiresAt = now + .1
@@ -260,9 +259,9 @@ iST.WrathTracker:Attack("Seal of Command", now)
 iST.State.CurrentSealName = "Seal of Righteousness"
 swing(); now = now + .4
 iST:ObserveWrathFeedbackCast(1866)
-assert(not feedback(0, "PARRY") and count() == 1 and iST.releases == 0,
+assert(not feedback(0, "PARRY") and count() == 1,
     "a Holy Strike parry must not release the stored seal")
-assert(feedback(.5) and count() == 0 and iST.releases == 1,
+assert(feedback(.5) and count() == 0,
     "a subsequent landed replacement autoattack releases once")
 reset()
 swing()
@@ -284,9 +283,9 @@ for _, spellID in ipairs({ 20271, 99920271 }) do
     swing(); now = now + .2
     iST:ObserveWrathFeedbackCast(spellID)
     assert(not iST:ObserveWrathHitFeedback("target", "WOUND", "", secret, 2)
-        and count() == 1 and iST.releases == 0,
+        and count() == 1,
         "Judgement's Holy damage neither adds nor releases melee stacks")
-    assert(feedback(.3) and count() == 0 and iST.releases == 1,
+    assert(feedback(.3) and count() == 0,
         "Judgement must not cancel the subsequent landed replacement autoattack")
 end
 print("PASS: Judgement overlap preserves the pending autoattack and melee-only release")
@@ -318,6 +317,6 @@ iST.State.CurrentSealName = "Seal of Righteousness"
 swing()
 iST.WrathTracker:Reset()
 iST.State.WrathAuraRevision = 1
-assert(feedback(.5) and count() == 0 and iST.releases == 1,
+assert(feedback(.5) and count() == 0,
     "a readable removal on release must not start a replacement-seal stack")
-print("PASS: talent gating, shared Fake path, authoritative buff updates, and release deduplication")
+print("PASS: talent gating, shared Fake path, authoritative buff updates, and aura precedence")

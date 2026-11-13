@@ -205,13 +205,6 @@ function iST:ObserveWrathHitFeedback(unit, action, flags, amount, school)
             tracker.countUnconfirmed, tracker.expiryUnconfirmed = pending.previousCountUnconfirmed,
                 pending.previousExpiryUnconfirmed
             tracker:GetCount(now)
-            if provisional.released then
-                state.TwistResultDuration = 0
-                if self.BarFrame then
-                    self.BarFrame.twistResultText:Hide()
-                    self.BarFrame.resultOverlay:Hide()
-                end
-            end
             self:UpdateWrathDisplay(now)
             trace("swing #%d %s: provisional count restored to %d", pending.id, action, tracker.count)
         end
@@ -241,11 +234,6 @@ function iST:ObserveWrathHitFeedback(unit, action, flags, amount, school)
         return true
     end
     if changed or pending.revision ~= (state.WrathAuraRevision or 0) then
-        if not pending.releaseShown and pending.previousCount > 0 and pending.previousSeal ~= pending.seal
-            and pending.previousExpiry > now and self.WrathTracker:GetCount(now) == 0 then
-            pending.releaseShown = true
-            self:ShowTwistResult()
-        end
         log(string.format("swing #%d matched WOUND; readable buff state takes precedence.", pending.id))
         trace("swing #%d hit: buff update took precedence; stacks=%d",
             pending.id, self.WrathTracker.count)
@@ -256,7 +244,6 @@ function iST:ObserveWrathHitFeedback(unit, action, flags, amount, school)
     local consumed = self.WrathTracker:Attack(pending.seal, now)
     trace("swing #%d hit %d/%d: stacks %d -> %d; released=%d",
         pending.id, pending.outcomes, pending.swingEvents, before, self.WrathTracker.count, consumed)
-    if consumed > 0 then pending.releaseShown = true; self:ShowTwistResult() end
     log(string.format("swing #%d physical hit %d at +%.3fs; %d -> %d/3%s.", pending.id, pending.outcomes, now - pending.at,
         before, self.WrathTracker.count, consumed > 0 and "; released stored stacks" or ""))
     self:UpdateWrathDisplay(now)

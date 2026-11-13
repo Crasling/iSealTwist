@@ -58,7 +58,8 @@ post-swing correction. Count and expiry confirmation are tracked separately;
 hidden counts continue through hit tracking. Follow-up reads are coalesced and cancelled on death or
 tracking-mode changes so aura traffic cannot create an unbounded timer queue.
 
-It also checks both seal-pair modes and the standalone seal and Righteous Fury
+It also checks the two-way seal-pair display, the combat-only bar fade, Judgement
+range preparation, and the standalone seal and Righteous Fury
 reminders: missing/expiring buffs, independent thresholds, permanent buffs,
 dragging, scale, previews, and the Protection-only filter. Protection uses the
 applied points returned by the Forever specialization API, not talent previews.

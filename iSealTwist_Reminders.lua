@@ -328,7 +328,7 @@ function iST:UpdateReminders()
         local settings = iSTSettings.reminders[kind]
         if previewUntil[kind] and now >= previewUntil[kind] then previewUntil[kind] = nil end
         local preview = previewUntil[kind] ~= nil
-        local known, active, expires, icon, title, wrong
+        local known, active, expires, icon, title
         if kind == "FURY" then
             known, active, expires = state.FuryKnown, state.FuryPresent, state.FuryExpiresAt
             title = L["ReminderFury"]
@@ -340,10 +340,6 @@ function iST:UpdateReminders()
             icon = state.CurrentSealIcon
             if secret(icon) then icon = nil end
             if not icon then icon = read(C_Spell and C_Spell.GetSpellTexture, self.SEAL_SPELL_IDS[iSTSettings.twistFromSeal]) end
-            if iSTSettings.sealStackMode == "FROM_ONLY" and (iSTSettings.fakeUnsealedWrath or state.UnsealedWrathKnown == true) then
-                local _, _, _, wrongSeal = self:GetWrathDisplayState(now)
-                wrong = wrongSeal
-            end
         end
         if secret(icon) then icon = nil end
         local remaining = number(expires) and expires > 0 and math.max(0, expires - now) or nil
@@ -367,7 +363,7 @@ function iST:UpdateReminders()
             end
             if settings.hideInCapitals and inCapital(now) then eligible = false end
         end
-        local warning = known and (not active or wrong or (remaining and settings.warningSeconds > 0 and remaining <= settings.warningSeconds))
+        local warning = known and (not active or (remaining and settings.warningSeconds > 0 and remaining <= settings.warningSeconds))
         local show = visible and (preview or (settings.enabled and eligible and warning))
         frame:SetShown(show == true)
         frame:SetFrameStrata(preview and "DIALOG" or "MEDIUM")
@@ -375,13 +371,12 @@ function iST:UpdateReminders()
         if show then
             if preview then
                 title = kind == "FURY" and L["ReminderFury"] or L["ReminderSeal"]
-                active, remaining, wrong = true, math.max(1, settings.warningSeconds), false
+                active, remaining = true, math.max(1, settings.warningSeconds)
             end
             local left = settings.showIcon and 38 or 0
-            local danger = not active or wrong
+            local danger = not active
             local message
             if preview then message = title
-            elseif wrong then message = string.format(L["ReminderSwitchSeal"], iSTSettings.twistFromSeal)
             elseif active then message = string.format(L["ReminderRefreshBuff"], title)
             elseif kind == "SEAL" then message = L["ReminderCastSeal"]
             else message = string.format(L["ReminderCastBuff"], title) end

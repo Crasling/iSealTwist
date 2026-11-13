@@ -2,6 +2,14 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.9 - Swing Timer and Stacks
+--------------------------------------------------------------------------------
+[ADDED] Resize the text inside the swing bar
+[IMPROVED] The combat-only bar appears when a seal is active and Judgement is in range
+[IMPROVED] The swing bar fades out of combat while active Echo stacks remain visible
+[CHANGED] Removed Always stack From, Release Text, and the empty 0 / 3 display
+[CHANGED] Moved Show Latency to Indicators and removed the empty Timing page
+
 v0.8.8 - Stack Counter
 --------------------------------------------------------------------------------
 [CHANGED] The Echo stack counter is now the default; other indicators are hidden for now

@@ -2,6 +2,7 @@
 unpack = unpack or table.unpack
 local now, timers, frames, chatMessages = 100, {}, {}, {}
 local playerClass, playerDead, inCombat, grouped = "PALADIN", false, false, false
+local targetAttackable, targetDead = true, false
 local inInstance, instanceType = false, "none"
 local function widget(parent)
     local object = { parent = parent, widgetWidth = 250, widgetHeight = 25, shown = false, alpha = 1,
@@ -149,6 +150,11 @@ function GetTime() return now end
 function GetBuildInfo() return "1.60.1", "70753", "", 16001 end
 function UnitClass() return "Paladin", playerClass end
 function UnitIsDeadOrGhost() return playerDead end
+function UnitIsDead() return targetDead end
+function UnitCanAttack(player, target)
+    assert(player == "player" and target == "target")
+    return targetAttackable
+end
 function UnitHealth() return playerDead and 0 or 100 end
 function UnitPowerType() return 0, "MANA" end
 function UnitAttackSpeed() return 3.6 end
@@ -167,6 +173,7 @@ C_Timer = { After = function(delay, callback)
 end }
 Enum = { PlayerSwingType = { MainHand = 0, OffHand = 1, Ranged = 2 } }
 local talentName, talentRank, configAvailable = "Unsealed Wrath", 1, true
+local judgementRange
 C_ClassTalents = { GetActiveConfigID = function() return configAvailable and 1 or nil end }
 C_Traits = {
     GetConfigInfo = function() return { treeIDs = { 1 } } end,
@@ -183,6 +190,10 @@ C_Spell = {
             [1311704] = "Echo of Righteousness", [1328206] = "Echo of Wisdom" })[id]
     end,
     GetSpellTexture = function() return 1 end,
+    IsSpellInRange = function(spellID, target)
+        assert(spellID == 20271 and target == "target", "pre-combat range uses Judgement on the current target")
+        return judgementRange
+    end,
 }
 local auraResult
 C_UnitAuras = { GetAuraDataBySpellName = function(unit, spellName, filter)
@@ -216,8 +227,87 @@ iSTSettings.wrathCue = "COUNTER"
 iST:CreateSwingBar()
 assert(iST.BarFrame.stackCountValue.font[2] == iSTSettings.stackCounterTextSize,
     "the buff counter uses its own text size")
+local originalSwingSize = iSTSettings.swingTextSize
+iSTSettings.swingTextSize = 20
+iST:ApplyBarTypography()
+assert(iST.BarFrame.timeText.font[2] == 20 and iST.BarFrame.speedText.font[2] == 20,
+    "the swing countdown and weapon speed use the same adjustable text size")
+iST.BarFrame:SetHeight(15)
+iST:ApplyBarTypography()
+assert(iST.BarFrame.timeText.font[2] == 11 and iST.BarFrame.speedText.font[2] == 11,
+    "the text fits inside the shortest bar")
+iST.BarFrame:SetHeight(iSTSettings.barHeight)
+iST.BarFrame:SetWidth(100)
+iST:ApplyBarTypography()
+assert(iST.BarFrame.timeText.font[2] == 16 and iST.BarFrame.speedText.font[2] == 16,
+    "the two labels fit beside each other in a narrow bar")
+iST.BarFrame:SetWidth(iSTSettings.barWidth)
+iSTSettings.swingTextSize = originalSwingSize
+iST:ApplyBarTypography()
 iST:RefreshUnsealedWrathState()
+local bar = iST.BarFrame
+iST:UpdateBarVisibility()
+assert(bar:IsShown() and bar.alpha == 0 and bar.stackCountFrame:IsVisible()
+    and bar.stackCountFrame:GetParent() == UIParent,
+    "combat-only visibility keeps the talent counter outside the faded swing bar")
+iST.State.Initialized, iST.State.InCombat = true, true
+iST:UpdateBarVisibility()
+iST:UpdateBarFade(0.1)
+assert(bar:IsShown() and bar.alpha == 0.5 and bar.stackCountFrame:IsVisible(),
+    "combat entry fades in the swing bar without interrupting the counter")
+iST:UpdateBarFade(0.1)
+assert(bar.alpha == 1, "combat entry finishes with a visible swing bar")
+iST.State.InCombat = false
+iST:UpdateBarVisibility()
+iST:UpdateBarFade(0.2)
+assert(bar:IsShown() and bar.alpha == 0 and bar.stackCountFrame:IsVisible(),
+    "combat exit fades out only the swing bar")
+iSTSettings.enabled = false
+iST:UpdateBarVisibility()
+assert(not bar:IsShown() and not bar.stackCountFrame:IsShown(),
+    "disabling the addon still hides both frames")
+iSTSettings.enabled, iST.State.Initialized = true, false
+iST:UpdateBarVisibility()
+talentRank = 0
+iST:RefreshUnsealedWrathState()
+assert(not bar.stackCountFrame:IsShown(), "the counter hides when Unsealed Wrath is not selected")
+talentRank = 1
+iST:RefreshUnsealedWrathState()
+assert(bar.stackCountFrame:IsShown(), "the counter returns when Unsealed Wrath is selected")
 local function event(name, ...) events.OnEvent(events, name, ...) end
+judgementRange = true
+iST.State.Initialized = true
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 0, "Judgement range alone does not reveal the bar without a seal")
+iST:SetCurrentSeal(20375, now + 30)
+iST:UpdateBarVisibility()
+iST:UpdateBarFade(0.2)
+assert(bar.alpha == 1 and not bar.stackCountValue:IsShown(),
+    "an active seal and Judgement range reveal the bar without an empty counter")
+judgementRange = false
+iST:OnBarUpdate(0.2)
+assert(bar.fadeTarget == 0, "moving out of Judgement range starts fading the bar")
+iST:UpdateBarFade(0.2)
+assert(bar.alpha == 0 and not bar.stackCountValue:IsShown() and bar.stackCountFrame:IsVisible(),
+    "the bar fades while the buff display stays available")
+judgementRange = secret
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 0, "an unreadable range result does not reveal the bar")
+judgementRange = true
+targetAttackable = false
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 0, "a friendly target does not reveal the bar")
+targetAttackable, targetDead = true, true
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 0, "a dead target does not reveal the bar")
+targetDead = false
+event("PLAYER_TARGET_CHANGED")
+assert(bar.fadeTarget == 1, "target changes refresh the pre-combat range check")
+iST:ClearCurrentSeal()
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 0, "losing the seal ends the pre-combat preview")
+judgementRange = nil
+iST.State.Initialized = false
 local function attack()
     now = now + 1
     event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
@@ -349,7 +439,18 @@ event("UNIT_AURA", "player", { addedAuras = {
 } })
 assert(count() == 0 and iST.State.WrathAuraInstanceID == nil,
     "the passive talent is not mistaken for an Echo stack buff")
+local expectedEchoIDs = {
+    ["Echo of Command"] = 1311703,
+    ["Echo of Fury"] = 1311701,
+    ["Echo of Justice"] = 1311705,
+    ["Echo of Light"] = 1328198,
+    ["Echo of Righteousness"] = 1311704,
+    ["Echo of Wisdom"] = 1328206,
+}
+assert(#iST.WrathEchoSpells == 6, "all six Echo buffs have filters")
 for index, spell in ipairs(iST.WrathEchoSpells) do
+    assert(expectedEchoIDs[spell.name] == spell.id, spell.name .. " uses its Forever spell ID")
+    assert(iST.WrathEchoSpellIDs[spell.id] == spell.seal, spell.name .. " maps to its stored Seal")
     local instanceID = 300 + index
     event("UNIT_AURA", "player", { addedAuras = {
         { name = spell.name, spellId = spell.id, applications = 2,
@@ -407,6 +508,7 @@ iST:SetCurrentSeal(20154)
 attack()
 local liveCount, liveExpiry = count(), iST.WrathTracker.expiresAt
 iST:StartStackTestMode()
+assert(not iST.BarFrame.stackCountValue:IsShown(), "the preview does not show 0 / 3")
 for _ = 1, 3 do
     now = iST.State.NextSwingTime
     iST:OnBarUpdate(1)
@@ -653,7 +755,6 @@ iST:SetCurrentSeal(20154)
 iST.WrathTracker:Reset()
 for _ = 1, 3 do attack() end
 iSTSettings.wrathCue = "TEXT"
-iST.State.TwistResultDuration = 0
 iST:SetCurrentSeal(20375)
 iST:UpdateWrathDisplay()
 assert(iST.BarFrame.wrathCueText.text == "Attack now",
@@ -669,7 +770,6 @@ assert(resynced:Attack("second seal", 17) == 0 and resynced.count == 2,
 iSTSettings.wrathCue = "OFF"
 iSTSettings.showPlayerWrathBubbles = true
 iST.State.InCombat = true
-iST.State.TwistResultDuration = 0
 iST.WrathTracker:Reset()
 iST:CreatePlayerWrathFrame()
 local playerBubbles = assert(iST.PlayerWrathFrame, "the player-frame bubbles are constructed")
@@ -737,8 +837,8 @@ assert(not imageSword.shown, "unselected talent hides the image cue")
 iST:SetFakeUnsealedWrath(true)
 assert(iSTSettings.fakeUnsealedWrath and iST:IsWrathTrackingEnabled(), "fake talent enables only addon tracking")
 assert(not iST:HasUnsealedWrath(), "fake talent does not change the real selected talent")
-assert(iST.BarFrame.stackCountFrame.shown and iST.BarFrame.stackCountValue.text == "?",
-    "the stack readout waits for a real test aura")
+assert(iST.BarFrame.stackCountFrame.shown and not iST.BarFrame.stackCountValue:IsShown(),
+    "the stack readout stays empty until a test aura appears")
 assert(iST.BarFrame.stackCountTotal.text == "/ 3", "the stack readout shows the three-stack goal")
 local originalAuraReader = C_UnitAuras.GetAuraDataBySpellName
 local vengeanceAura = { name = "Vengeance", auraInstanceID = 444 }
@@ -804,8 +904,8 @@ iSTSettings.stackCounterTextSize = 28
 iST:ApplyBarTypography()
 assert(managed.slot.applicationCount.font[2] == 28
     and iST.BarFrame.stackCountValue.font[2] == 28
-    and iST.BarFrame.twistResultText.font[2] == iSTSettings.twistTextSize,
-    "counter size changes without resizing release text")
+    and iST.BarFrame.wrathCueText.font[2] == 28,
+    "counter size also updates the ready cue text")
 iSTSettings.stackCounterTextSize = originalCounterSize
 iST:ApplyBarTypography()
 local originalCounterColor = iSTSettings.stackCounterColor
@@ -814,7 +914,7 @@ iST:ApplyStackCounterColor()
 assert(managed.slot.applicationCount.textColor[1] == 0.25
     and managed.slot.applicationCount.textColor[4] == 0.9
     and iST.BarFrame.stackCountValue.textColor[3] == 0.75,
-    "the custom counter color reaches the buff count and the zero fallback")
+    "the custom counter color reaches the buff count and backup readout")
 iSTSettings.stackCounterColor = originalCounterColor
 iST:ApplyStackCounterColor()
 assert(managed.slot.applicationCount.widgetWidth >= 32,
@@ -823,23 +923,21 @@ assert(iST.BarFrame.stackCountFrame.point[5] == iST.BarFrame.wrathCueFrame.point
     "the buff count occupies the original counter's position")
 iST:UpdateWrathDisplay()
 assert(not iST.BarFrame.stackCountValue.shown,
-    "the fallback cannot overlap a present buff")
+    "the backup readout cannot overlap a present buff")
 local recordedVengeanceAura = vengeanceAura
 vengeanceAura = nil
-iST.BarFrame.nextStackPresenceCheck = nil
 iST:UpdateWrathDisplay()
-assert(iST.BarFrame.stackCountValue.text == "0" and iST.BarFrame.stackCountValue.shown,
-    "the counter shows zero outside combat while the buff is absent")
+assert(not iST.BarFrame.stackCountValue.shown,
+    "the counter stays empty outside combat while the buff is absent")
 inCombat = true
 iST:UpdateWrathDisplay()
 assert(not iST.BarFrame.stackCountValue.shown,
-    "the fallback never overlaps the managed buff count in combat")
+    "the counter stays empty in combat while the buff is absent")
 inCombat = false
 vengeanceAura = recordedVengeanceAura
-iST.BarFrame.nextStackPresenceCheck = nil
 iST:UpdateWrathDisplay()
 assert(not iST.BarFrame.stackCountValue.shown,
-    "the buff count replaces zero when the buff returns")
+    "the managed buff button supplies the count when it returns")
 vengeanceAura.spellId = 20052
 iST:RefreshVengeanceStackAura()
 assert(managed.slots.vengeance.filters.includeSpellIDs[20052],
@@ -1411,62 +1509,48 @@ assert(not ring:IsShown() and not bar.sealRingExpiresAt and not ring.cooldownSta
     "seal removal clears the ring and its cached deadline")
 print("PASS: circular seal countdown, gray elapsed arc, final-five-second warning, unchanged portrait, partial recovery, recasts, resize, and disable/removal cleanup")
 
--- Seal-pair guidance must not change what the real tracker observes.
+-- A saved fixed-From choice must not hide stacks after another opening seal.
 playerClass, playerDead, inCombat = "PALADIN", false, false
 iST.State.TestMode, iST.State.StackTestMode = false, false
 iSTSettings.twistFromSeal, iSTSettings.twistIntoSeal = "Seal of Righteousness", "Seal of Command"
-iST:SetFakeUnsealedWrath(true)
-iST.State.TwistResultDuration = 0
-iST:SetSealStackMode("ALTERNATE")
-iST:SetCurrentSeal(20154)
-for _ = 1, 3 do attack() end
-iST:SetCurrentSeal(20375)
-local stacks, tracking, armed, wrong = iST:GetWrathDisplayState(now)
-assert(stacks == 3 and tracking and armed and not wrong, "alternating mode allows releasing From stacks")
-attack()
-attack()
-assert(count() == 1 and not select(4, iST:GetWrathDisplayState(now)), "alternating mode builds the other seal normally")
-iST:SetCurrentSeal(20154)
-attack()
-assert(count() == 0 and not select(4, iST:GetWrathDisplayState(now)), "alternating mode releases in either direction")
-
-iST:SetSealStackMode("FROM_ONLY")
-for _ = 1, 3 do attack() end
-iST:SetCurrentSeal(20375)
-assert(not select(4, iST:GetWrathDisplayState(now)), "selecting Into for the release is not a wrong-seal warning")
-attack()
-assert(count() == 0 and select(4, iST:GetWrathDisplayState(now)), "From-only mode asks to return after the release swing")
-iST.State.TwistResultDuration = 0
-for _, style in ipairs({ "BAR_COLOR", "SWORD_IMAGES", "CIRCLES", "COUNTER", "TEXT" }) do
-    iSTSettings.wrathCue = style
-    iST:UpdateWrathDisplay(now)
-    assert(bar.wrathCueFrame:IsShown() and bar.wrathCueText:GetText() == "Wrong seal",
-        "each enabled cue can show the return-to-From warning")
-    assert(bar.wrathCueText.textColor[2] == 0.12 and not bar.wrathCircles:IsShown(), "wrong-seal text is red and does not overlap circles")
-end
-iSTSettings.wrathCue = "OFF"
-iST:UpdateWrathDisplay(now)
-assert(not bar.wrathCueFrame:IsShown(), "Off also hides wrong-seal cues")
 iSTSettings.wrathCue = "COUNTER"
-iST.State.TwistResultDuration = 0.5
-iST:UpdateWrathDisplay(now)
-assert(not bar.wrathCueFrame:IsShown(), "the release message keeps priority until its fade ends")
-iST.State.TwistResultDuration = 0
+iSTSettings.sealStackMode = "FROM_ONLY"
+iST:InitializeSettings()
+assert(iSTSettings.sealStackMode == nil, "old fixed-From settings are removed on load")
+iST:SetFakeUnsealedWrath(true)
+iST.WrathTracker:Reset()
+iST:SetCurrentSeal(21082)
+iST:SetCurrentSeal(20375)
 attack()
-assert(count() == 1 and select(4, iST:GetWrathDisplayState(now)), "wrong-seal guidance never hides actual stacks built on Into")
+iST:UpdateWrathDisplay(now)
+assert(count() == 1 and bar.stackCountFrame:IsShown(),
+    "opening with Crusader does not hide the Command stack counter")
+iST.WrathTracker:Reset()
 iST:SetCurrentSeal(20154)
-assert(not select(4, iST:GetWrathDisplayState(now)), "returning to From clears the warning")
-iST:SetCurrentSeal(20164)
-assert(select(4, iST:GetWrathDisplayState(now)), "an unrelated seal is not the preferred buildup seal")
+for _ = 1, 3 do attack() end
+iST:SetCurrentSeal(20375)
+local stacks, tracking, armed = iST:GetWrathDisplayState(now)
+assert(stacks == 3 and tracking and armed, "either seal can build stacks for release")
+attack()
+attack()
+assert(count() == 1 and bar.stackCountFrame:IsShown(), "the other seal builds visible stacks normally")
+iST:SetCurrentSeal(20154)
+attack()
+assert(count() == 0, "stacks release in either direction")
+iSTSettings.wrathCue = "COUNTER"
+iST:SetCurrentSeal(20375)
+attack()
+iST:UpdateWrathDisplay(now)
+assert(count() == 1 and bar.stackCountFrame:IsShown(), "the counter stays visible when building on Into")
 iST.State.TestMode, iST.State.StackTestMode, iST.State.PreviewStacks = true, true, 2
-assert(not select(4, iST:GetWrathDisplayState(now)), "bar previews cannot inherit live wrong-seal warnings")
+assert(select(1, iST:GetWrathDisplayState(now)) == 2, "bar previews do not change live stacks")
 iST.State.TestMode, iST.State.StackTestMode = false, false
 iSTSettings.fakeUnsealedWrath, iST.State.UnsealedWrathKnown = false, false
 inCombat = true
-assert(not select(4, iST:GetWrathDisplayState(now)), "the rotation warning requires the talent or explicit fake mode")
+assert(not select(2, iST:GetWrathDisplayState(now)), "the counter requires the talent or explicit fake mode")
 inCombat = false
 iST:SetFakeUnsealedWrath(true)
-print("PASS: alternating and From-only guidance, release timing, all cue styles, preview isolation, talent gating, and unchanged live stacks")
+print("PASS: saved fixed-From migration, other opening seals, two-way stack display, preview isolation, and talent gating")
 
 -- Exercise the actual reminder module, including its independent event frame.
 local furyAura, furyReads, specReads = nil, 0, 0
@@ -1512,10 +1596,9 @@ assert(not furySettings.enabled and not sealSettings.enabled and not fury:IsShow
 assert(furySettings.warningSeconds == 60 and sealSettings.warningSeconds == 5, "independent warning defaults")
 assert(furySettings.point ~= iST.ReminderDefaults.FURY.point, "saved positions do not alias defaults")
 sealSettings.enabled = true
-iST:SetSealStackMode("ALTERNATE")
 iST:ClearCurrentSeal()
 iST:ApplyReminderSettings()
-assert(seal:IsShown() and seal.title:GetText() == "Cast a seal", "missing seals warn even while the combat-only bar is hidden")
+assert(seal:IsShown() and seal.title:GetText() == "Cast a seal", "missing seals warn even while the combat-only bar is faded")
 iST:SetCurrentSeal(20154)
 iST:UpdateReminders()
 assert(not seal:IsShown(), "a fresh seal hides its reminder")
@@ -1533,11 +1616,11 @@ iST:ApplyReminderSettings()
 assert(seal:IsShown() and not seal.icon:IsShown() and seal.timer:GetText() == "" and seal:GetScale() == 1.6, "icon, countdown, and scale are independent options")
 assert(seal.title.point[4] == 0, "text reclaims the icon space when the icon is hidden")
 sealSettings.showTime = true
-iST:SetSealStackMode("FROM_ONLY")
 iST.WrathTracker:Reset()
-iST:SetCurrentSeal(20375)
+iST:SetCurrentSeal(20375, now + 3)
 iST:UpdateReminders()
-assert(seal:IsShown() and seal.title:GetText() == "Switch to Seal of Righteousness", "the standalone seal reminder also supports the preferred buildup seal")
+assert(seal:IsShown() and seal.title:GetText() == "Refresh Seal of Command",
+    "the seal reminder follows the current seal rather than the old fixed-From choice")
 
 sealSettings.hideAfterIdle = true
 reminderEvent("PLAYER_REGEN_ENABLED")
@@ -1820,10 +1903,18 @@ print("PASS: transient combat-entry reads, cached-instance recovery, split remov
 -- Build and operate the real settings controls, not a second implementation.
 UISpecialFrames = {}
 C_AddOns.IsAddOnLoaded = function() return false end
-iST:SetSealStackMode("ALTERNATE")
 assert(loadfile("iSealTwist_OptionsPanel.lua"))("iSealTwist", iST)
 iST:CreateOptionsPanel()
 assert(iST.SettingsFrame and UISpecialFrames[#UISpecialFrames] == "iSTSettingsFrame", "the full settings panel builds and keeps Escape support")
+local function findText(widget, expected)
+    if widget.text == expected then return true end
+    for _, child in ipairs(widget.children or {}) do
+        if findText(child, expected) then return true end
+    end
+    return false
+end
+assert(findText(iST.SettingsFrame, iST.L.SwingTextSize),
+    "the swing text size slider is present in settings")
 assert(iST.SettingsFrame:GetWidth() == 820 and iST.SettingsFrame:GetHeight() == 580
     and iST.SettingsFrame.backdrop.edgeSize == 1,
     "the settings window uses the wider layout and thin border")
@@ -1844,30 +1935,31 @@ iST:SettingsOpen()
 assert(lockCheckbox:GetChecked() == iSTSettings.barLocked,
     "opening settings refreshes the bar lock control from saved state")
 iST:SettingsClose()
-local reminderTab, modeDropdown
+local reminderTab, sealDropdown
 for _, frame in ipairs(frames) do
     if type(frame.text) == "table" and frame.text.GetText and frame.text:GetText() == "Reminders" then reminderTab = frame end
-    if frame.menu and frame.text:GetText() == "Back and forth" then modeDropdown = frame end
+    if frame.menu and frame.text:GetText():find("Seal of Righteousness", 1, true) then sealDropdown = frame end
 end
-assert(reminderTab and modeDropdown, "the new reminder page and seal-mode dropdown are reachable")
-modeDropdown.OnClick(modeDropdown)
-assert(modeDropdown.menu:IsShown() and modeDropdown.menu.dismiss:IsShown(),
+assert(reminderTab and sealDropdown, "the reminder page and seal-pair dropdown are reachable")
+sealDropdown.OnClick(sealDropdown)
+assert(sealDropdown.menu:IsShown() and sealDropdown.menu.dismiss:IsShown(),
     "opening a dropdown enables its outside-click dismissal")
-modeDropdown.menu.dismiss.OnClick(modeDropdown.menu.dismiss)
-assert(not modeDropdown.menu:IsShown() and not modeDropdown.menu.dismiss:IsShown(),
+sealDropdown.menu.dismiss.OnClick(sealDropdown.menu.dismiss)
+assert(not sealDropdown.menu:IsShown() and not sealDropdown.menu.dismiss:IsShown(),
     "clicking outside closes both the choices and the transparent blocker")
-modeDropdown.OnEnter(modeDropdown)
-modeDropdown.OnMouseDown(modeDropdown)
-modeDropdown.OnLeave(modeDropdown)
-modeDropdown.OnMouseUp(modeDropdown)
-assert(modeDropdown.backdropColor[1] == 0.035, "releasing outside does not leave a button highlighted")
-modeDropdown:Disable()
-assert(modeDropdown.alpha == 0.45, "disabled settings controls stay visibly dimmed")
-modeDropdown:Enable()
-assert(modeDropdown.alpha == 1, "enabling a settings control restores its opacity")
-modeDropdown.OnClick(modeDropdown)
-modeDropdown.menu.buttons[2].OnClick()
-assert(iSTSettings.sealStackMode == "FROM_ONLY" and modeDropdown.text:GetText() == "Always stack From", "the styled dropdown saves and refreshes the mode")
+sealDropdown.OnEnter(sealDropdown)
+sealDropdown.OnMouseDown(sealDropdown)
+sealDropdown.OnLeave(sealDropdown)
+sealDropdown.OnMouseUp(sealDropdown)
+assert(sealDropdown.backdropColor[1] == 0.035, "releasing outside does not leave a button highlighted")
+sealDropdown:Disable()
+assert(sealDropdown.alpha == 0.45, "disabled settings controls stay visibly dimmed")
+sealDropdown:Enable()
+assert(sealDropdown.alpha == 1, "enabling a settings control restores its opacity")
+sealDropdown.OnClick(sealDropdown)
+assert(#sealDropdown.menu.buttons > 1 and iSTSettings.sealStackMode == nil,
+    "the seal choices remain while the fixed-From mode stays removed")
+sealDropdown.menu.dismiss.OnClick(sealDropdown.menu.dismiss)
 reminderTab.OnClick(reminderTab)
 assert(iST.SettingsFrame.pageHeader.title:GetText() == iST.L.TabReminders
     and iST.SettingsFrame.pageHeader.subtitle:GetText() == iST.L.SettingsRemindersSummary,
@@ -2027,7 +2119,6 @@ print("PASS: live hit recorder loads idle; hit and normal slash commands work")
 -- Keep the cue responsive while delayed feedback checks individual swings.
 playerDead, inCombat = false, true
 iSTSettings.enabled, iSTSettings.wrathCue = true, "COUNTER"
-iSTSettings.sealStackMode = "ALTERNATE"
 iST:SetFakeUnsealedWrath(true)
 iST:SetCurrentSeal(20375)
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
@@ -2090,8 +2181,8 @@ event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
 assert(count() == 2, "Judgement does not prevent the melee hit from being confirmed")
 iST:SetCurrentSeal(20154)
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
-assert(count() == 0 and iST.State.TwistResultDuration > 0,
-    "the release cue appears on the swing instead of waiting for target feedback")
+assert(count() == 0, "the replacement swing updates tracked stacks")
+assert(bar.stackCountFrame:IsShown(), "the stack display stays available after the replacement swing")
 playerDead = true
 event("PLAYER_DEAD")
 assert(#iST.WrathHitMatcher.pending == 0, "death cancels pending swing feedback")

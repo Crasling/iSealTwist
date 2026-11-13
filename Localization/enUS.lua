@@ -51,7 +51,6 @@ L["BarUnlocked"] = Msg("Bar " .. Colors.Yellow .. "unlocked" .. Colors.iST .. ".
 L["BarReset"] = Msg("Bar position reset to center.")
 L["TestStarted"] = Msg("Test mode: simulating a " .. Colors.Yellow .. "3.6s" .. Colors.iST .. " swing.")
 L["StackTestStarted"] = Msg("Test mode: building three stored Seal stacks.")
-L["WrathReleased"] = "Seals unleashed!"
 L["MacroUpdated"] = "Macro updated with %s, %s."
 L["MinimapLeftClick"] = (Colors.Yellow .. "Left Click: " .. Colors.Orange .. "Enable/Disable")
 L["MinimapShiftLeftClick"] = (Colors.Yellow .. "Shift-Left Click: " .. Colors.Orange .. "Toggle Bar Lock")
@@ -72,7 +71,6 @@ L["SettingsTitle"] = Colors.iST .. "iSealTwist — Settings"
 L["SettingsLabel"] = "Settings"
 L["SettingsSavedAutomatically"] = "Changes are saved automatically."
 L["SettingsGeneralSummary"] = "Choose your seals, macro and when the swing timer appears."
-L["SettingsTimingSummary"] = "Adjust the swing bar size and latency display."
 L["SettingsIndicatorsSummary"] = "Choose bar information and the Stack Counter color."
 L["SettingsCustomizationSummary"] = "Adjust fonts, colors and previews."
 L["SettingsRemindersSummary"] = "Configure seal and Righteous Fury reminders."
@@ -81,7 +79,6 @@ L["SettingsCompanionSummary"] = "Information and settings for this addon."
 
 -- Sidebar
 L["TabGeneral"] = "General"
-L["TabTiming"] = "Timing"
 L["TabIndicators"] = "Indicators"
 L["TabCustomization"] = "Customization"
 L["TabAbout"] = "About"
@@ -98,7 +95,6 @@ L["BarHeight"] = "Bar Height"
 
 L["ShowLatency"] = "Show Latency"
 L["ShowLatencyDesc"] = Colors.Gray .. "Display current home latency on the bar.|r"
-L["SectionTimingGuides"] = Colors.iST .. "Swing Timer"
 
 -- Display
 L["ShowSealIcon"] = "Show Seal Icon"
@@ -111,8 +107,6 @@ L["OnlyInCombat"] = "Only Show In Combat"
 L["OnlyInCombatDesc"] = Colors.Gray .. "Hide the bar when out of combat.|r"
 L["OnlyAsPaladin"] = "Only Active As Paladin"
 L["OnlyAsPaladinDesc"] = Colors.Gray .. "Only activate the addon on Paladin characters.|r"
-L["ShowTwistSuccess"] = "Show Release Text"
-L["ShowTwistSuccessDesc"] = Colors.Gray .. "Show feedback when an attack with a different seal releases stored stacks.|r"
 
 -- Indicator sub-sections
 L["SectionBarInformation"] = Colors.iST .. "Bar Information"
@@ -131,27 +125,22 @@ L["ShowPlayerWrathBubbles"] = "Show Stacks Below Player Mana (Experimental)"
 L["ShowPlayerWrathBubblesDesc"] = Colors.Gray .. "Show a separate frame with three stack bubbles below the standard player mana bar. Uses your stack colors and works alongside any swing-timer cue.|r"
 L["WrathReadyText"] = "Ready Message"
 L["WrathAttackNow"] = "Attack now"
-L["WrongSeal"] = "Wrong seal"
 L["WrathTrackingDesc"] = Colors.Gray .. "Tracks stacks from main-hand swings and hit feedback, then corrects them from the buff when readable. Misses, dodges and parries can briefly affect the displayed count.|r"
 L["SectionSealPair"] = Colors.iST .. "Seal Pair"
 
 -- Seal pair dropdowns
-L["TwistFromSeal"] = "Build-up Seal (From)"
-L["TwistFromSealDesc"] = Colors.Gray .. "The seal your optional macro starts with. Build stored stacks before switching to the other seal.|r"
-L["TwistIntoSeal"] = "Release Seal (Into)"
-L["TwistIntoSealDesc"] = Colors.Gray .. "The different seal your macro switches into. An attack with that seal releases stored stacks.|r"
-L["SealStackMode"] = "Stacking Mode"
-L["SealStackAlternate"] = "Back and forth"
-L["SealStackFromOnly"] = "Always stack From"
+L["TwistFromSeal"] = "First Macro Seal"
+L["TwistFromSealDesc"] = Colors.Gray .. "The seal your optional macro casts first.|r"
+L["TwistIntoSeal"] = "Second Macro Seal"
+L["TwistIntoSealDesc"] = Colors.Gray .. "The seal your optional macro casts second.|r"
 L["SealPairLegend"] = "Build stacks on either seal, then switch to release them."
-L["SealPairFromOnlyLegend"] = "Build stacks on From, release with Into, then return to From. Shows Wrong seal until you return."
-L["SealPairDesc"] = Colors.Gray .. "Choose the seals for your optional SealTwist macro and preferred stack buildup. Cast seals yourself; iST provides reminders.|r"
+L["SealPairDesc"] = Colors.Gray .. "Choose the seals for your optional SealTwist macro. Stacks can build on either seal; switching seals releases them.|r"
 L["OpenMacros"] = "Open Macros"
 L["MacroWindowCombatBlocked"] = Msg("The macro window cannot be opened during combat.")
 
 -- Twist text customization
 L["SectionTextAppearance"] = Colors.iST .. "Text"
-L["TwistTextSize"] = "Release Text Size"
+L["SwingTextSize"] = "Swing Bar Text Size (fits bar)"
 L["IconSize"] = "Seal Icon Size"
 L["CurrentSealTextSize"] = "Current Seal Text Size"
 L["LatencyTextSize"] = "Latency Text Size"
@@ -162,7 +151,6 @@ L["SectionBarColors"]   = Colors.iST .. "Bar Colors"
 L["DefaultColors"]      = "Default Colors"
 L["ColorBar"]           = "Fill"
 L["ColorBorderNormal"]  = "Border"
-L["ColorTwistSuccess"]  = "Release Text"
 L["SectionStackColors"] = Colors.iST .. "Stack Colors"
 L["WrathColorScheme"] = "Color Scheme"
 L["WrathSchemeGold"] = "Gold"
@@ -182,11 +170,9 @@ L["CenterHorizontally"] = "Center Horizontally"
 L["ResetPosition"] = "Reset Position"
 L["TestBar"] = "Test Bar"
 L["TestStackBar"] = "Test Stack Buildup"
-L["TestTwistSuccess"] = "Test Release"
 L["PreviewNormal"] = "1. Normal"
 L["PreviewStacks"] = "2. Build Stacks"
-L["PreviewSuccess"] = "3. Release"
-L["PreviewParryHaste"] = "Test Parry Haste"
+L["PreviewParryHaste"] = "3. Parry Haste"
 
 -- Separate buff reminders
 L["TabReminders"] = "Reminders"
@@ -216,7 +202,6 @@ L["ReminderPreview"] = "Drag to move"
 L["ReminderCastBuff"] = "Cast %s"
 L["ReminderCastSeal"] = "Cast a seal"
 L["ReminderRefreshBuff"] = "Refresh %s"
-L["ReminderSwitchSeal"] = "Switch to %s"
 L["ReminderTimeLeft"] = "%s left"
 
 -- About

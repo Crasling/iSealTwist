@@ -255,8 +255,6 @@ iST.State = {
     PreviewStacks = 0,
     TestModeGeneration = 0,
     Initialized = false,
-    TwistResultStart = 0,
-    TwistResultDuration = 0,
     Idle = false,
     PendingMacroRefresh = false,
     MacroCheckGeneration = 0,
@@ -284,13 +282,11 @@ iST.SettingsDefault = {
     onlyInCombat = true,
     onlyAsPaladin = true,
     barPoint = { "CENTER", nil, "CENTER", 0, -200 },
-    showTwistSuccess = true,
-    twistTextSize     = 16,
+    swingTextSize     = 11,
     stackCounterTextSize = 16,
     sealTextSize      = 10,
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
-    twistSuccessColor = { r = 0.2, g = 1.0, b = 0.2, a = 1.0 },
     wrathCue = "COUNTER",
     stackCounterColor = { r = 1, g = 0.78, b = 0.24, a = 1 },
     showPlayerWrathBubbles = false,
@@ -304,7 +300,6 @@ iST.SettingsDefault = {
     borderNormalColor = { r = 0.3,  g = 0.3,  b = 0.3,  a = 0.8 },
     twistFromSeal     = "Seal of Command",
     twistIntoSeal     = "Seal of Justice",
-    sealStackMode     = "ALTERNATE",
     MinimapButton = { hide = false, minimapPos = 220, showInCompartment = true },
 }
 
@@ -315,6 +310,9 @@ function iST:InitializeSettings()
     if iSTSettings.stackCounterTextSize == nil and type(iSTSettings.twistTextSize) == "number" then
         iSTSettings.stackCounterTextSize = iSTSettings.twistTextSize
     end
+    iSTSettings.showTwistSuccess = nil
+    iSTSettings.twistTextSize = nil
+    iSTSettings.twistSuccessColor = nil
     local legacyWrathColor = iSTSettings.wrathColorScheme == nil and iSTSettings.wrathCueColor or nil
     for key, value in pairs(self.SettingsDefault) do
         if iSTSettings[key] == nil then
@@ -343,9 +341,9 @@ function iST:InitializeSettings()
         if iSTSettings.wrathCue == "BAR_COLOR" then iSTSettings.wrathCue = "COUNTER" end
         iSTSettings.stackCounterDefaultMigrated = true
     end
-    if iSTSettings.sealStackMode ~= "ALTERNATE" and iSTSettings.sealStackMode ~= "FROM_ONLY" then
-        iSTSettings.sealStackMode = self.SettingsDefault.sealStackMode
-    end
+    -- The old fixed-From guidance could hide the real Echo count after a
+    -- different opening seal. Keep existing characters on the normal display.
+    iSTSettings.sealStackMode = nil
     self:InitializeWrathColors(legacyWrathColor)
     self:InitializeReminderSettings()
     iSTSettings.wrathCueColor = nil
@@ -373,10 +371,12 @@ function iST:ApplyBarTypography()
         end
     end
 
-    local _, timeSize = bar.timeText:GetFont()
-    local _, speedSize = bar.speedText:GetFont()
-    ApplyFont(bar.timeText, timeSize or 11, "OUTLINE")
-    ApplyFont(bar.speedText, speedSize or 11, "OUTLINE")
+    -- Both numbers share a size. Fit it inside the bar so a narrow or short
+    -- layout keeps the labels readable without overlapping each other.
+    local swingSize = math.max(8, math.min(iSTSettings.swingTextSize or 11,
+        math.floor(bar:GetHeight() - 4), math.floor((bar:GetWidth() - 16) / 5)))
+    ApplyFont(bar.timeText, swingSize, "OUTLINE")
+    ApplyFont(bar.speedText, swingSize, "OUTLINE")
     ApplyFont(bar.latencyText, iSTSettings.latencyTextSize or 9, "OUTLINE")
     ApplyFont(bar.sealText, iSTSettings.sealTextSize or 10, "OUTLINE")
     local stackSize = iSTSettings.stackCounterTextSize or 16
@@ -414,8 +414,7 @@ function iST:ApplyBarTypography()
         bar.sealTimerText:SetSize(iconSize, iconSize)
         bar.sealTimerText:SetPoint("CENTER", bar.sealTimerOverlay, "CENTER", opticalOffset - 1, -opticalOffset)
     end
-    ApplyFont(bar.twistResultText, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
-    ApplyFont(bar.wrathCueText, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
+    ApplyFont(bar.wrathCueText, iSTSettings.stackCounterTextSize or 16, "THICKOUTLINE")
     bar.latencyText:SetScale(1)
 end
 
@@ -612,24 +611,6 @@ function iST:CreateSwingBar()
     sealText:SetTextColor(1, 0.59, 0.09, 0.9)
     bar.sealText = sealText
 
-    -- Keep release confirmation above the bar so it never covers the swing timer.
-    local resultOverlay = CreateFrame("Frame", nil, bar)
-    resultOverlay:SetPoint("BOTTOMLEFT", bar, "TOPLEFT", 0, 8)
-    resultOverlay:SetPoint("BOTTOMRIGHT", bar, "TOPRIGHT", 0, 8)
-    resultOverlay:SetHeight(24)
-    resultOverlay:SetFrameLevel(bar:GetFrameLevel() + 5)
-    resultOverlay:EnableMouse(false)
-    resultOverlay:Hide()
-    bar.resultOverlay = resultOverlay
-
-    local twistResultText = resultOverlay:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    twistResultText:SetPoint("CENTER", resultOverlay, "CENTER", 0, 0)
-    twistResultText:SetText("")
-    twistResultText:SetAlpha(0)
-    twistResultText:SetShadowOffset(1, -1)
-    twistResultText:SetShadowColor(0, 0, 0, 1)
-    bar.twistResultText = twistResultText
-
     bar.updateAccum = 0
     bar:SetScript("OnUpdate", function(self, elapsed)
         iST:OnBarUpdate(elapsed)
@@ -681,6 +662,14 @@ function iST:OnBarUpdate(elapsed)
     local bar = self.BarFrame
     if not bar then return end
 
+    self:UpdateBarFade(elapsed)
+    if iSTSettings.onlyInCombat and not self.State.InCombat and not self.State.TestMode then
+        bar.prepareCheckAccum = (bar.prepareCheckAccum or 0) + elapsed
+        if bar.prepareCheckAccum >= 0.2 then
+            bar.prepareCheckAccum = 0
+            self:UpdateBarVisibility()
+        end
+    end
     bar.updateAccum = bar.updateAccum + elapsed
     if bar.updateAccum < self.CONSTANTS.BAR_UPDATE_RATE then return end
     bar.updateAccum = 0
@@ -730,34 +719,68 @@ function iST:OnBarUpdate(elapsed)
         end
     end
 
-    if bar.twistResultText and state.TwistResultDuration > 0 then
-        local resultElapsed = now - state.TwistResultStart
-        if resultElapsed < state.TwistResultDuration then
-            bar.twistResultText:SetAlpha(1.0 - resultElapsed / state.TwistResultDuration)
-        else
-            bar.twistResultText:SetAlpha(0)
-            bar.twistResultText:SetText("")
-            bar.twistResultText:Hide()
-            if bar.resultOverlay then bar.resultOverlay:Hide() end
-            state.TwistResultDuration = 0
-        end
-    end
     self:UpdateWrathDisplay(now)
+end
+
+local function SetSwingBarAlpha(bar, alpha)
+    bar:SetAlpha(alpha)
+    if bar.stackCountValue then bar.stackCountValue:SetAlpha(alpha) end
+    if bar.stackCountTotal then bar.stackCountTotal:SetAlpha(alpha) end
 end
 
 function iST:HideBar()
     self:ClearParryAnimation()
     if self.BarFrame then
+        self.BarFrame.fadeTarget = nil
+        self.BarFrame.fadeAlpha = 1
+        SetSwingBarAlpha(self.BarFrame, 1)
         self.BarFrame:Hide()
+        if self.BarFrame.stackCountFrame then self.BarFrame.stackCountFrame:Hide() end
         self.State.BarVisible = false
     end
 end
 
 function iST:ShowBar()
     if self.BarFrame then
+        self.BarFrame.fadeTarget = nil
+        self.BarFrame.fadeAlpha = 1
+        SetSwingBarAlpha(self.BarFrame, 1)
+        self.BarFrame:EnableMouse(true)
         self.BarFrame:Show()
         self.State.BarVisible = true
     end
+end
+
+-- Fade the swing bar without hiding the separately anchored buff display.
+function iST:FadeBarTo(target)
+    local bar = self.BarFrame
+    if not bar then return end
+    if not bar:IsShown() or not self.State.Initialized then
+        bar.fadeAlpha = target
+        SetSwingBarAlpha(bar, target)
+    end
+    if bar.fadeTarget ~= target then
+        bar:EnableMouse(target > 0)
+        if bar.fadeTarget ~= nil and not self.State.InCombat then
+            self:DebugMsg(target > 0 and "Pre-combat swing bar shown: seal active, Judgement in range."
+                or "Pre-combat swing bar faded: preparation condition ended.", 3)
+        end
+    end
+    bar.fadeTarget = target
+    bar:Show()
+    self.State.BarVisible = target > 0
+end
+
+function iST:UpdateBarFade(elapsed)
+    local bar = self.BarFrame
+    if not bar or bar.fadeTarget == nil then return end
+    local current, target = bar.fadeAlpha or 1, bar.fadeTarget
+    if current == target then return end
+    local step = math.max(0, elapsed) / 0.2
+    current = target > current and math.min(target, current + step)
+        or math.max(target, current - step)
+    bar.fadeAlpha = current
+    SetSwingBarAlpha(bar, current)
 end
 
 
@@ -770,45 +793,34 @@ function iST:ShouldShowBar()
             return false
         end
     end
-    if iSTSettings.onlyInCombat and not self.State.InCombat and not self.State.TestMode then
-        return false
-    end
     return true
+end
+
+function iST:ShouldPrepareForJudgement()
+    local expires = self.State.SealExpiresAt
+    if not self.State.CurrentSealName or IsSecret(expires)
+        or type(expires) ~= "number" or expires <= GetTime() then return false end
+    local attackable = UnitCanAttack and UnitCanAttack("player", "target")
+    local dead = UnitIsDead and UnitIsDead("target")
+    if IsSecret(attackable) or attackable ~= true or IsSecret(dead) or dead == true then return false end
+    local rangeCheck = C_Spell and C_Spell.IsSpellInRange
+    if type(rangeCheck) ~= "function" then return false end
+    local ok, inRange = pcall(rangeCheck, 20271, "target")
+    return ok and not IsSecret(inRange) and inRange == true
 end
 
 function iST:UpdateBarVisibility()
     if not self.BarFrame then return end
-    if self:ShouldShowBar() then self:ShowBar() else self:HideBar() end
+    if not self:ShouldShowBar() then
+        self:HideBar()
+    elseif iSTSettings.onlyInCombat and not self.State.TestMode then
+        self:FadeBarTo((self.State.InCombat or self:ShouldPrepareForJudgement()) and 1 or 0)
+    else
+        self:ShowBar()
+    end
+    self:UpdateWrathDisplay()
     self:UpdatePlayerWrathBubbles()
     self:UpdateReminders()
-end
-
--- Stack release message
-function iST:ShowTwistResult()
-    if not self.BarFrame or not self.BarFrame.twistResultText then return end
-
-    if not iSTSettings.showTwistSuccess then return end
-
-    local text = self.BarFrame.twistResultText
-    local state = self.State
-
-    if self.BarFrame.resultOverlay then
-        self.BarFrame.resultOverlay:Show()
-    end
-    text:Show()
-
-    local fontPath = text:GetFont()
-    text:SetFont(fontPath, iSTSettings.twistTextSize or 16, "THICKOUTLINE")
-
-    text:SetText(L["WrathReleased"])
-    local c = iSTSettings.twistSuccessColor
-    text:SetTextColor(c.r, c.g, c.b, c.a)
-
-    -- Fade within half a swing, capped at one second.
-    local fadeTime = math.min(1.0, state.WeaponSpeed > 0 and state.WeaponSpeed * 0.5 or 1.0)
-    state.TwistResultStart = GetTime()
-    state.TwistResultDuration = fadeTime
-    text:SetAlpha(1)
 end
 
 -- Swing timing
@@ -943,10 +955,9 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
             if pending then
                 local grouped = IsInGroup and IsInGroup()
                 pending.grouped = IsSecret(grouped) or grouped == true
-                local consumed = self.WrathTracker:Attack(self.State.CurrentSealName, now)
+                self.WrathTracker:Attack(self.State.CurrentSealName, now)
                 pending.provisional = { count = self.WrathTracker.count, seal = self.WrathTracker.seal,
-                    expiresAt = self.WrathTracker.expiresAt, released = consumed > 0 }
-                if consumed > 0 then self:ShowTwistResult() end
+                    expiresAt = self.WrathTracker.expiresAt }
                 self:UpdateWrathDisplay(now)
                 self:ScheduleWrathAuraCheck()
             end
@@ -1065,11 +1076,6 @@ function iST:SetFakeUnsealedWrath(enabled)
     self.State.WrathEchoSeal = nil
     self.State.WrathAuraSnapshot = nil
     self.State.VengeanceStackAuraID = nil
-    self.State.TwistResultDuration = 0
-    if self.BarFrame then
-        self.BarFrame.twistResultText:Hide()
-        self.BarFrame.resultOverlay:Hide()
-    end
     self:RefreshUnsealedWrathState()
     if enabled then
         self:CreateStackManagedDisplay()
@@ -1091,12 +1097,6 @@ function iST:RefreshUnsealedWrathState()
         self.State.WrathAuraInstanceID = nil
         self.State.WrathEchoSeal = nil
         self.State.WrathAuraSnapshot = nil
-        self.State.TwistResultDuration = 0
-        if self.BarFrame and self.BarFrame.twistResultText then
-            self.BarFrame.twistResultText:SetText("")
-            self.BarFrame.twistResultText:Hide()
-            if self.BarFrame.resultOverlay then self.BarFrame.resultOverlay:Hide() end
-        end
     end
     self:InvalidateBarState()
     self:UpdateBarVisibility()
@@ -1112,18 +1112,7 @@ function iST:GetWrathDisplayState(now)
     local armed = count > 0 and self.WrathTracker.seal ~= nil
         and self.State.CurrentSealName ~= nil and self.State.CurrentSealName ~= self.WrathTracker.seal
     local active = self:IsWrathTrackingEnabled()
-    local wrongSeal = active and iSTSettings.sealStackMode == "FROM_ONLY"
-        and self.State.CurrentSealName ~= nil and self.State.CurrentSealName ~= iSTSettings.twistFromSeal
-        and not (armed and self.WrathTracker.seal == iSTSettings.twistFromSeal
-            and self.State.CurrentSealName == iSTSettings.twistIntoSeal)
-    return count, active, armed, wrongSeal
-end
-
-function iST:SetSealStackMode(mode)
-    if mode ~= "ALTERNATE" and mode ~= "FROM_ONLY" then return end
-    iSTSettings.sealStackMode = mode
-    self:UpdateWrathDisplay()
-    self:DebugMsg("Seal stacking mode: " .. mode .. ".", 3)
+    return count, active, armed
 end
 
 function iST:CancelWrathAuraChecks()
@@ -1728,11 +1717,6 @@ function iST:StopTestMode()
         state.WeaponSpeed, state.LastSwingTime, state.NextSwingTime = saved[1], saved[2], saved[3]
         state.TestSwingSnapshot = nil
     end
-    state.TwistResultDuration = 0
-    if self.BarFrame then
-        self.BarFrame.twistResultText:Hide()
-        self.BarFrame.resultOverlay:Hide()
-    end
     self:InvalidateBarState()
     self:UpdateWrathDisplay()
     self:UpdateBarVisibility()
@@ -1749,11 +1733,6 @@ local function StartBarTest(stackPreview)
     local generation = state.TestModeGeneration
     state.StackTestMode = stackPreview == true
     state.PreviewStacks = 0
-    state.TwistResultDuration = 0
-    if iST.BarFrame then
-        iST.BarFrame.twistResultText:Hide()
-        iST.BarFrame.resultOverlay:Hide()
-    end
     state.TestMode = true
     state.WeaponSpeed = 3.6
     state.LastSwingTime = GetTime()
@@ -1775,11 +1754,6 @@ end
 
 function iST:StartStackTestMode()
     StartBarTest(true)
-end
-
-function iST:StartTwistSuccessTestMode()
-    StartBarTest(false)
-    self:ShowTwistResult()
 end
 
 function iST:StartParryHasteTestMode()
@@ -1839,6 +1813,11 @@ local function OnEvent(self, event, ...)
     end
 
     if event == "PLAYER_ENTERING_WORLD" then
+        local combat = InCombatLockdown and InCombatLockdown()
+        if not IsSecret(combat) then
+            iST.State.InCombat = combat == true
+            iST:UpdateBarVisibility()
+        end
         -- Give login events time to settle before checking the saved macro.
         if iST.State.EnteringWorldHandled then return end
         iST.State.EnteringWorldHandled = true
@@ -1876,6 +1855,7 @@ local function OnEvent(self, event, ...)
 
     if event == "PLAYER_TARGET_CHANGED" then
         iST:CancelPendingWrathHits(true)
+        if iSTSettings and iSTSettings.onlyInCombat and not iST.State.InCombat then iST:UpdateBarVisibility() end
         return
     end
 
@@ -1920,7 +1900,6 @@ local function OnEvent(self, event, ...)
             iST:RefreshVengeanceStackAura(updateInfo)
             if iST.BarFrame then
                 iST.BarFrame.nextStackCountDisplay = nil
-                iST.BarFrame.nextStackPresenceCheck = nil
             end
             iST:UpdateWrathDisplay()
         end
@@ -2015,6 +1994,8 @@ end
 -- Startup
 function iST:OnAddonLoaded()
     self:InitializeSettings()
+    local combat = InCombatLockdown and InCombatLockdown()
+    if not IsSecret(combat) then self.State.InCombat = combat == true end
     -- Start with the buff counter now that the other cues are hidden from settings.
     iSTSettings.wrathCue = "COUNTER"
     iSTSettings.showPlayerWrathBubbles = false
