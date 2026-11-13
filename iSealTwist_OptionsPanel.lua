@@ -11,6 +11,12 @@ local iconPath = iST.AddonPath .. "Images\\Logo_iST.blp"
 local ORANGE = { 1, 0.59, 0.09 }
 local openDropdown
 
+local function CombatLocked()
+    if type(InCombatLockdown) ~= "function" then return false end
+    local locked = InCombatLockdown()
+    return (issecretvalue and issecretvalue(locked)) or locked == true
+end
+
 local PANEL_BACKDROP = {
     bgFile = "Interface\\BUTTONS\\WHITE8X8",
     edgeFile = "Interface\\BUTTONS\\WHITE8X8",
@@ -521,6 +527,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
     end
 
     dropdown:SetScript("OnClick", function(self)
+        if not self:IsEnabled() then return end
         if self.menu:IsShown() then
             self.menu:Hide()
             openDropdown = nil
@@ -921,7 +928,7 @@ function iST:CreateOptionsPanel()
             function(v) iSTSettings.onlyAsPaladin = v iST:UpdateBarVisibility() end
         )
 
-        _, y = CreateSettingsCheckbox(generalContent, L["OnlyInCombat"], L["OnlyInCombatDesc"], y,
+        _, y = CreateSettingsCheckbox(generalContent, L["ShowWithSealOrStacks"], L["ShowWithSealOrStacksDesc"], y,
             function() return iSTSettings.onlyInCombat end,
             function(v) iSTSettings.onlyInCombat = v iST:UpdateBarVisibility() end
         )
@@ -1064,14 +1071,44 @@ function iST:CreateOptionsPanel()
         )
 
         _, y = CreateSectionHeader(indicatorsContent, L["SectionUnsealedWrath"], y)
+        local indicatorDropdown
+        indicatorDropdown, y = CreateSettingsDropdown(indicatorsContent, L["WrathCueStyle"], y, 250,
+            function()
+                return {
+                    { value = "COUNTER", text = L["WrathCueCounter"] },
+                    { value = "CIRCLES", text = L["WrathCueCircles"] },
+                    { value = "BAR_COLOR", text = L["WrathCueBarColor"] },
+                    { value = "SWORD_IMAGES", text = L["WrathCueSwordImages"] },
+                    { value = "OFF", text = L["WrathCueOff"] },
+                }
+            end,
+            function() return iSTSettings.wrathCue end,
+            function(value)
+                if CombatLocked() then return end
+                iSTSettings.wrathCue = value
+                iST:CreateStackManagedDisplay()
+                iST:UpdateWrathDisplay()
+            end)
+        settingsFrame.indicatorDropdown = indicatorDropdown
+        local function RefreshIndicatorDropdown()
+            if CombatLocked() then
+                if openDropdown == indicatorDropdown then indicatorDropdown.menu:Hide() end
+                indicatorDropdown:Disable()
+            else
+                indicatorDropdown:Enable()
+            end
+        end
+        local indicatorLockWatcher = CreateFrame("Frame", nil, settingsFrame)
+        indicatorLockWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+        indicatorLockWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+        indicatorLockWatcher:SetScript("OnEvent", RefreshIndicatorDropdown)
+        settingsFrame.indicatorLockWatcher = indicatorLockWatcher
+        settingsFrame:HookScript("OnShow", RefreshIndicatorDropdown)
+        RefreshIndicatorDropdown()
         _, y = CreateInfoText(indicatorsContent, L["WrathCueDesc"], y, "GameFontDisableSmall")
         y = y - 8
-        y, settingsFrame.refreshStackCounterColor = CreateColorEditor(indicatorsContent,
-            L["StackCounterColor"], y,
-            function() return iSTSettings.stackCounterColor end,
-            function() iST:ApplyStackCounterColor() end)
 
-        _, y = CreateCustomSlider(indicatorsContent, L["StackCounterTextSize"], y - 8, 8, 40, 1,
+        _, y = CreateCustomSlider(indicatorsContent, L["StackCounterTextSize"], y, 8, 40, 1,
             function() return iSTSettings.stackCounterTextSize end,
             function(value)
                 iSTSettings.stackCounterTextSize = value
@@ -1079,6 +1116,76 @@ function iST:CreateOptionsPanel()
             end,
             function(value) return value .. "pt" end)
 
+        _, y = CreateCustomSlider(indicatorsContent, L["WrathCircleSize"], y, 10, 40, 1,
+            function() return iSTSettings.wrathCircleSize end,
+            function(value)
+                iSTSettings.wrathCircleSize = value
+                iST:ApplyWrathCircleSize()
+            end,
+            function(value) return value .. "px" end)
+
+        _, y = CreateSettingsCheckbox(indicatorsContent,
+            L["CenterSwitchText"], L["CenterSwitchTextDesc"], y,
+            function() return iSTSettings.showCenterSwitchText end,
+            function(value)
+                if CombatLocked() then return end
+                iSTSettings.showCenterSwitchText = value
+                iST:UpdateCenterSwitchText()
+            end)
+
+        _, y = CreateSettingsDropdown(indicatorsContent, L["CenterSwitchPhrase"], y, 250,
+            function()
+                return {
+                    { value = "Switch now", text = "Switch now" },
+                    { value = "Unleash!", text = "Unleash!" },
+                    { value = "3 stacks ready", text = "3 stacks ready" },
+                }
+            end,
+            function() return iSTSettings.centerSwitchText end,
+            function(value)
+                if CombatLocked() then return end
+                iSTSettings.centerSwitchText = value
+                iST:UpdateCenterSwitchText()
+            end)
+
+        _, y = CreateSettingsDropdown(indicatorsContent, L["CenterAttackPhrase"], y, 250,
+            function()
+                return {
+                    { value = "Attack now", text = "Attack now" },
+                    { value = "Unleash now", text = "Unleash now" },
+                    { value = "Strike now", text = "Strike now" },
+                }
+            end,
+            function() return iSTSettings.centerAttackText end,
+            function(value)
+                if CombatLocked() then return end
+                iSTSettings.centerAttackText = value
+                iST:UpdateCenterSwitchText()
+            end)
+
+        local moveButton
+        moveButton, y = CreateSettingsButton(indicatorsContent,
+            L["MoveCenterSwitchText"], 170, y, function()
+                if CombatLocked() then return end
+                local moving = not (iST.CenterSwitchFrame and iST.CenterSwitchFrame.moving)
+                iST:SetCenterSwitchMoveMode(moving)
+                local active = iST.CenterSwitchFrame and iST.CenterSwitchFrame.moving
+                moveButton:SetText(active and L["DoneMovingCenterSwitchText"] or L["MoveCenterSwitchText"])
+            end)
+        settingsFrame:HookScript("OnHide", function()
+            if iST.CenterSwitchFrame and iST.CenterSwitchFrame.moving then
+                iST:SetCenterSwitchMoveMode(false)
+                moveButton:SetText(L["MoveCenterSwitchText"])
+            end
+        end)
+
+        _, y = CreateSettingsCheckbox(indicatorsContent,
+            L["ShowPlayerWrathBubbles"], L["ShowPlayerWrathBubblesDesc"], y,
+            function() return iSTSettings.showPlayerWrathBubbles end,
+            function(value)
+                iSTSettings.showPlayerWrathBubbles = value
+                iST:UpdatePlayerWrathBubbles(GetTime())
+            end)
         scrollChildren[2]:SetHeight(math.abs(y) + 10)
     end
 
@@ -1243,11 +1350,62 @@ function iST:CreateOptionsPanel()
         AddColorEditor(L["ColorBorderNormal"],
             function() return iSTSettings.borderNormalColor end, nil)
 
+        _, y = CreateSectionHeader(customizationContent, L["SectionStackColors"], y)
+        local schemeDropdown
+        local stageRefreshers = {}
+        local function RefreshStageColors()
+            if schemeDropdown then schemeDropdown:Refresh() end
+            for _, refresh in ipairs(stageRefreshers) do refresh() end
+        end
+        schemeDropdown, y = CreateSettingsDropdown(customizationContent, L["WrathColorScheme"], y, 250,
+            function()
+                return {
+                    { value = "GOLD", text = L["WrathSchemeGold"] },
+                    { value = "TRAFFIC", text = L["WrathSchemeTraffic"] },
+                    { value = "BLUE", text = L["WrathSchemeBlue"] },
+                    { value = "CUSTOM", text = L["WrathSchemeCustom"] },
+                }
+            end,
+            function() return iSTSettings.wrathColorScheme end,
+            function(value)
+                iST:SetWrathColorScheme(value)
+                RefreshStageColors()
+            end)
+        _, y = CreateInfoText(customizationContent, L["WrathStageColorsDesc"], y, "GameFontDisableSmall")
+        y = y - 8
+        for stage = 0, 3 do
+            local selectedStage = stage
+            local refresh
+            y, refresh = CreateColorEditor(customizationContent,
+                string.format(L["WrathStageColor"], selectedStage), y,
+                function()
+                    local color = iST:GetWrathCueColor(selectedStage)
+                    return { r = color.r, g = color.g, b = color.b, a = color.a }
+                end,
+                function(color)
+                    if color then iST:SetWrathStageColor(selectedStage, color) end
+                    RefreshStageColors()
+                end,
+                function()
+                    local previousScheme = iSTSettings.wrathColorScheme
+                    local previousColors = {}
+                    for index = 0, 3 do
+                        local color = iSTSettings["wrathColor" .. index]
+                        previousColors[index] = { r = color.r, g = color.g, b = color.b, a = color.a }
+                    end
+                    return function()
+                        for index = 0, 3 do iSTSettings["wrathColor" .. index] = previousColors[index] end
+                        iST:SetWrathColorScheme(previousScheme)
+                        RefreshStageColors()
+                    end
+                end)
+            stageRefreshers[#stageRefreshers + 1] = refresh
+        end
+
         _, y = CreateSettingsButton(customizationContent, L["DefaultColors"], 140, y - 4, function()
             local colorKeys = {
                 "barColor",
                 "borderNormalColor",
-                "stackCounterColor",
             }
 
             for _, key in ipairs(colorKeys) do
@@ -1259,12 +1417,11 @@ function iST:CreateOptionsPanel()
                 color.a = default.a
             end
             iST:ResetWrathColors()
+            RefreshStageColors()
 
             for _, refresh in ipairs(colorRefreshers) do
                 refresh()
             end
-            if settingsFrame.refreshStackCounterColor then settingsFrame.refreshStackCounterColor() end
-
             if iST.InvalidateBarState then iST:InvalidateBarState() end
             iST:ApplyStackCounterColor()
         end)

@@ -48,6 +48,18 @@ capture bounds, automatic shutdown, reload persistence, and the copy window.
 
 ## Simulated tracking checks
 
+The ready message is currently unavailable in settings. `unsealed_wrath.lua`
+checks that saved choices cannot reactivate it. The test still exercises its
+internal display path separately from the live counter so it can be revisited
+later. Its native clipping needs an in-game check before the setting returns.
+
+The earlier indicator choices, player-frame bubbles, and 0-3 stack palettes
+are available again. The counter uses Blizzard's numeric rule formatter for
+stage colors. Bar colors, sword pieces, circles, and player bubbles use
+three native visual layers that open at their matching stack counts. These
+visual layers still need live checks during combat; the simulated test checks
+only their bindings.
+
 Run `unsealed_wrath.lua` from the addon directory. It checks seal casts and
 countdowns, stack cues, parry haste, previews, and restricted-value guards using
 the real addon files and a simulated clock.

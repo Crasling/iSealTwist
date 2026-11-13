@@ -46,6 +46,11 @@ local function widget(parent)
     function methods:SetText(value) self.text = value end
     function methods:SetTextColor(...) self.textColor = { ... } end
     function methods:SetTexture(value) self.texture = value end
+    function methods:SetStatusBarTexture(value)
+        self.statusBarTexture = widget(self)
+        self.statusBarTexture:SetTexture(value)
+    end
+    function methods:GetStatusBarTexture() return self.statusBarTexture end
     function methods:SetTexCoord(...) self.texCoord = { ... } end
     function methods:SetDesaturated(value) self.desaturated = value end
     function methods:GetText() return self.text or "" end
@@ -173,7 +178,6 @@ C_Timer = { After = function(delay, callback)
 end }
 Enum = { PlayerSwingType = { MainHand = 0, OffHand = 1, Ranged = 2 } }
 local talentName, talentRank, configAvailable = "Unsealed Wrath", 1, true
-local judgementRange
 C_ClassTalents = { GetActiveConfigID = function() return configAvailable and 1 or nil end }
 C_Traits = {
     GetConfigInfo = function() return { treeIDs = { 1 } } end,
@@ -189,11 +193,7 @@ C_Spell = {
             [1311705] = "Echo of Justice", [1328198] = "Echo of Light",
             [1311704] = "Echo of Righteousness", [1328206] = "Echo of Wisdom" })[id]
     end,
-    GetSpellTexture = function() return 1 end,
-    IsSpellInRange = function(spellID, target)
-        assert(spellID == 20271 and target == "target", "pre-combat range uses Judgement on the current target")
-        return judgementRange
-    end,
+    GetSpellTexture = function(id) return id end,
 }
 local auraResult
 C_UnitAuras = { GetAuraDataBySpellName = function(unit, spellName, filter)
@@ -217,12 +217,27 @@ iST:InitializeSettings()
 assert(iSTSettings.fakeUnsealedWrath == false and iSTSettings.debugMode == false,
     "fake talent and debug diagnostics start disabled")
 assert(iSTSettings.wrathCue == "COUNTER", "new characters default to the buff stack counter")
-iSTSettings.wrathCue, iSTSettings.stackCounterDefaultMigrated = "BAR_COLOR", nil
+iSTSettings.stackCounterColor = { r = 0.2, g = 0.3, b = 0.4, a = 1 }
 iST:InitializeSettings()
-assert(iSTSettings.wrathCue == "COUNTER", "the previous default moves to the buff counter once")
+assert(iSTSettings.stackCounterColor == nil,
+    "the old independent counter color is removed in favor of the shared stack palette")
 iSTSettings.wrathCue = "BAR_COLOR"
 iST:InitializeSettings()
-assert(iSTSettings.wrathCue == "BAR_COLOR", "a later bar-color choice remains saved")
+assert(iSTSettings.wrathCue == "BAR_COLOR", "saved bar-color choices remain selected after settings load")
+iSTSettings.wrathCue = "TEXT"
+iSTSettings.showThreeStackReadyText = true
+iST:InitializeSettings()
+assert(iSTSettings.wrathCue == "COUNTER" and iSTSettings.showThreeStackReadyText == nil,
+    "saved Ready Text selections become the counter without enabling the unfinished message")
+iSTSettings.testThreeStackHighlight = true
+iSTSettings.showThreeStackReadyText = true
+iSTSettings.wrathReadyText = "Unleash!"
+iST:InitializeSettings()
+assert(iSTSettings.testThreeStackHighlight == nil and iSTSettings.showThreeStackReadyText == nil
+    and iSTSettings.wrathReadyText == nil,
+    "saved outline choices cannot reactivate the unfinished ready message")
+iSTSettings.showThreeStackReadyText = false
+iSTSettings.wrathReadyText = "Switch now"
 iSTSettings.wrathCue = "COUNTER"
 iST:CreateSwingBar()
 assert(iST.BarFrame.stackCountValue.font[2] == iSTSettings.stackCounterTextSize,
@@ -247,21 +262,22 @@ iST:ApplyBarTypography()
 iST:RefreshUnsealedWrathState()
 local bar = iST.BarFrame
 iST:UpdateBarVisibility()
-assert(bar:IsShown() and bar.alpha == 0 and bar.stackCountFrame:IsVisible()
+assert(bar:IsShown() and bar.alpha == 0 and bar.stackCountFrame.alpha == 1
+    and bar.stackCountFrame:IsVisible()
     and bar.stackCountFrame:GetParent() == UIParent,
-    "combat-only visibility keeps the talent counter outside the faded swing bar")
+    "the bar fades while its separate buff display stays available")
 iST.State.Initialized, iST.State.InCombat = true, true
 iST:UpdateBarVisibility()
 iST:UpdateBarFade(0.1)
-assert(bar:IsShown() and bar.alpha == 0.5 and bar.stackCountFrame:IsVisible(),
-    "combat entry fades in the swing bar without interrupting the counter")
+assert(bar:IsShown() and bar.alpha == 0.5 and bar.stackCountFrame.alpha == 1,
+    "combat entry fades in the swing bar without fading the buff display")
 iST:UpdateBarFade(0.1)
 assert(bar.alpha == 1, "combat entry finishes with a visible swing bar")
 iST.State.InCombat = false
 iST:UpdateBarVisibility()
 iST:UpdateBarFade(0.2)
-assert(bar:IsShown() and bar.alpha == 0 and bar.stackCountFrame:IsVisible(),
-    "combat exit fades out only the swing bar")
+assert(bar:IsShown() and bar.alpha == 0 and bar.stackCountFrame.alpha == 1,
+    "combat exit fades the bar while leaving the buff display available")
 iSTSettings.enabled = false
 iST:UpdateBarVisibility()
 assert(not bar:IsShown() and not bar.stackCountFrame:IsShown(),
@@ -275,38 +291,68 @@ talentRank = 1
 iST:RefreshUnsealedWrathState()
 assert(bar.stackCountFrame:IsShown(), "the counter returns when Unsealed Wrath is selected")
 local function event(name, ...) events.OnEvent(events, name, ...) end
-judgementRange = true
 iST.State.Initialized = true
 iST:UpdateBarVisibility()
-assert(bar.fadeTarget == 0, "Judgement range alone does not reveal the bar without a seal")
+assert(bar.fadeTarget == 0, "the bar stays faded without combat, a Seal, or stacks")
 iST:SetCurrentSeal(20375, now + 30)
 iST:UpdateBarVisibility()
 iST:UpdateBarFade(0.2)
 assert(bar.alpha == 1 and not bar.stackCountValue:IsShown(),
-    "an active seal and Judgement range reveal the bar without an empty counter")
-judgementRange = false
-iST:OnBarUpdate(0.2)
-assert(bar.fadeTarget == 0, "moving out of Judgement range starts fading the bar")
-iST:UpdateBarFade(0.2)
-assert(bar.alpha == 0 and not bar.stackCountValue:IsShown() and bar.stackCountFrame:IsVisible(),
-    "the bar fades while the buff display stays available")
-judgementRange = secret
-iST:UpdateBarVisibility()
-assert(bar.fadeTarget == 0, "an unreadable range result does not reveal the bar")
-judgementRange = true
+    "an active Seal reveals the bar without an empty counter")
 targetAttackable = false
-iST:UpdateBarVisibility()
-assert(bar.fadeTarget == 0, "a friendly target does not reveal the bar")
+iST:OnBarUpdate(0.2)
+assert(bar.fadeTarget == 1, "an active Seal keeps the bar visible without an attackable target")
 targetAttackable, targetDead = true, true
 iST:UpdateBarVisibility()
-assert(bar.fadeTarget == 0, "a dead target does not reveal the bar")
+assert(bar.fadeTarget == 1, "an active Seal keeps the bar visible even when the target dies")
 targetDead = false
-event("PLAYER_TARGET_CHANGED")
-assert(bar.fadeTarget == 1, "target changes refresh the pre-combat range check")
+iST.State.SealExpiresAt = now - 1
+iST:OnBarUpdate(0.2)
+assert(bar.fadeTarget == 0, "the regular update fades the bar when the Seal expires")
+iST.State.SealExpiresAt = now + 30
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 1, "a renewed Seal reveals the bar again")
+iST.WrathTracker:Observe(2, now + 15, "Seal of Command", now, true)
 iST:ClearCurrentSeal()
 iST:UpdateBarVisibility()
-assert(bar.fadeTarget == 0, "losing the seal ends the pre-combat preview")
-judgementRange = nil
+assert(bar.fadeTarget == 1, "confirmed stacks keep the bar visible after the Seal ends")
+iST.WrathTracker.countUnconfirmed = true
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 0 and bar.stackCountFrame.alpha == 1
+    and bar.stackCountValue:IsShown(),
+    "an unconfirmed hit count cannot hold the bar open or fade the stack boxes")
+iST.WrathTracker.expiresAt = now - 1
+iST:OnBarUpdate(0.2)
+assert(bar.fadeTarget == 0, "the regular update fades the bar when stored stacks expire")
+local previousAuraInstanceReader = C_UnitAuras.GetAuraDataByAuraInstanceID
+iST.State.WrathAuraInstanceID = 77
+C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, id)
+    assert(unit == "player" and id == 77, "visibility checks only the known player Echo")
+    return { auraInstanceID = 77, applications = secret }
+end
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 1 and bar.stackCountFrame.alpha == 1,
+    "a confirmed Echo buff keeps the bar and stack boxes up when its count is hidden")
+C_UnitAuras.GetAuraDataByAuraInstanceID = function() return nil end
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 0, "an expired Echo buff cannot hold the bar open")
+iSTSettings.fakeUnsealedWrath = true
+iST.State.VengeanceStackAuraID = 78
+C_UnitAuras.GetAuraDataByAuraInstanceID = function(unit, id)
+    assert(unit == "player" and id == 78, "fake talent checks Vengeance rather than a real Echo")
+    return { auraInstanceID = 78, applications = secret }
+end
+assert(iST:HasConfirmedWrathStacks(), "a visible Vengeance test buff can hold the bar open")
+iST.State.VengeanceStackAuraID = nil
+assert(not iST:HasConfirmedWrathStacks(), "fake talent does not use an old real-Echo instance")
+iSTSettings.fakeUnsealedWrath = false
+iST.State.WrathAuraInstanceID = nil
+C_UnitAuras.GetAuraDataByAuraInstanceID = previousAuraInstanceReader
+iST.State.InCombat = true
+iST:UpdateBarVisibility()
+assert(bar.fadeTarget == 1, "combat keeps the bar visible even without a Seal or stacks")
+iST.State.InCombat = false
+iST.WrathTracker:Reset()
 iST.State.Initialized = false
 local function attack()
     now = now + 1
@@ -491,7 +537,10 @@ event("UNIT_AURA", "player", {})
 assert(count() == 2, "a later buff update can confirm the next stack")
 inCombat = true
 iST:SetCurrentSeal(20375)
+iSTSettings.showThreeStackReadyText = true
 event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
+assert(not iST.BarFrame.wrathCueFrame:IsShown(),
+    "a provisional zero on a seal-switch swing does not announce a release")
 event("UNIT_AURA", "player", {})
 now = now + 0.5
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)
@@ -499,7 +548,14 @@ assert(count() == 0, "a repeated aura read cannot hide the next seal's release")
 event("UNIT_AURA", "player", {})
 assert(count() == 0, "an old aura snapshot cannot restore released stacks")
 event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 300 } })
+assert(iST.BarFrame.wrathCueText.text == "Seal unleashed!"
+    and iST.BarFrame.wrathCueFrame:IsShown(),
+    "removing the Echo after a release swing shows the unleashed message")
 auraResult = nil
+iSTSettings.showThreeStackReadyText = false
+now = now + 1.3
+iST:UpdateWrathDisplay(now)
+assert(not iST.BarFrame.wrathCueFrame:IsShown(), "the unleashed message clears after its brief display")
 iST:CancelWrathAuraChecks()
 inCombat = false
 print("PASS: readable combat stack corrections with hidden metadata, instance updates, cue repainting, delayed reconciliation, bounded retries, and aura replacement/removal")
@@ -533,16 +589,22 @@ assert(iST.BarFrame.stackCountFrame.shown and not iST.BarFrame.wrathCueFrame.sho
 assert(iST.BarFrame.fill.color[2] == iSTSettings.barColor.g, "counter style restores the normal fill color")
 assert(iST.BarFrame.borderColor[1] == iSTSettings.borderNormalColor.r,
     "counter style restores the configured normal border")
-iSTSettings.wrathCue = "TEXT"
+iSTSettings.showThreeStackReadyText = true
 iST:UpdateWrathDisplay()
 assert(not iST.BarFrame.wrathCueFrame.shown, "ready text stays hidden before three")
 iST.State.PreviewStacks = 3
 iST:UpdateWrathDisplay()
 assert(iST.BarFrame.wrathCueText.text == "Switch now", "three stacks show the selected ready phrase")
+iSTSettings.showThreeStackReadyText = false
 iSTSettings.wrathCue = "OFF"
 iST:UpdateWrathDisplay()
 assert(not iST.BarFrame.wrathCueFrame.shown,
     "off hides every stack cue")
+iSTSettings.showThreeStackReadyText = true
+iST:UpdateWrathDisplay()
+assert(not iST.BarFrame.wrathCueFrame.shown,
+    "the separate ready message also follows the Off indicator choice")
+iSTSettings.showThreeStackReadyText = false
 
 iSTSettings.wrathCue = "SWORD_IMAGES"
 iST:InitializeSettings()
@@ -697,11 +759,13 @@ iST:InitializeSettings()
 assert(iSTSettings.wrathColorScheme == "CUSTOM"
     and iSTSettings.wrathColor2.b == customColors[3].b,
     "initializing an existing character preserves its custom palette")
-iSTSettings.wrathCue = "TEXT"
+iSTSettings.wrathCue = "COUNTER"
+iSTSettings.showThreeStackReadyText = true
 iST.State.PreviewStacks = 3
 iST:UpdateWrathDisplay()
 assert(matchesColor(iST.BarFrame.wrathCueText.textColor, customColors[4]),
     "ready text uses the custom three-stack color")
+iSTSettings.showThreeStackReadyText = false
 iST:SetWrathColorScheme("TRAFFIC")
 local presetAfter = iST:GetWrathCueColor(2)
 assert(matchesColor({ presetAfter.r, presetAfter.g, presetAfter.b, presetAfter.a }, presetCopy),
@@ -754,11 +818,13 @@ assert(iST.WrathTracker.count == liveCount, "stopping preview preserves live tra
 iST:SetCurrentSeal(20154)
 iST.WrathTracker:Reset()
 for _ = 1, 3 do attack() end
-iSTSettings.wrathCue = "TEXT"
+iSTSettings.wrathCue = "COUNTER"
+iSTSettings.showThreeStackReadyText = true
 iST:SetCurrentSeal(20375)
 iST:UpdateWrathDisplay()
 assert(iST.BarFrame.wrathCueText.text == "Attack now",
     "a completed seal switch asks for an attack rather than another switch")
+iSTSettings.showThreeStackReadyText = false
 
 local resynced = iST:NewWrathTracker()
 resynced:Attack("first seal", 0)
@@ -861,7 +927,7 @@ local originalAuraUtil, originalStringUtil = C_AuraContainerUtil, C_StringUtil
 local originalContainerMixin = CustomAuraContainerInboundMixin
 C_AddOns.LoadAddOn = function() return true end
 C_AddOns.IsAddOnLoaded = function() return true end
-C_AuraContainerUtil = {}
+C_AuraContainerUtil = { ProcessCustomAuraButtonApplicationBarOptions = function() end }
 CustomAuraContainerInboundMixin = {}
 C_StringUtil = { CreateAbbreviatedNumberFormatter = function() return { kind = "count" } end }
 CreateFrame = function(frameType, name, parent, template)
@@ -875,6 +941,10 @@ CreateFrame = function(frameType, name, parent, template)
         function button:SetApplicationCount(fontString, countOptions)
             self.applicationCount = fontString
             self.countFormatter = countOptions.formatter
+        end
+        function button:SetApplicationBar(statusBar, barOptions)
+            self.applicationBar = statusBar
+            self.applicationBarMaximum = barOptions.maxApplications
         end
         options.initializeFrame(button)
         self.slots[key] = { button = button, filters = options.candidateFilters }
@@ -890,13 +960,77 @@ CreateFrame = function(frameType, name, parent, template)
 end
 iST:CreateStackManagedDisplay()
 local managed = assert(iST.BarFrame.stackManagedContainer, "the secure buff display is created")
+-- The managed count lives outside the swing bar and must remain visible as it fades.
+iST:FadeBarTo(0)
+iST:UpdateBarFade(1)
+assert(iST.BarFrame.alpha == 0 and iST.BarFrame.stackCountFrame.alpha == 1,
+    "the buff counter stays visible while the swing bar fades")
+iST:FadeBarTo(1)
+iST:UpdateBarFade(1)
+assert(iST.BarFrame.alpha == 1 and iST.BarFrame.stackCountFrame.alpha == 1,
+    "the buff counter returns with the swing bar")
 assert(#iST.BarFrame.stackManagedSlots == #iST.WrathEchoSpells + 1,
     "every Echo and the Vengeance test buff have independent display slots")
+assert(iST.BarFrame.stackSourceIconFrame.parent == UIParent,
+    "the source Seal icon belongs to an addon frame outside Blizzard's aura button")
 managed.slot = managed.slots.vengeance.button
 assert(managed.slots.vengeance.filters.includeSpellIDs[20050],
     "Vengeance's known buff ID is in its own filter")
 assert(managed.slot.applicationCount and managed.slot.countFormatter,
     "the secure button owns its count text and a formatter that also shows one stack")
+assert(not managed.slot.applicationBar, "the buff stack counter needs no outline or extra bar")
+assert(not iST.BarFrame.nativeReadyContainer and not iST.BarFrame.wrathCueFrame:IsShown(),
+    "the removed ready-message setting creates no live cue or extra buff slot")
+iSTSettings.showThreeStackReadyText = true
+iST:CreateStackManagedDisplay()
+assert(managed.slot.applicationBar and managed.slot.applicationBarMaximum == 3
+    and managed.slot.applicationCount and managed.slot.countFormatter,
+    "the ready message binds to three stacks without replacing the buff counter")
+for _, row in ipairs(iST.BarFrame.stackManagedRows) do
+    assert(row.button.applicationBar and row.threeStackGate.clip.shown
+        and not row.threeStackGate.outline,
+        "each Echo and fake-test buff gets ready text without a border")
+end
+local gate = iST.BarFrame.stackManagedRows[1].threeStackGate
+local step = math.max(iST.BarFrame.stackCountLayout.rowWidth + 12,
+    iSTSettings.stackCounterTextSize * 11, 180)
+assert(gate.bar:GetWidth() == step * 3
+    and gate.clip.point[1] == "BOTTOMRIGHT"
+    and gate.clip.point[2] == gate.bar:GetStatusBarTexture(),
+    "the ready text clip follows the native bar's fill edge")
+local gatedRow = iST.BarFrame.stackManagedRows[1]
+local originalGetWidth, originalGetHeight = gatedRow.button.GetWidth, gatedRow.button.GetHeight
+gatedRow.button.GetWidth = function() return secret end
+gatedRow.button.GetHeight = function() return secret end
+assert(pcall(iST.ApplyThreeStackGate, iST, gatedRow),
+    "the ready text layout never reads secret aura-button dimensions")
+gatedRow.button.GetWidth, gatedRow.button.GetHeight = originalGetWidth, originalGetHeight
+assert(gate.text.shown and gate.text.text == "Switch now",
+    "the selected ready message is prepared above the counter")
+local unavailableRow = { button = widget() }
+C_AuraContainerUtil.ProcessCustomAuraButtonApplicationBarOptions = nil
+iST:ApplyThreeStackGate(unavailableRow)
+assert(unavailableRow.threeStackGateFailed and not unavailableRow.threeStackGate,
+    "a client without the stack-bar API keeps the ordinary counter")
+C_AuraContainerUtil.ProcessCustomAuraButtonApplicationBarOptions = function() end
+local refusedRow = { button = widget() }
+function refusedRow.button:SetApplicationBar() error("client refused binding") end
+iST:ApplyThreeStackGate(refusedRow)
+assert(refusedRow.threeStackGateFailed and not refusedRow.threeStackGate
+    and managed.slot.applicationCount,
+    "a refused ready-message binding cannot break the existing buff counter")
+assert(gate.clip.shown and gate.text.shown and not gate.outline,
+    "the ready message uses the three-stack gate without a border")
+assert(gate.text.point[1] == "BOTTOM" and gate.text.point[2] == gate.bar:GetParent(),
+    "the ready message sits above the counter")
+iSTSettings.wrathReadyText = "Unleash!"
+iST:CreateStackManagedDisplay()
+assert(gate.text.text == "Unleash!", "the earlier Ready Message choice is reused")
+iSTSettings.wrathReadyText = "Switch now"
+iSTSettings.showThreeStackReadyText = false
+iST:CreateStackManagedDisplay()
+assert(not gate.clip.shown and managed.slot.applicationCount,
+    "turning off ready text hides its gate without changing the counter")
 assert(managed.slot.applicationCount.font[2] == iSTSettings.stackCounterTextSize,
     "the managed buff count matches the stack indicator text size")
 local originalCounterSize = iSTSettings.stackCounterTextSize
@@ -904,19 +1038,21 @@ iSTSettings.stackCounterTextSize = 28
 iST:ApplyBarTypography()
 assert(managed.slot.applicationCount.font[2] == 28
     and iST.BarFrame.stackCountValue.font[2] == 28
-    and iST.BarFrame.wrathCueText.font[2] == 28,
+    and iST.BarFrame.wrathCueText.font[2] == 28
+    and gate.text.font[2] == 28,
     "counter size also updates the ready cue text")
 iSTSettings.stackCounterTextSize = originalCounterSize
 iST:ApplyBarTypography()
-local originalCounterColor = iSTSettings.stackCounterColor
-iSTSettings.stackCounterColor = { r = 0.25, g = 0.5, b = 0.75, a = 0.9 }
-iST:ApplyStackCounterColor()
-assert(managed.slot.applicationCount.textColor[1] == 0.25
-    and managed.slot.applicationCount.textColor[4] == 0.9
-    and iST.BarFrame.stackCountValue.textColor[3] == 0.75,
-    "the custom counter color reaches the buff count and backup readout")
-iSTSettings.stackCounterColor = originalCounterColor
-iST:ApplyStackCounterColor()
+local previousCounterScheme = iSTSettings.wrathColorScheme
+iST:SetWrathColorScheme("BLUE")
+local baseCounterColor = iST:GetWrathCueColor(0)
+local readyCounterColor = iST:GetWrathCueColor(3)
+assert(managed.slot.applicationCount.textColor[1] == 1
+    and iST.BarFrame.stackCountTotal.textColor[1] == baseCounterColor.r
+    and iST.BarFrame.stackCountValue.textColor[3] == baseCounterColor.b
+    and gate.text.textColor[2] == readyCounterColor.g,
+    "the counter and ready text follow the selected stack color scheme")
+iST:SetWrathColorScheme(previousCounterScheme)
 assert(managed.slot.applicationCount.widgetWidth >= 32,
     "the managed count has enough width to show its full digit")
 assert(iST.BarFrame.stackCountFrame.point[5] == iST.BarFrame.wrathCueFrame.point[5],
@@ -978,6 +1114,181 @@ for _, spell in ipairs(iST.WrathEchoSpells) do
     assert(not managed.slots["echo" .. spell.id].filters.includeSpellIDs[spell.id],
         "real Echo boxes are disabled in fake mode")
 end
+C_StringUtil.CreateNumericRuleFormatter = function()
+    return { SetBreakpoints = function(self, points) self.points = points end }
+end
+iSTSettings.fakeUnsealedWrath = true
+iSTSettings.showCenterSwitchText = true
+iSTSettings.centerSwitchText = "Switch now"
+iST:UpdateCenterSwitchText()
+local centerSwitch = assert(iST.CenterSwitchFrame, "the center message has its own frame")
+local switchSlot = centerSwitch.phaseContainers.switch.slots.vengeance
+local attackSlot = centerSwitch.phaseContainers.attack.slots.vengeance
+assert(centerSwitch.phaseFrames.switch.parent == centerSwitch
+    and centerSwitch.phaseContainers.switch.parent == centerSwitch.phaseFrames.switch
+    and centerSwitch.phaseFrames.attack.parent == centerSwitch,
+    "phase visibility belongs to plain frames outside Blizzard's aura buttons")
+assert(switchSlot.filters.includeSpellIDs[20050]
+    and attackSlot.filters.includeSpellIDs[20050]
+    and switchSlot.button.countFormatter.points[1].format == ""
+    and switchSlot.button.countFormatter.points[2].threshold == 3
+    and switchSlot.button.countFormatter.points[2].format == "Switch now"
+    and attackSlot.button.countFormatter.points[2].format == "Attack now",
+    "the buff count gates both center messages at three stacks")
+switchSlot.button.applicationCount.SetAlpha = function() error("forbidden aura text") end
+attackSlot.button.applicationCount.SetAlpha = function() error("forbidden aura text") end
+local oldSeal, oldCast, oldSource = iST.State.CurrentSealName,
+    iST.State.WrathLastSealCastName, iST.WrathTracker.seal
+local oldCount, oldExpiry = iST.WrathTracker.count, iST.WrathTracker.expiresAt
+iST.WrathTracker.seal = "Seal of Command"
+iST.WrathTracker.count, iST.WrathTracker.expiresAt = 3, now + 15
+iST.State.CurrentSealName = "Seal of Command"
+iST.State.WrathLastSealCastName = "Seal of Command"
+iST:UpdateCenterSwitchSealGate()
+iST:UpdateStackSourceIcon(true, 3)
+assert(iST.BarFrame.stackSourceIconFrame.shown
+    and iST.BarFrame.stackSourceIcon.texture == iST.SEAL_SPELL_IDS["Seal of Command"]
+    and iST.BarFrame.stackManagedRows[1].count.point[4] == -4,
+    "fake stacks show their source Seal icon while the live number stays centered")
+iST:UpdateStackSourceIcon(true, 0)
+assert(not iST.BarFrame.stackSourceIconFrame.shown,
+    "the source Seal icon hides at zero stacks")
+for count = 1, 3 do
+    iST:UpdateStackSourceIcon(true, count)
+    assert(iST.BarFrame.stackSourceIconFrame.shown,
+        "the source Seal icon shows at one, two, and three stacks")
+end
+assert(centerSwitch.phaseFrames.switch.alpha == 1
+    and centerSwitch.phaseFrames.attack.alpha == 0,
+    "three stacks ask for a seal switch while the source Seal is active")
+iST.State.CurrentSealName = "Seal of Righteousness"
+iST:UpdateCenterSwitchSealGate()
+assert(centerSwitch.phaseFrames.switch.alpha == 1
+    and centerSwitch.phaseFrames.attack.alpha == 0,
+    "a changed active Seal alone does not claim a successful replacement cast")
+iST:SetCurrentSeal(20154, nil, "UNIT_SPELLCAST_SUCCEEDED")
+assert(centerSwitch.phaseFrames.switch.alpha == 0
+    and centerSwitch.phaseFrames.attack.alpha == 1
+    and iST.State.WrathLastSealCastName == "Seal of Righteousness",
+    "a successful cast of another Seal changes the cue to Attack now")
+iST.State.CurrentSealName, iST.State.WrathLastSealCastName, iST.WrathTracker.seal =
+    oldSeal, oldCast, oldSource
+iST.WrathTracker.count, iST.WrathTracker.expiresAt = oldCount, oldExpiry
+iST:UpdateCenterSwitchSealGate()
+iSTSettings.centerSwitchText = "Unleash!"
+iST:UpdateCenterSwitchText()
+assert(switchSlot.button.countFormatter.points[2].format == "Unleash!",
+    "changing the chosen phrase updates the native three-stack gate")
+iSTSettings.centerAttackText = "Strike now"
+iST:UpdateCenterSwitchText()
+assert(attackSlot.button.countFormatter.points[2].format == "Strike now"
+    and switchSlot.button.countFormatter.points[2].format == "Unleash!",
+    "the attack phrase can change without replacing the switch phrase")
+iST:SetCenterSwitchMoveMode(true)
+assert(centerSwitch.moving and centerSwitch.preview.shown and centerSwitch.mouseEnabled,
+    "the move button shows a draggable preview even without an active Echo")
+centerSwitch:SetPoint("CENTER", UIParent, "CENTER", 12, 34)
+centerSwitch.OnDragStop(centerSwitch)
+assert(iSTSettings.centerSwitchPoint[4] == 12 and iSTSettings.centerSwitchPoint[5] == 34,
+    "dragging saves the center message position")
+iST:SetCenterSwitchMoveMode(false)
+assert(not centerSwitch.preview.shown and not centerSwitch.mouseEnabled,
+    "the preview closes without leaving a mouse-blocking frame")
+iSTSettings.showCenterSwitchText = false
+iST:UpdateCenterSwitchText()
+assert(not centerSwitch.shown, "the optional message can be turned off")
+iSTSettings.showCenterSwitchText = true
+iSTSettings.centerSwitchText = "Switch now"
+iSTSettings.centerAttackText = "Attack now"
+iST:ApplyStackStageFormatter()
+assert(managed.slot.countFormatter.points and managed.slot.countFormatter.points[4].threshold == 3,
+    "the native counter has separate colors for each live stack count")
+local previousNativeScheme = iSTSettings.wrathColorScheme
+iST:SetWrathColorScheme("TRAFFIC")
+assert(managed.slot.countFormatter.points[4].format == "|cff33ff4d%d|r"
+    and managed.slot.countFormatter.points[2].format == "|cffff731a%d|r",
+    "the live buff count uses the selected scheme for each stack")
+local savedCustomSecond = iSTSettings.wrathColor2
+iSTSettings.wrathColorScheme = "CUSTOM"
+iSTSettings.wrathColor2 = { r = 0.2, g = 0.4, b = 0.6, a = 0.5 }
+iST:ApplyStackStageFormatter()
+assert(managed.slot.countFormatter.points[3].format == "|c80336699%d|r",
+    "the live counter also uses the opacity of a custom stack color")
+iSTSettings.wrathColor2 = savedCustomSecond
+iST:SetWrathColorScheme(previousNativeScheme)
+iSTSettings.wrathCue = "COUNTER"
+iSTSettings.showThreeStackReadyText = true
+iST.BarFrame.nativeReadyFailed = nil
+iST:UpdateNativeReadyDisplay()
+local ready = assert(iST.BarFrame.nativeReadyContainer, "ready text uses its own buff slot")
+assert(ready.slots.ready.filters.includeSpellIDs[20050]
+    and ready.slots.ready.button.countFormatter.points[2].threshold == 3
+    and ready.slots.ready.button.countFormatter.points[1].format == ""
+    and ready.slots.ready.button.countFormatter.points[2].format == string.rep("W", 70)
+    and ready.slots.ready.button.applicationCount == iST.BarFrame.nativeReadyGate
+    and iST.BarFrame.nativeReadyText.parent == iST.BarFrame.nativeReadyClip
+    and iST.BarFrame.nativeReadyText.text == "Switch now",
+    "the fake talent buff opens a clip at three stacks around a fixed ready message")
+iSTSettings.wrathReadyText = "Unleash!"
+iST:UpdateNativeReadyDisplay()
+assert(iST.BarFrame.nativeReadyText.text == "Unleash!"
+    and ready.slots.ready.button.applicationCount == iST.BarFrame.nativeReadyGate,
+    "changing the ready phrase does not replace the native stack gate")
+iSTSettings.wrathReadyText = "Switch now"
+iST:UpdateNativeReadyDisplay()
+local commandReadySpellID = iST.WrathEchoSpells[1].id
+iSTSettings.fakeUnsealedWrath = false
+iST:UpdateNativeReadyDisplay()
+assert(ready.slots.ready.filters.includeSpellIDs[commandReadySpellID]
+    and not ready.slots.ready.filters.includeSpellIDs[20050],
+    "the ready message follows the real Echo buffs when fake talent is turned off")
+iSTSettings.fakeUnsealedWrath = true
+iST:UpdateNativeReadyDisplay()
+local previousPreviewStacks = iST.State.PreviewStacks
+iST.State.TestMode, iST.State.StackTestMode, iST.State.PreviewStacks = true, true, 3
+iST:UpdateWrathDisplay()
+assert(iST.BarFrame.wrathCueFrame.shown,
+    "the ready-text preview remains visible after a native buff slot was created")
+iST.State.TestMode, iST.State.StackTestMode, iST.State.PreviewStacks = false, false, previousPreviewStacks
+iSTSettings.wrathCue = "COUNTER"
+iSTSettings.showThreeStackReadyText = true
+iST:UpdateNativeReadyDisplay()
+assert(ready.shown, "the optional ready message also works with the stack counter")
+iSTSettings.showThreeStackReadyText = false
+iST:UpdateNativeReadyDisplay()
+assert(not ready.shown, "the independent ready display hides when its options are off")
+iSTSettings.wrathCue = "BAR_COLOR"
+iST:UpdateNativeStageVisuals()
+local stageVisuals = assert(iST.BarFrame.nativeStageMain, "bar graphics use native stack slots")
+assert(stageVisuals.slots.stage1.button.countFormatter.points[2].threshold == 1
+    and stageVisuals.slots.stage1.button.countFormatter.points[3].threshold == 2
+    and stageVisuals.slots.stage1.button.countFormatter.points[3].format == ""
+    and stageVisuals.slots.stage3.button.countFormatter.points[2].threshold == 3,
+    "each graphic layer appears at its own stack count without overlapping the next color")
+assert(iST.BarFrame.nativeStageMainRows[1].overlay.shown,
+    "the first native layer colors the swing bar")
+iSTSettings.wrathCue = "CIRCLES"
+iST:UpdateNativeStageVisuals()
+assert(iST.BarFrame.nativeStageMainRows[2].circles.shown,
+    "the same native layer can display circles")
+local originalCircleSize = iSTSettings.wrathCircleSize
+iSTSettings.wrathCircleSize = 30
+iST:ApplyWrathCircleSize()
+assert(iST.BarFrame.wrathCircles:GetScale() == 30 / 18
+    and iST.BarFrame.nativeStageMainRows[2].circles:GetScale() == 30 / 18,
+    "the circle size setting resizes both ordinary and buff-driven circles")
+iSTSettings.wrathCircleSize = originalCircleSize
+iST:ApplyWrathCircleSize()
+iSTSettings.wrathCue = "SWORD_IMAGES"
+iST:UpdateNativeStageVisuals()
+assert(iST.BarFrame.nativeStageMainRows[3].sword.shown,
+    "the same native layer can display sword artwork")
+iSTSettings.showPlayerWrathBubbles = true
+iST:UpdateNativeStageVisuals()
+assert(iST.BarFrame.nativeStagePlayer and iST.BarFrame.nativeStagePlayer.slots.stage3,
+    "player-frame bubbles have their own native stack layers")
+iSTSettings.showPlayerWrathBubbles = false
+iSTSettings.wrathCue = "COUNTER"
 CreateFrame = originalCreateFrame
 C_AddOns.LoadAddOn, C_AddOns.IsAddOnLoaded = originalLoadAddOn, originalIsAddOnLoaded
 C_AuraContainerUtil, C_StringUtil = originalAuraUtil, originalStringUtil
@@ -988,6 +1299,19 @@ iST.BarFrame.stackManagedButtons = nil
 iST.BarFrame.stackManagedRows = nil
 iST.BarFrame.stackManagedSlots = nil
 iST.BarFrame.stackManagedTexts = nil
+iST.BarFrame.nativeReadyContainer = nil
+iST.BarFrame.nativeReadyButton = nil
+iST.BarFrame.nativeReadyText = nil
+iST.BarFrame.nativeReadyFailed = nil
+iST.BarFrame.nativeStageMain = nil
+iST.BarFrame.nativeStageMainRows = nil
+iST.BarFrame.nativeStageMainVisible = nil
+iST.BarFrame.nativeStageMainKey = nil
+iST.BarFrame.nativeStagePlayer = nil
+iST.BarFrame.nativeStagePlayerRows = nil
+iST.BarFrame.nativeStagePlayerVisible = nil
+iST.BarFrame.nativeStagePlayerKey = nil
+iST.BarFrame.nativeStageVisualKey = nil
 iSTSettings.vengeanceDisplaySpellID = nil
 C_UnitAuras.GetAuraDataBySpellName = originalAuraReader
 C_UnitAuras.GetAuraApplicationDisplayCount = nil
@@ -1915,6 +2239,57 @@ local function findText(widget, expected)
 end
 assert(findText(iST.SettingsFrame, iST.L.SwingTextSize),
     "the swing text size slider is present in settings")
+assert(findText(iST.SettingsFrame, iST.L.WrathCueStyle)
+    and findText(iST.SettingsFrame, iST.L.StackCounterTextSize)
+    and findText(iST.SettingsFrame, iST.L.WrathCircleSize)
+    and findText(iST.SettingsFrame, iST.L.ShowPlayerWrathBubbles)
+    and findText(iST.SettingsFrame, iST.L.WrathColorScheme)
+    and findText(iST.SettingsFrame, string.format(iST.L.WrathStageColor, 3)),
+    "the indicator choices, player bubbles, and stack color settings are available again")
+assert(not findText(iST.SettingsFrame, "Counter / 3 Color"),
+    "the counter no longer has a separate color picker")
+assert(not findText(iST.SettingsFrame, "Show ready message at 3 stacks")
+    and not findText(iST.SettingsFrame, "Ready Message"),
+    "the unfinished ready-message controls are absent from settings")
+local indicatorDropdown = assert(iST.SettingsFrame.indicatorDropdown)
+assert(indicatorDropdown:IsEnabled(), "the indicator selector is available outside combat")
+inCombat = true
+iST.SettingsFrame.indicatorLockWatcher.OnEvent(nil, "PLAYER_REGEN_DISABLED")
+assert(not indicatorDropdown:IsEnabled(), "the indicator selector locks during combat")
+indicatorDropdown.OnClick(indicatorDropdown)
+assert(not indicatorDropdown.menu:IsShown(), "a locked indicator selector cannot open its menu")
+inCombat = false
+iST.SettingsFrame.indicatorLockWatcher.OnEvent(nil, "PLAYER_REGEN_ENABLED")
+assert(indicatorDropdown:IsEnabled(), "the indicator selector unlocks after combat")
+local stageColorButton
+for _, frame in ipairs(frames) do
+    if frame.OnClick then
+        for _, child in ipairs(frame.children or {}) do
+            if child.text == string.format(iST.L.WrathStageColor, 3) then
+                stageColorButton = frame
+                break
+            end
+        end
+    end
+end
+assert(stageColorButton, "the three-stack color picker can be opened")
+local previousScheme, previousPicker = iSTSettings.wrathColorScheme, ColorPickerFrame
+iST:SetWrathColorScheme("GOLD")
+local originalGold = iST:GetWrathCueColor(3)
+ColorPickerFrame = {
+    SetupColorPickerAndShow = function(self, options) self.options = options end,
+    GetColorRGB = function() return 0.2, 0.3, 0.4 end,
+    GetColorAlpha = function() return 0.8 end,
+}
+stageColorButton.OnClick(stageColorButton)
+ColorPickerFrame.options.swatchFunc()
+assert(iSTSettings.wrathColorScheme == "CUSTOM", "editing a preset creates custom stack colors")
+ColorPickerFrame.options.cancelFunc()
+assert(iSTSettings.wrathColorScheme == "GOLD"
+    and iST:GetWrathCueColor(3).r == originalGold.r,
+    "canceling a stack color edit restores the preset without an error")
+ColorPickerFrame = previousPicker
+iST:SetWrathColorScheme(previousScheme)
 assert(iST.SettingsFrame:GetWidth() == 820 and iST.SettingsFrame:GetHeight() == 580
     and iST.SettingsFrame.backdrop.edgeSize == 1,
     "the settings window uses the wider layout and thin border")
@@ -2022,9 +2397,9 @@ for _, arrow in ipairs({ reminderScroll.ScrollBar:GetChildren() }) do
 end
 assert(reminderScroll.ScrollBar:GetThumbTexture():GetWidth() == 8,
     "removing arrow buttons preserves the scrollbar handle")
-modeDropdown.OnClick(modeDropdown)
+sealDropdown.OnClick(sealDropdown)
 reminderTab.OnClick(reminderTab)
-assert(not modeDropdown.menu:IsShown() and not modeDropdown.menu.dismiss:IsShown()
+assert(not sealDropdown.menu:IsShown() and not sealDropdown.menu.dismiss:IsShown()
     and reminderScroll:GetVerticalScroll() == 30,
     "switching pages dismisses floating menus without resetting the page scroll")
 local enableFury = checkboxes["Enable Reminder"][1]
@@ -2096,10 +2471,10 @@ sealCombatOnly.OnClick(sealCombatOnly)
 assert(seal:IsShown(), "turning off combat-only restores normal reminder visibility")
 print("PASS: settings construction, sidebar navigation, styled mode dropdown, independent reminder controls, live scale/threshold changes, and preview buttons")
 iST:SettingsOpen()
-modeDropdown.OnClick(modeDropdown)
+sealDropdown.OnClick(sealDropdown)
 iST:SettingsClose()
-assert(not iST.SettingsFrame:IsShown() and not modeDropdown.menu:IsShown()
-    and not modeDropdown.menu.dismiss:IsShown(), "closing settings also removes floating dropdowns and click blockers")
+assert(not iST.SettingsFrame:IsShown() and not sealDropdown.menu:IsShown()
+    and not sealDropdown.menu.dismiss:IsShown(), "closing settings also removes floating dropdowns and click blockers")
 print("PASS: page headings, thin surfaces, active navigation, circular slider drag/release, scrollbar, outside clicks, and menu cleanup")
 
 SlashCmdList = {}

@@ -192,6 +192,7 @@ function iST:ObserveWrathHitFeedback(unit, action, flags, amount, school)
         return false
     end
     if outcome ~= "hit" then
+        if state.PendingWrathRelease == pending.release then state.PendingWrathRelease = nil end
         local provisional = pending.provisional
         local tracker = self.WrathTracker
         local canRestore = provisional and pending.swingEvents == 1 and not pending.grouped

@@ -2,6 +2,15 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.10 - Stack Display
+--------------------------------------------------------------------------------
+[CHANGED] Other stack styles are available again as experimental options.
+[ADDED] Resize stack numbers and glowing circles.
+[ADDED] Choose and move the messages shown when it is time to switch or attack.
+[ADDED] The stored Seal's icon appears beside the counter while stacks are active.
+[IMPROVED] Stack numbers use your chosen stack colors.
+[IMPROVED] The swing bar stays visible outside combat while Echo stacks remain.
+
 v0.8.9 - Swing Timer and Stacks
 --------------------------------------------------------------------------------
 [ADDED] Resize the text inside the swing bar

@@ -130,12 +130,17 @@ function iST:UpdatePlayerWrathBubbles(now)
         frame:SetPoint("TOP", mana, "BOTTOM", 0, -5)
         frame.manaAnchor = mana
     end
-    local manaScale = mana.GetEffectiveScale and mana:GetEffectiveScale() or 1
+    local manaScale = 1
+    if mana.GetEffectiveScale then manaScale = mana:GetEffectiveScale() end
     local parentScale = UIParent:GetEffectiveScale()
-    if manaScale and parentScale and parentScale > 0 then
+    if not (issecretvalue and (issecretvalue(manaScale) or issecretvalue(parentScale)))
+        and type(manaScale) == "number" and type(parentScale) == "number"
+        and parentScale > 0 then
         local scale = manaScale / parentScale
         if frame.anchorScale ~= scale then frame:SetScale(scale); frame.anchorScale = scale end
     end
-    self:RenderStackBubbles(frame.bubbles, count, self:GetWrathCueColor(count))
+    local native = self.BarFrame and self.BarFrame.nativeStagePlayerVisible == true
+    self:RenderStackBubbles(frame.bubbles, native and 0 or count,
+        self:GetWrathCueColor(native and 0 or count))
     frame:Show()
 end

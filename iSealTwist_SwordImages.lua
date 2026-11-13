@@ -4,6 +4,7 @@ local SOURCE_SIZE = 1024
 -- The timer fits inside this opening in the original artwork.
 local OPEN_LEFT, OPEN_RIGHT = 246, 890
 local OPEN_TOP, OPEN_BOTTOM = 475, 545
+local Tint
 
 local function AddRegion(frame, asset, x1, y1, x2, y2)
     local texture = frame:CreateTexture(nil, "BORDER")
@@ -14,8 +15,8 @@ local function AddRegion(frame, asset, x1, y1, x2, y2)
     return texture
 end
 
-local function LayoutImages(bar)
-    local frame = bar.wrathSwordImages
+local function LayoutImages(bar, frame)
+    frame = frame or bar.wrathSwordImages
     local width, height = bar:GetWidth(), bar:GetHeight()
     if frame.layoutWidth == width and frame.layoutHeight == height then return end
     frame.layoutWidth, frame.layoutHeight = width, height
@@ -28,6 +29,45 @@ local function LayoutImages(bar)
         region.texture:SetPoint("TOPLEFT", bar, "TOPLEFT",
             (region.x1 - OPEN_LEFT) * scaleX, (OPEN_TOP - region.y1) * scaleY)
         region.texture:SetSize((region.x2 - region.x1) * scaleX, (region.y2 - region.y1) * scaleY)
+    end
+end
+
+function iST:CreateNativeSwordStage(bar, parent, stage)
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetAllPoints(bar)
+    frame:EnableMouse(false)
+    frame.regions = {}
+    local glowMask = frame:CreateMaskTexture()
+    glowMask:SetTexture(ASSET_PATH .. "Sword_GlowEdgeMask.tga")
+    frame.glowMask = glowMask
+    frame.regions[#frame.regions + 1] = {
+        texture = glowMask, x1 = 0, y1 = 0, x2 = SOURCE_SIZE, y2 = SOURCE_SIZE,
+    }
+    frame.pieces = {}
+    for index = 1, stage do
+        local x1 = OPEN_LEFT + (OPEN_RIGHT - OPEN_LEFT) * (index - 1) / 3
+        local x2 = OPEN_LEFT + (OPEN_RIGHT - OPEN_LEFT) * index / 3
+        local pieces = {
+            AddRegion(frame, "Sword_Glow", x1, 0, x2, OPEN_TOP),
+            AddRegion(frame, "Sword_Glow", x1, OPEN_BOTTOM, x2, SOURCE_SIZE),
+        }
+        if index == 1 then
+            pieces[#pieces + 1] = AddRegion(frame, "Sword_Glow", 0, 0, OPEN_LEFT, SOURCE_SIZE)
+        elseif index == 3 then
+            pieces[#pieces + 1] = AddRegion(frame, "Sword_Glow", OPEN_RIGHT, 0, SOURCE_SIZE, SOURCE_SIZE)
+        end
+        frame.pieces[index] = pieces
+    end
+    LayoutImages(bar, frame)
+    frame:Hide()
+    return frame
+end
+
+function iST:UpdateNativeSwordStage(bar, frame, color)
+    LayoutImages(bar, frame)
+    local nativeGold = iSTSettings.wrathColorScheme == "GOLD"
+    for _, pieces in ipairs(frame.pieces) do
+        for _, texture in ipairs(pieces) do Tint(texture, color, nativeGold, 1) end
     end
 end
 
@@ -71,7 +111,7 @@ function iST:CreateSwordImageCue(bar)
     LayoutImages(bar)
 end
 
-local function Tint(texture, color, nativeGold, opacity)
+Tint = function(texture, color, nativeGold, opacity)
     -- Keep the artwork's own gold, but remove it before applying another palette.
     texture:SetDesaturated(not nativeGold)
     if nativeGold then texture:SetVertexColor(1, 1, 1, (color.a or 1) * opacity)
