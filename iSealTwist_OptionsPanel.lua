@@ -803,9 +803,13 @@ function iST:CreateOptionsPanel()
         scrollChild:SetHeight(1)
         scrollFrame:SetScrollChild(scrollChild)
         table.insert(scrollChildren, scrollChild)
+        scrollFrame:HookScript("OnVerticalScroll", function()
+            if openDropdown and openDropdown.menu then openDropdown.menu:Hide() end
+        end)
 
         container:EnableMouseWheel(true)
         container:SetScript("OnMouseWheel", function(_, delta)
+            if openDropdown and openDropdown.menu then openDropdown.menu:Hide() end
             local current = scrollFrame:GetVerticalScroll()
             local maxScroll = scrollChild:GetHeight() - scrollFrame:GetHeight()
             if maxScroll < 0 then maxScroll = 0 end
@@ -1248,6 +1252,7 @@ function iST:CreateOptionsPanel()
     do
         local y = -10
         local colorRefreshers = {}
+        local refreshBarPreview
 
         local function AddColorEditor(label, getFunc, onChange, captureOriginal)
             local refresh
@@ -1257,6 +1262,81 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSectionHeader(customizationContent, L["SectionBarAppearance"], y)
 
+        _, y = CreateSettingsDropdown(customizationContent, L["BarStyle"], y, 220,
+            function()
+                return {
+                    { value = "CLASSIC", text = L["BarStyleClassic"] },
+                    { value = "BLOCK", text = L["BarStyleBlock"] },
+                    { value = "GLOSSY", text = L["BarStyleGlossy"] },
+                    { value = "FRAMELESS", text = L["BarStyleFrameless"] },
+                }
+            end,
+            function() return iSTSettings.barStyle end,
+            function(value)
+                iSTSettings.barStyle = value
+                iST:ApplyBarStyle()
+                if refreshBarPreview then refreshBarPreview() end
+            end)
+
+        _, y = CreateSettingsDropdown(customizationContent, L["BarTexture"], y, 220,
+            function()
+                return {
+                    { value = "BLIZZARD", text = L["BarTextureBlizzard"] },
+                    { value = "RAID", text = L["BarTextureRaid"] },
+                    { value = "SKILLS", text = L["BarTextureSkills"] },
+                    { value = "SOLID", text = L["BarTextureSolid"] },
+                    { value = "SOFT", text = L["BarTextureSoft"] },
+                    { value = "GLASS", text = L["BarTextureGlass"] },
+                    { value = "RIDGES", text = L["BarTextureRidges"] },
+                    { value = "DIAGONAL", text = L["BarTextureDiagonal"] },
+                }
+            end,
+            function() return iSTSettings.barTexture end,
+            function(value)
+                iSTSettings.barTexture = value
+                iST:ApplyBarStyle()
+                if refreshBarPreview then refreshBarPreview() end
+            end)
+
+        local barPreviewCard = CreateFrame("Frame", nil, customizationContent, BACKDROP_TEMPLATE)
+        barPreviewCard:SetPoint("TOPLEFT", customizationContent, "TOPLEFT", 20, y)
+        barPreviewCard:SetPoint("TOPRIGHT", customizationContent, "TOPRIGHT", -20, y)
+        barPreviewCard:SetHeight(94)
+        StyleSettingsSurface(barPreviewCard)
+
+        local barPreviewLabel = barPreviewCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        barPreviewLabel:SetPoint("TOPLEFT", barPreviewCard, "TOPLEFT", 12, -9)
+        barPreviewLabel:SetText(L["BarPreview"])
+
+        local previewBar = CreateFrame("Frame", nil, barPreviewCard, BACKDROP_TEMPLATE)
+        previewBar:SetPoint("CENTER", barPreviewCard, "CENTER", 0, -10)
+        previewBar:SetBackdrop({ edgeFile = "Interface\\BUTTONS\\WHITE8X8", edgeSize = 1 })
+        previewBar.fill = previewBar:CreateTexture(nil, "ARTWORK")
+        previewBar.gloss = previewBar:CreateTexture(nil, "ARTWORK", nil, 6)
+        previewBar.gloss:SetTexture("Interface\\BUTTONS\\WHITE8X8")
+
+        local previewStart = previewBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        previewStart:SetPoint("LEFT", previewBar, "LEFT", 8, 0)
+        previewStart:SetText("3.30")
+        local previewRemaining = previewBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        previewRemaining:SetPoint("RIGHT", previewBar, "RIGHT", -8, 0)
+        previewRemaining:SetText("1.2s")
+
+        refreshBarPreview = function()
+            local width = iSTSettings.barWidth or 250
+            local height = iSTSettings.barHeight or 25
+            local border = iSTSettings.borderNormalColor
+            local color = iSTSettings.barColor
+            previewBar:SetSize(width, height)
+            previewBar:SetBackdropBorderColor(border.r, border.g, border.b, border.a or 1)
+            iST:ApplyBarStyle(previewBar)
+            previewBar.fill:SetWidth(math.max(1, (width - previewBar.contentInset * 2) * 0.65))
+            previewBar.fill:SetVertexColor(color.r, color.g, color.b, color.a or 1)
+        end
+        barPreviewCard:SetScript("OnShow", refreshBarPreview)
+        refreshBarPreview()
+        y = y - barPreviewCard:GetHeight() - 12
+
         _, y = CreateCustomSlider(customizationContent, L["BarWidth"], y, 100, 500, 10,
             function() return iSTSettings.barWidth end,
             function(v)
@@ -1265,6 +1345,7 @@ function iST:CreateOptionsPanel()
                     iST.BarFrame:SetWidth(v)
                     iST:ApplyBarTypography()
                 end
+                refreshBarPreview()
             end,
             function(v) return v .. "px" end
         )
@@ -1281,6 +1362,7 @@ function iST:CreateOptionsPanel()
                         iST.BarFrame.sealIcon:SetSize(v, v)
                     end
                 end
+                refreshBarPreview()
             end,
             function(v) return v .. "px" end
         )
@@ -1345,10 +1427,10 @@ function iST:CreateOptionsPanel()
         _, y = CreateSectionHeader(customizationContent, L["SectionBarColors"], y)
 
         AddColorEditor(L["ColorBar"],
-            function() return iSTSettings.barColor end, nil)
+            function() return iSTSettings.barColor end, refreshBarPreview)
 
         AddColorEditor(L["ColorBorderNormal"],
-            function() return iSTSettings.borderNormalColor end, nil)
+            function() return iSTSettings.borderNormalColor end, refreshBarPreview)
 
         _, y = CreateSectionHeader(customizationContent, L["SectionStackColors"], y)
         local schemeDropdown
@@ -1424,6 +1506,7 @@ function iST:CreateOptionsPanel()
             end
             if iST.InvalidateBarState then iST:InvalidateBarState() end
             iST:ApplyStackCounterColor()
+            refreshBarPreview()
         end)
 
         _, y = CreateSectionHeader(customizationContent, L["SectionPosition"], y)

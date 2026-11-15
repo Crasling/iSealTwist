@@ -258,7 +258,8 @@ function iST:UpdateCenterSwitchSealGate()
     if iSTSettings.fakeUnsealedWrath then
         source = self.WrathTracker.seal
     else
-        source = self.State.WrathEchoSeal or self.State.WrathLastSwitchFrom or self.WrathTracker.seal
+        source = self.WrathTracker.countUnconfirmed and self.WrathTracker.seal
+            or self.State.WrathEchoSeal or self.WrathTracker.seal
     end
     if (issecretvalue and (issecretvalue(current) or issecretvalue(cast)
         or issecretvalue(source))) then return end
@@ -477,7 +478,7 @@ local function NativeCountFormatter()
         local code = string.format("|c%02x%02x%02x%02x", math.floor((color.a or 1) * 255 + 0.5),
             math.floor(color.r * 255 + 0.5), math.floor(color.g * 255 + 0.5),
             math.floor(color.b * 255 + 0.5))
-        points[#points + 1] = { threshold = stage, format = code .. "%d|r" }
+        points[#points + 1] = { threshold = stage, format = code .. "%d / 3|r" }
     end
     if pcall(formatter.SetBreakpoints, formatter, points) then return formatter end
 end
@@ -871,15 +872,16 @@ function iST:LayoutManagedStackReadout(initial)
         local button, count, total = row.button, row.count, row.total
         button:SetSize(layout.rowWidth, layout.rowHeight)
         count:SetFont(layout.fontPath, layout.fontSize, "THICKOUTLINE")
-        total:SetFont(layout.fontPath, layout.fontSize, "THICKOUTLINE")
         count:ClearAllPoints()
-        count:SetPoint("RIGHT", button, "CENTER", -4, 0)
-        count:SetSize(layout.countWidth, layout.rowHeight)
-        count:SetJustifyH("RIGHT")
-        total:ClearAllPoints()
-        total:SetPoint("LEFT", button, "CENTER", 0, 0)
-        total:SetSize(layout.totalWidth, layout.rowHeight)
-        total:SetJustifyH("LEFT")
+        count:SetPoint("CENTER", button, "CENTER", 0, 0)
+        count:SetSize(layout.rowWidth, layout.rowHeight)
+        count:SetJustifyH("CENTER")
+        total:Hide()
+        if row.icon then
+            row.icon:SetSize(layout.iconSize, layout.iconSize)
+            row.icon:ClearAllPoints()
+            row.icon:SetPoint("RIGHT", button, "CENTER", -layout.countWidth - 8, 0)
+        end
         LayoutThreeStackGate(row)
     end
     if initial then
@@ -922,7 +924,7 @@ function iST:CreateStackManagedDisplay()
         bar.stackManagedButtons = {}
         for _, spell in ipairs(self.WrathEchoSpells) do
             bar.stackManagedSlots[#bar.stackManagedSlots + 1] = {
-                key = "echo" .. spell.id, spellID = spell.id,
+                key = "echo" .. spell.id, spellID = spell.id, seal = spell.seal,
             }
         end
         bar.stackManagedSlots[#bar.stackManagedSlots + 1] = { key = "vengeance", fake = true }
@@ -948,8 +950,16 @@ function iST:CreateStackManagedDisplay()
                     total:SetShadowOffset(1, -1)
                     total:SetShadowColor(0, 0, 0, 1)
                     total:SetText("/ 3")
+                    local icon
+                    local texture = slot.seal and bar.stackSealIcons[slot.seal]
+                    if texture then
+                        icon = button:CreateTexture(nil, "OVERLAY")
+                        icon:SetTexture(texture)
+                        icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                        icon:Show()
+                    end
                     bar.stackManagedRows[#bar.stackManagedRows + 1] = {
-                        button = button, count = count, total = total,
+                        button = button, count = count, total = total, icon = icon,
                     }
                     bar.stackManagedTexts[#bar.stackManagedTexts + 1] = count
                     bar.stackManagedTexts[#bar.stackManagedTexts + 1] = total
@@ -995,7 +1005,6 @@ end
 
 function iST:RefreshVengeanceStackAura(updateInfo)
     if not iSTSettings.fakeUnsealedWrath then return end
-    if self.BarFrame and self.BarFrame.stackManagedContainer and CombatLocked() then return end
     local state = self.State
     local function IsSecret(value)
         return issecretvalue and issecretvalue(value) or false
@@ -1005,8 +1014,10 @@ function iST:RefreshVengeanceStackAura(updateInfo)
         if not IsSecret(added) and type(added) == "table" then
             for _, aura in ipairs(added) do
                 if not IsSecret(aura) and type(aura) == "table" then
-                    local name, instanceID = aura.name, aura.auraInstanceID
-                    if not IsSecret(name) and name == "Vengeance"
+                    local name, instanceID, spellID = aura.name, aura.auraInstanceID, aura.spellId
+                    local matchedID = not IsSecret(spellID) and (spellID == 20050
+                        or spellID == iSTSettings.vengeanceDisplaySpellID)
+                    if (matchedID or (not IsSecret(name) and name == "Vengeance"))
                         and not IsSecret(instanceID) and type(instanceID) == "number" then
                         if state.VengeanceStackAuraID ~= instanceID then
                             self:DebugMsg("Vengeance stack display found its buff.", 3)
@@ -1027,6 +1038,7 @@ function iST:RefreshVengeanceStackAura(updateInfo)
             end
         end
     end
+    if CombatLocked() then return end
     local reader = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
     if type(reader) ~= "function" then return end
     local ok, aura = pcall(reader, "player", "Vengeance", "HELPFUL")
@@ -1115,18 +1127,15 @@ function iST:UpdateStackSourceIcon(active, count)
     local bar = self.BarFrame
     local frame = bar and bar.stackSourceIconFrame
     if not frame then return end
+    local auraID = self.State.VengeanceStackAuraID
     if not active or iSTSettings.wrathCue ~= "COUNTER" or self.State.TestMode
-        or not self:ShouldShowBar() or count < 1 or count > 3 then
+        or not self:ShouldShowBar() or not iSTSettings.fakeUnsealedWrath
+        or (issecretvalue and issecretvalue(auraID)) or not auraID
+        or count < 1 or count > 3 then
         if frame:IsShown() then frame:Hide() end
         return
     end
-    local fake = iSTSettings.fakeUnsealedWrath
-    local source
-    if fake then
-        source = self.WrathTracker.seal or self.State.CurrentSealName
-    else
-        source = self.State.WrathEchoSeal or self.WrathTracker.seal
-    end
+    local source = self.WrathTracker.seal or self.State.CurrentSealName
     if issecretvalue and issecretvalue(source) then
         if frame:IsShown() then frame:Hide() end
         return

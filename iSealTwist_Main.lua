@@ -273,6 +273,8 @@ iST.SettingsDefault = {
     fakeUnsealedWrath = false,
     barWidth = 250,
     barHeight = 25,
+    barStyle = "CLASSIC",
+    barTexture = "BLIZZARD",
     sealIconSize = 25,
     barLocked = false,
     showLatency = true,
@@ -345,6 +347,20 @@ function iST:InitializeSettings()
     iSTSettings.wrathReadyText = nil
     local validCues = { BAR_COLOR = true, SWORD_IMAGES = true, COUNTER = true, CIRCLES = true, OFF = true }
     if not validCues[iSTSettings.wrathCue] then iSTSettings.wrathCue = self.SettingsDefault.wrathCue end
+    local validBarStyles = { CLASSIC = true, BLOCK = true, GLOSSY = true, FRAMELESS = true }
+    if not validBarStyles[iSTSettings.barStyle] then
+        iSTSettings.barStyle = self.SettingsDefault.barStyle
+    end
+    if iSTSettings.barTexture == "AUTO" then
+        iSTSettings.barTexture = iSTSettings.barStyle == "BLOCK" and "SOLID" or "BLIZZARD"
+    end
+    local validBarTextures = {
+        BLIZZARD = true, RAID = true, SKILLS = true, SOLID = true,
+        SOFT = true, GLASS = true, RIDGES = true, DIAGONAL = true,
+    }
+    if not validBarTextures[iSTSettings.barTexture] then
+        iSTSettings.barTexture = self.SettingsDefault.barTexture
+    end
     -- The old fixed-From guidance could hide the real Echo count after a
     -- different opening seal. Keep existing characters on the normal display.
     iSTSettings.sealStackMode = nil
@@ -426,6 +442,49 @@ function iST:ApplyBarTypography()
     end
     ApplyFont(bar.wrathCueText, iSTSettings.stackCounterTextSize or 16, "THICKOUTLINE")
     bar.latencyText:SetScale(1)
+end
+
+function iST:ApplyBarStyle(bar)
+    bar = bar or self.BarFrame
+    if not bar or not bar.fill then return end
+    local style = iSTSettings.barStyle
+    local frameless = style == "FRAMELESS"
+    local inset = frameless and 0 or 3
+    bar.contentInset = inset
+    local red, green, blue, alpha = bar:GetBackdropBorderColor()
+    if not red then
+        local color = iSTSettings.borderNormalColor
+        red, green, blue, alpha = color.r, color.g, color.b, color.a or 1
+    end
+    bar:SetBackdrop({
+        bgFile = "Interface\\BUTTONS\\WHITE8X8",
+        edgeFile = not frameless and (style == "CLASSIC" and "Interface\\Tooltips\\UI-Tooltip-Border" or "Interface\\BUTTONS\\WHITE8X8") or nil,
+        edgeSize = not frameless and (style == "CLASSIC" and 9 or 1) or nil,
+        insets = { left = inset, right = inset, top = inset, bottom = inset },
+    })
+    bar:SetBackdropColor(0.025, 0.025, 0.045, frameless and 0.55 or 0.94)
+    bar:SetBackdropBorderColor(red, green, blue, alpha)
+    local textures = {
+        BLIZZARD = "Interface\\TargetingFrame\\UI-StatusBar",
+        RAID = "Interface\\RaidFrame\\Raid-Bar-Hp-Fill",
+        SKILLS = "Interface\\PaperDollInfoFrame\\UI-Character-Skills-Bar",
+        SOLID = "Interface\\BUTTONS\\WHITE8X8",
+        SOFT = self.AddonPath .. "Images\\Textures\\Bar_Soft.tga",
+        GLASS = self.AddonPath .. "Images\\Textures\\Bar_Glass.tga",
+        RIDGES = self.AddonPath .. "Images\\Textures\\Bar_Ridges.tga",
+        DIAGONAL = self.AddonPath .. "Images\\Textures\\Bar_Diagonal.tga",
+    }
+    local selected = iSTSettings.barTexture
+    bar.fill:SetTexture(textures[selected] or textures.BLIZZARD)
+    bar.fill:ClearAllPoints()
+    bar.fill:SetPoint("TOPLEFT", bar, "TOPLEFT", inset, -inset)
+    bar.fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", inset, inset)
+    bar.gloss:ClearAllPoints()
+    bar.gloss:SetPoint("TOPLEFT", bar, "TOPLEFT", inset, -inset)
+    bar.gloss:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -inset, -inset)
+    bar.gloss:SetHeight(math.max(1, math.floor((bar:GetHeight() - inset * 2) * 0.35)))
+    bar.gloss:SetVertexColor(1, 1, 1, style == "GLOSSY" and 0.22 or 0.055)
+    bar.gloss:SetShown(style == "CLASSIC" or style == "GLOSSY")
 end
 
 -- Swing bar and its labels
@@ -555,7 +614,7 @@ function iST:CreateSwingBar()
         sealIconShadow:SetSize(iconSize + 10, iconSize + 10)
         sealIconRing:SetSize(iconSize + 8, iconSize + 8)
         sealIcon:SetSize(iconSize, iconSize)
-        gloss:SetHeight(math.max(1, math.floor((height - CONTENT_INSET * 2) * 0.35)))
+        gloss:SetHeight(math.max(1, math.floor((height - (self.contentInset or CONTENT_INSET) * 2) * 0.35)))
         if self.sealTimerText then iST:ApplyBarTypography() end
     end
 
@@ -628,6 +687,7 @@ function iST:CreateSwingBar()
 
     bar:Hide()
     self.BarFrame = bar
+    self:ApplyBarStyle()
     self:CreateWrathCue(bar)
     self:ApplyBarTypography()
     self:CreateStackManagedDisplay()

@@ -508,6 +508,14 @@ for index, spell in ipairs(iST.WrathEchoSpells) do
     event("UNIT_AURA", "player", { removedAuraInstanceIDs = { instanceID } })
     assert(count() == 0, spell.name .. " removal clears its stacks")
 end
+event("UNIT_AURA", "player", { addedAuras = {
+    { name = "Localized Echo Name", spellId = 1311703, applications = 2,
+        expirationTime = now + 10, auraInstanceID = 390 },
+} })
+assert(count() == 2 and iST.WrathTracker.seal == "Seal of Command",
+    "a known Echo spell ID works regardless of the displayed language")
+event("UNIT_AURA", "player", { removedAuraInstanceIDs = { 390 } })
+assert(count() == 0, "the localized Echo also clears by aura instance")
 
 -- The aura API may return the previous stack count until after melee feedback.
 -- Re-reading that unchanged snapshot must not hide the hit or the release.
@@ -1084,6 +1092,13 @@ for _, spell in ipairs(iST.WrathEchoSpells) do
     local slot = managed.slots["echo" .. spell.id]
     assert(slot.filters.includeSpellIDs[spell.id],
         "the real talent has a separate slot for " .. spell.name)
+    local row
+    for _, candidate in ipairs(iST.BarFrame.stackManagedRows) do
+        if candidate.button == slot.button then row = candidate break end
+    end
+    assert(row and row.icon and row.icon.parent == slot.button and row.icon.shown
+        and row.icon.texture == iST.BarFrame.stackSealIcons[spell.seal],
+        "the Echo icon belongs to its own buff-controlled slot")
     for _, other in ipairs(iST.WrathEchoSpells) do
         if other.id ~= spell.id then
             assert(not slot.filters.includeSpellIDs[other.id],
@@ -1140,24 +1155,59 @@ attackSlot.button.applicationCount.SetAlpha = function() error("forbidden aura t
 local oldSeal, oldCast, oldSource = iST.State.CurrentSealName,
     iST.State.WrathLastSealCastName, iST.WrathTracker.seal
 local oldCount, oldExpiry = iST.WrathTracker.count, iST.WrathTracker.expiresAt
+local oldFakeAuraID = iST.State.VengeanceStackAuraID
 iST.WrathTracker.seal = "Seal of Command"
 iST.WrathTracker.count, iST.WrathTracker.expiresAt = 3, now + 15
 iST.State.CurrentSealName = "Seal of Command"
 iST.State.WrathLastSealCastName = "Seal of Command"
 iST:UpdateCenterSwitchSealGate()
+inCombat = true
+iST:RefreshVengeanceStackAura({ addedAuras = {
+    { name = "Localized Vengeance", spellId = 20050, auraInstanceID = 778 },
+} })
+assert(iST.State.VengeanceStackAuraID == 778,
+    "fake mode recognizes its test buff by spell ID during combat")
+iST:RefreshVengeanceStackAura({ removedAuraInstanceIDs = { 778 } })
+assert(iST.State.VengeanceStackAuraID == nil,
+    "removing the test buff clears its icon gate during combat")
+inCombat = false
+iST.State.VengeanceStackAuraID = 777
 iST:UpdateStackSourceIcon(true, 3)
 assert(iST.BarFrame.stackSourceIconFrame.shown
     and iST.BarFrame.stackSourceIcon.texture == iST.SEAL_SPELL_IDS["Seal of Command"]
-    and iST.BarFrame.stackManagedRows[1].count.point[4] == -4,
+    and iST.BarFrame.stackManagedRows[1].count.point[1] == "CENTER"
+    and not iST.BarFrame.stackManagedRows[1].total.shown,
     "fake stacks show their source Seal icon while the live number stays centered")
 iST:UpdateStackSourceIcon(true, 0)
 assert(not iST.BarFrame.stackSourceIconFrame.shown,
     "the source Seal icon hides at zero stacks")
+iST.State.VengeanceStackAuraID = nil
+iST:UpdateStackSourceIcon(true, 3)
+assert(not iST.BarFrame.stackSourceIconFrame.shown,
+    "fake swings alone cannot show the icon without its test buff")
+iST.State.VengeanceStackAuraID = 777
 for count = 1, 3 do
     iST:UpdateStackSourceIcon(true, count)
     assert(iST.BarFrame.stackSourceIconFrame.shown,
         "the source Seal icon shows at one, two, and three stacks")
 end
+local previousEchoSeal, previousUnconfirmed = iST.State.WrathEchoSeal,
+    iST.WrathTracker.countUnconfirmed
+iSTSettings.fakeUnsealedWrath = false
+iST.State.WrathEchoSeal = "Seal of Justice"
+iST.WrathTracker.seal = "Seal of Command"
+iST.WrathTracker.countUnconfirmed = true
+iST:UpdateStackSourceIcon(true, 1)
+assert(not iST.BarFrame.stackSourceIconFrame.shown,
+    "real Echo icons are shown only by their matching buff slots")
+centerSwitch.gateSource = nil
+iST:UpdateCenterSwitchSealGate()
+assert(centerSwitch.phaseFrames.switch.alpha == 1,
+    "a previous Echo cannot turn the new stack's switch cue into an attack cue")
+iSTSettings.fakeUnsealedWrath = true
+iST.State.WrathEchoSeal = previousEchoSeal
+iST.WrathTracker.countUnconfirmed = previousUnconfirmed
+iST.State.VengeanceStackAuraID = oldFakeAuraID
 assert(centerSwitch.phaseFrames.switch.alpha == 1
     and centerSwitch.phaseFrames.attack.alpha == 0,
     "three stacks ask for a seal switch while the source Seal is active")
@@ -1205,14 +1255,14 @@ assert(managed.slot.countFormatter.points and managed.slot.countFormatter.points
     "the native counter has separate colors for each live stack count")
 local previousNativeScheme = iSTSettings.wrathColorScheme
 iST:SetWrathColorScheme("TRAFFIC")
-assert(managed.slot.countFormatter.points[4].format == "|cff33ff4d%d|r"
-    and managed.slot.countFormatter.points[2].format == "|cffff731a%d|r",
-    "the live buff count uses the selected scheme for each stack")
+assert(managed.slot.countFormatter.points[4].format == "|cff33ff4d%d / 3|r"
+    and managed.slot.countFormatter.points[2].format == "|cffff731a%d / 3|r",
+    "the full live stack count uses the selected scheme for each stack")
 local savedCustomSecond = iSTSettings.wrathColor2
 iSTSettings.wrathColorScheme = "CUSTOM"
 iSTSettings.wrathColor2 = { r = 0.2, g = 0.4, b = 0.6, a = 0.5 }
 iST:ApplyStackStageFormatter()
-assert(managed.slot.countFormatter.points[3].format == "|c80336699%d|r",
+assert(managed.slot.countFormatter.points[3].format == "|c80336699%d / 3|r",
     "the live counter also uses the opacity of a custom stack color")
 iSTSettings.wrathColor2 = savedCustomSecond
 iST:SetWrathColorScheme(previousNativeScheme)
