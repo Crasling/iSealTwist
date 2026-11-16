@@ -86,6 +86,7 @@ iST.WrathEchoSpells = {
 }
 iST.WrathEchoSpellIDs = {}
 for _, spell in ipairs(iST.WrathEchoSpells) do iST.WrathEchoSpellIDs[spell.id] = spell.seal end
+local UNSEALED_WRATH_TALENT_ID = 1310735
 
 iST.FONT_CHOICES = {
     { value = "FRIZQT",   label = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
@@ -1129,9 +1130,7 @@ function iST:HasUnsealedWrath()
                         local entry = entryID and C_Traits.GetEntryInfo(configID, entryID)
                         local definition = entry and C_Traits.GetDefinitionInfo(entry.definitionID)
                         local spellID = definition and definition.spellID
-                        local spellName = spellID and C_Spell and C_Spell.GetSpellName
-                            and C_Spell.GetSpellName(spellID)
-                        if not IsSecret(spellName) and spellName == "Unsealed Wrath" then
+                        if not IsSecret(spellID) and spellID == UNSEALED_WRATH_TALENT_ID then
                             return true
                         end
                     end

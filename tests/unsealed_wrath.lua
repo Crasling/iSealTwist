@@ -177,14 +177,14 @@ C_Timer = { After = function(delay, callback)
     timers[#timers + 1] = { at = now + delay, run = callback }
 end }
 Enum = { PlayerSwingType = { MainHand = 0, OffHand = 1, Ranged = 2 } }
-local talentName, talentRank, configAvailable = "Unsealed Wrath", 1, true
+local talentName, talentRank, configAvailable, talentSpellID = "Unsealed Wrath", 1, true, 1310735
 C_ClassTalents = { GetActiveConfigID = function() return configAvailable and 1 or nil end }
 C_Traits = {
     GetConfigInfo = function() return { treeIDs = { 1 } } end,
     GetTreeNodes = function() return { 1 } end,
     GetNodeInfo = function() return { activeRank = talentRank, activeEntry = { entryID = 1 } } end,
     GetEntryInfo = function() return { definitionID = 1 } end,
-    GetDefinitionInfo = function() return { spellID = 999999 } end,
+    GetDefinitionInfo = function() return { spellID = talentSpellID } end,
 }
 C_Spell = {
     GetSpellName = function(id)
@@ -370,6 +370,11 @@ local function runDue()
 end
 
 assert(iST:HasUnsealedWrath(), "selected replacement talent enables tracking")
+talentName = "Cólera liberada"
+iST:RefreshUnsealedWrathState()
+assert(iST:HasUnsealedWrath(), "the selected talent works with a localized spell name")
+talentName = "Unsealed Wrath"
+iST:RefreshUnsealedWrathState()
 iST:SetCurrentSeal(20154)
 for expected = 1, 3 do attack(); assert(count() == expected, "three swings build three stacks") end
 attack(); assert(count() == 3, "stacks cap at three")
@@ -1137,12 +1142,12 @@ iSTSettings.showCenterSwitchText = true
 iSTSettings.centerSwitchText = "Switch now"
 iST:UpdateCenterSwitchText()
 local centerSwitch = assert(iST.CenterSwitchFrame, "the center message has its own frame")
-local switchSlot = centerSwitch.phaseContainers.switch.slots.vengeance
-local attackSlot = centerSwitch.phaseContainers.attack.slots.vengeance
-assert(centerSwitch.phaseFrames.switch.parent == centerSwitch
-    and centerSwitch.phaseContainers.switch.parent == centerSwitch.phaseFrames.switch
-    and centerSwitch.phaseFrames.attack.parent == centerSwitch,
-    "phase visibility belongs to plain frames outside Blizzard's aura buttons")
+local switchSlot = centerSwitch.phaseContainers.switch.vengeance.slots.vengeance
+local attackSlot = centerSwitch.phaseContainers.attack.vengeance.slots.vengeance
+assert(centerSwitch.phaseSlotFrames.switch.vengeance.parent == centerSwitch
+    and centerSwitch.phaseContainers.switch.vengeance.parent == centerSwitch.phaseSlotFrames.switch.vengeance
+    and centerSwitch.phaseSlotFrames.attack.vengeance.parent == centerSwitch,
+    "each buff has plain phase frames outside Blizzard's aura buttons")
 assert(switchSlot.filters.includeSpellIDs[20050]
     and attackSlot.filters.includeSpellIDs[20050]
     and switchSlot.button.countFormatter.points[1].format == ""
@@ -1200,25 +1205,59 @@ iST.WrathTracker.countUnconfirmed = true
 iST:UpdateStackSourceIcon(true, 1)
 assert(not iST.BarFrame.stackSourceIconFrame.shown,
     "real Echo icons are shown only by their matching buff slots")
-centerSwitch.gateSource = nil
+iST:UpdateCenterSwitchText(true)
+for _, spell in ipairs(iST.WrathEchoSpells) do
+    local key = "echo" .. spell.id
+    local nativeSlot = centerSwitch.phaseContainers.switch[key].slots[key]
+    assert(nativeSlot.filters.includeSpellIDs[spell.id]
+        and nativeSlot.button.countFormatter.points[2].threshold == 3,
+        "the matching Echo buff gates its message at the same count as the counter")
+end
+local commandKey, justiceKey = "echo1311703", "echo1311705"
+assert(centerSwitch.phaseSlotFrames.switch[commandKey].alpha == 1
+    and centerSwitch.phaseSlotFrames.attack[commandKey].alpha == 0,
+    "Command's buff keeps its own switch cue despite an older Echo source")
+iST.State.CurrentSealName = "Seal of Justice"
+iST.State.WrathLastSealCastName = "Seal of Justice"
 iST:UpdateCenterSwitchSealGate()
-assert(centerSwitch.phaseFrames.switch.alpha == 1,
-    "a previous Echo cannot turn the new stack's switch cue into an attack cue")
+assert(centerSwitch.phaseSlotFrames.attack[commandKey].alpha == 1
+    and centerSwitch.phaseSlotFrames.switch[justiceKey].alpha == 1,
+    "each Echo chooses its phase from the Seal tied to that buff")
+iST.State.CurrentSealName = "Seal of Command"
+iST.State.WrathLastSealCastName = "Seal of Command"
+iST:UpdateCenterSwitchSealGate()
+local commandAttackFrame = centerSwitch.phaseSlotFrames.attack[commandKey]
+commandAttackFrame.SetAlpha = function() error("blocked phase update") end
+iST.State.CurrentSealName = "Seal of Justice"
+iST.State.WrathLastSealCastName = "Seal of Justice"
+iST:UpdateCenterSwitchSealGate()
+assert(iST.State.CenterSwitchPhaseBlocked and not centerSwitch.gateValid,
+    "a rejected phase update invalidates the cached phase")
+commandAttackFrame.SetAlpha = nil
+iST.State.CenterSwitchPhaseBlocked = nil
+iST.State.CurrentSealName = "Seal of Command"
+iST.State.WrathLastSealCastName = "Seal of Command"
+iST:UpdateCenterSwitchSealGate()
+assert(centerSwitch.phaseSlotFrames.switch[commandKey].alpha == 1
+    and commandAttackFrame.alpha == 0 and centerSwitch.gateValid,
+    "the previous phase is restored after a partial update is rejected")
 iSTSettings.fakeUnsealedWrath = true
 iST.State.WrathEchoSeal = previousEchoSeal
 iST.WrathTracker.countUnconfirmed = previousUnconfirmed
 iST.State.VengeanceStackAuraID = oldFakeAuraID
-assert(centerSwitch.phaseFrames.switch.alpha == 1
-    and centerSwitch.phaseFrames.attack.alpha == 0,
+iST:UpdateCenterSwitchText()
+assert(centerSwitch.gateFake == true
+    and centerSwitch.phaseSlotFrames.switch.vengeance.alpha == 1
+    and centerSwitch.phaseSlotFrames.attack.vengeance.alpha == 0,
     "three stacks ask for a seal switch while the source Seal is active")
 iST.State.CurrentSealName = "Seal of Righteousness"
 iST:UpdateCenterSwitchSealGate()
-assert(centerSwitch.phaseFrames.switch.alpha == 1
-    and centerSwitch.phaseFrames.attack.alpha == 0,
+assert(centerSwitch.phaseSlotFrames.switch.vengeance.alpha == 1
+    and centerSwitch.phaseSlotFrames.attack.vengeance.alpha == 0,
     "a changed active Seal alone does not claim a successful replacement cast")
 iST:SetCurrentSeal(20154, nil, "UNIT_SPELLCAST_SUCCEEDED")
-assert(centerSwitch.phaseFrames.switch.alpha == 0
-    and centerSwitch.phaseFrames.attack.alpha == 1
+assert(centerSwitch.phaseSlotFrames.switch.vengeance.alpha == 0
+    and centerSwitch.phaseSlotFrames.attack.vengeance.alpha == 1
     and iST.State.WrathLastSealCastName == "Seal of Righteousness",
     "a successful cast of another Seal changes the cue to Attack now")
 iST.State.CurrentSealName, iST.State.WrathLastSealCastName, iST.WrathTracker.seal =
@@ -1410,10 +1449,10 @@ for _, sample in ipairs({ { 1, "DebugError" }, { 2, "DebugWarning" }, { 3, "Debu
         and message:find("diagnostic sample", 1, true), "debug severity uses the normalized addon prefix")
 end
 iSTSettings.debugMode = false
-talentRank, talentName = 1, "Twist of Light"
+talentRank, talentName, talentSpellID = 1, "Twist of Light", 999999
 iST:RefreshUnsealedWrathState()
 assert(not iST:HasUnsealedWrath(), "the removed talent cannot enable the new mechanic")
-talentName, configAvailable = "Unsealed Wrath", false
+talentName, configAvailable, talentSpellID = "Unsealed Wrath", false, 1310735
 iST:RefreshUnsealedWrathState()
 assert(not iST:HasUnsealedWrath(), "an unreadable config stays neutral")
 configAvailable, now = true, now + 2
@@ -2593,13 +2632,13 @@ assert(count() == 1 and bar.stackCountFrame:IsShown() and not bar.wrathCueFrame:
 spellNames[20271] = "Judgement"
 now = now + 2.008
 event("PLAYER_SWING", 3, Enum.PlayerSwingType.MainHand)
-local judgementSwingDeadline = iST.State.NextSwingTime
+swingDeadline = iST.State.NextSwingTime
 assert(count() == 2, "the swing after Judgement is ready before feedback")
 now = now + .2
 event("UNIT_SPELLCAST_SUCCEEDED", "player", "judgement-cast", 20271)
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 2)
 assert(count() == 2 and iST.State.SealExpiresAt == sealDeadline
-    and iST.State.NextSwingTime == judgementSwingDeadline,
+    and iST.State.NextSwingTime == swingDeadline,
     "Judgement neither adds a second stack nor resets the seal or swing timer")
 now = now + .3
 event("UNIT_COMBAT", "target", "WOUND", "", secret, 1)

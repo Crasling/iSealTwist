@@ -251,45 +251,48 @@ end
 
 function iST:UpdateCenterSwitchSealGate()
     local frame = self.CenterSwitchFrame
-    if not frame or not frame.phaseFrames or self.State.CenterSwitchPhaseBlocked then return end
+    if not frame or not frame.phaseSlotFrames or self.State.CenterSwitchPhaseBlocked then return end
     local current = self.State.CurrentSealName
     local cast = self.State.WrathLastSealCastName
-    local source
-    if iSTSettings.fakeUnsealedWrath then
-        source = self.WrathTracker.seal
-    else
-        source = self.WrathTracker.countUnconfirmed and self.WrathTracker.seal
-            or self.State.WrathEchoSeal or self.WrathTracker.seal
-    end
+    local fakeSource = iSTSettings.fakeUnsealedWrath and self.WrathTracker.seal or nil
     if (issecretvalue and (issecretvalue(current) or issecretvalue(cast)
-        or issecretvalue(source))) then return end
-    if frame.gateSeal == current and frame.gateCast == cast
-        and frame.gateSource == source
+        or issecretvalue(fakeSource))) then return end
+    if frame.gateValid and frame.gateSeal == current and frame.gateCast == cast
+        and frame.gateFakeSource == fakeSource
+        and frame.gateFake == iSTSettings.fakeUnsealedWrath
         and frame.gateMoving == frame.moving then return end
-    local switched = source and current and current ~= source and cast == current
-    local phase = switched and "attack" or "switch"
-    for _, name in ipairs({ "switch", "attack" }) do
-        -- These are our plain parent frames. Blizzard's aura buttons and their
-        -- FontStrings are forbidden to addon code during combat.
-        local parent = frame.phaseFrames[name]
-        local alpha = not frame.moving and phase == name and 1 or 0
-        local accessible, forbidden = pcall(function()
-            return type(parent.IsForbidden) == "function" and parent:IsForbidden() or false
-        end)
-        if not accessible or forbidden then
-            self.State.CenterSwitchPhaseBlocked = true
-            self:DebugMsg("The center message phase frame is unavailable during combat.", 2)
-            return
-        end
-        local ok = pcall(function() parent:SetAlpha(alpha) end)
-        if not ok then
-            self.State.CenterSwitchPhaseBlocked = true
-            self:DebugMsg("The center message could not change phases during combat.", 2)
-            return
+    for _, slot in ipairs(frame.slots) do
+        -- The buff slot identifies the Seal behind its own three-stack text.
+        local source = slot.fake and fakeSource or slot.seal
+        local switched = source and current and current ~= source and cast == current
+        local phase = switched and "attack" or "switch"
+        for _, name in ipairs({ "switch", "attack" }) do
+            -- These parents are plain frames; the buff buttons cannot be
+            -- changed safely during combat.
+            local parent = frame.phaseSlotFrames[name][slot.key]
+            local alpha = not frame.moving and phase == name and 1 or 0
+            local accessible, forbidden = pcall(function()
+                return type(parent.IsForbidden) == "function" and parent:IsForbidden() or false
+            end)
+            if not accessible or forbidden then
+                frame.gateValid = false
+                self.State.CenterSwitchPhaseBlocked = true
+                self:DebugMsg("The center message phase frame is unavailable during combat.", 2)
+                return
+            end
+            local ok = pcall(function() parent:SetAlpha(alpha) end)
+            if not ok then
+                frame.gateValid = false
+                self.State.CenterSwitchPhaseBlocked = true
+                self:DebugMsg("The center message could not change phases during combat.", 2)
+                return
+            end
         end
     end
     frame.gateSeal, frame.gateCast = current, cast
-    frame.gateSource, frame.gateMoving = source, frame.moving
+    frame.gateFakeSource, frame.gateMoving = fakeSource, frame.moving
+    frame.gateFake = iSTSettings.fakeUnsealedWrath
+    frame.gateValid = true
 end
 
 function iST:SetCenterSwitchMoveMode(enabled)
@@ -360,27 +363,29 @@ function iST:UpdateCenterSwitchText(forceCreate)
             host.preview:Hide()
 
             host.rows, host.slots = {}, {}
-            host.phaseFrames, host.phaseContainers = {}, {}
+            host.phaseContainers, host.phaseSlotFrames = {}, {}
             for _, spell in ipairs(self.WrathEchoSpells) do
                 host.slots[#host.slots + 1] = { key = "echo" .. spell.id, spellID = spell.id, seal = spell.seal }
             end
             host.slots[#host.slots + 1] = { key = "vengeance", fake = true }
             for _, phase in ipairs({ "switch", "attack" }) do
                 local phaseName = phase
-                local phaseFrame = CreateFrame("Frame", nil, host)
-                phaseFrame:SetAllPoints(host)
-                phaseFrame:SetAlpha(phaseName == "switch" and 1 or 0)
-                host.phaseFrames[phaseName] = phaseFrame
-                local container = CreateFrame("AuraContainer", nil, phaseFrame, "CustomAuraContainerTemplate")
-                container:SetAllPoints(phaseFrame)
-                container:SetUnit("player")
-                host.phaseContainers[phaseName] = container
+                host.phaseContainers[phaseName] = {}
+                host.phaseSlotFrames[phaseName] = {}
                 for _, slot in ipairs(host.slots) do
                     local slotInfo = slot
+                    local slotFrame = CreateFrame("Frame", nil, host)
+                    slotFrame:SetAllPoints(host)
+                    slotFrame:SetAlpha(phaseName == "switch" and 1 or 0)
+                    host.phaseSlotFrames[phaseName][slotInfo.key] = slotFrame
+                    local container = CreateFrame("AuraContainer", nil, slotFrame, "CustomAuraContainerTemplate")
+                    container:SetAllPoints(slotFrame)
+                    container:SetUnit("player")
+                    host.phaseContainers[phaseName][slotInfo.key] = container
                     container:AddAuraSlot(slotInfo.key, "HELPFUL", {
                         candidateFilters = StackSpellFilter(slotInfo),
                         initializeFrame = function(button)
-                            button:SetAllPoints(phaseFrame)
+                            button:SetAllPoints(slotFrame)
                             button:EnableMouse(false)
                             local message = button:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
                             message:SetAllPoints(button)
@@ -398,12 +403,11 @@ function iST:UpdateCenterSwitchText(forceCreate)
                                 { formatter = assert(CenterMessageFormatter(text)) })
                             host.rows[#host.rows + 1] = {
                                 button = button, message = message, phase = phaseName,
-                                seal = slotInfo.seal, fake = slotInfo.fake,
                             }
                         end,
                     })
+                    container:SetEnabled(true)
                 end
-                container:SetEnabled(true)
             end
             return host
         end)
@@ -420,7 +424,7 @@ function iST:UpdateCenterSwitchText(forceCreate)
         local updated = true
         for _, slot in ipairs(frame.slots) do
             for _, phase in ipairs({ "switch", "attack" }) do
-                local container = frame.phaseContainers[phase]
+                local container = frame.phaseContainers[phase][slot.key]
                 if not pcall(container.SetAuraSlotCandidateFilters, container,
                     slot.key, StackSpellFilter(slot)) then updated = false end
             end

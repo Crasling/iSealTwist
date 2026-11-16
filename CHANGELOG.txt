@@ -8,6 +8,7 @@ v0.8.11 - Bar and Echo Display
 [IMPROVED] The Echo icon appears while stacks are active.
 [IMPROVED] Switch and attack messages follow the Seal used to build stacks.
 [IMPROVED] Stack colors apply to the whole counter.
+[FIXED] Echo tracking works with non-English game text.
 
 v0.8.10 - Stack Display
 --------------------------------------------------------------------------------
