@@ -95,6 +95,7 @@ local function widget(parent)
     function methods:StartMoving() self.moving = true end
     function methods:StopMovingOrSizing() self.moving = false end
     function methods:SetScript(event, callback) self[event] = callback end
+    function methods:EnableMouseWheel(value) self.mouseWheelEnabled = value end
     function methods:RegisterEvent(event)
         self.registeredEvents = self.registeredEvents or {}
         self.registeredEvents[event] = true
@@ -209,7 +210,7 @@ end }
 
 local iST = {}
 for _, file in ipairs({ "Localization/enUS.lua", "iSealTwist_Stacks.lua",
-    "iSealTwist_Main.lua", "iSealTwist_HitTracking.lua", "iSealTwist_HitDebug.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua", "iSealTwist_Reminders.lua" }) do
+    "iSealTwist_Main.lua", "iSealTwist_Sounds.lua", "iSealTwist_HitTracking.lua", "iSealTwist_HitDebug.lua", "iSealTwist_Bubbles.lua", "iSealTwist_SwordImages.lua", "iSealTwist_Cues.lua", "iSealTwist_Reminders.lua" }) do
     assert(loadfile(file))("iSealTwist", iST)
 end
 local events = frames[1]
@@ -217,6 +218,89 @@ iST:InitializeSettings()
 assert(iSTSettings.fakeUnsealedWrath == false and iSTSettings.debugMode == false,
     "fake talent and debug diagnostics start disabled")
 assert(iSTSettings.wrathCue == "COUNTER", "new characters default to the buff stack counter")
+assert(not iSTSettings.soundThreeStacks and not iSTSettings.reminders.FURY.soundMissing
+    and not iSTSettings.reminders.SEAL.soundExpiring, "new sounds start disabled")
+do
+    local previousLibStub, previousPlaySoundFile = LibStub, PlaySoundFile
+    local names = {}
+    for index = 1, 12 do names[index] = "Shared tone " .. index end
+    local media = {
+        List = function(_, kind) assert(kind == "sound"); return names end,
+        Fetch = function(_, kind, name, noDefault)
+            assert(kind == "sound" and noDefault)
+            return name == "Shared tone 12" and "Interface\\AddOns\\OtherSound\\tone.ogg" or nil
+        end,
+    }
+    LibStub = function(name, silent)
+        assert(name == "LibSharedMedia-3.0" and silent)
+        return media
+    end
+    local options = iST:GetSoundOptions("LSM:Shared tone 12")
+    assert(#options == #iST.SoundChoiceOrder + 12 and options[#options].value == "LSM:Shared tone 12",
+        "registered sounds from another addon join the built-in choices")
+    PlaySoundFile = function(path, channel)
+        assert(path == "Interface\\AddOns\\OtherSound\\tone.ogg" and channel == "Master")
+        return true
+    end
+    assert(iST:PlayCueSound("LSM:Shared tone 12"), "a selected shared sound uses its registered file")
+    LibStub, PlaySoundFile = previousLibStub, previousPlaySoundFile
+    assert(iST:GetSoundOptions("LSM:Shared tone 12")[#iST.SoundChoiceOrder + 1].text:find("unavailable"),
+        "a saved sound remains identifiable if its source addon is absent")
+    iSTSettings.soundThreeStacksChoice = "LSM:Shared tone 12"
+    iSTSettings.reminders.SEAL.soundChoice = "LSM:Shared tone 12"
+    iST:InitializeSettings()
+    assert(iSTSettings.soundThreeStacksChoice == "LSM:Shared tone 12"
+        and iSTSettings.reminders.SEAL.soundChoice == "LSM:Shared tone 12",
+        "saved shared sounds survive a login when their source addon is unavailable")
+    iSTSettings.soundThreeStacksChoice = "MAP_PING"
+    iSTSettings.reminders.SEAL.soundChoice = "MAP_PING"
+end
+do
+    local played = {}
+    local oldPlaySound, oldSoundKit = PlaySound, SOUNDKIT
+    PlaySound = function(id, channel) played[#played + 1] = { id, channel }; return true end
+    SOUNDKIT = nil
+    for _, entry in ipairs({ { "MAP_PING", 3175 }, { "AUCTION_WINDOW_OPEN", 5274 },
+        { "IG_MAINMENU_OPTION_CHECKBOX_ON", 856 }, { "IG_QUEST_LOG_ABANDON_QUEST", 846 } }) do
+        assert(iST:PlayCueSound(entry[1]) and played[#played][1] == entry[2]
+            and played[#played][2] == "Master", "built-in sounds use their game IDs when SOUNDKIT is unavailable")
+    end
+    played = {}
+    SOUNDKIT = oldSoundKit
+    iSTSettings.soundThreeStacks = true
+    iST:UpdateThreeStackSound(0, true, 100)
+    iST:UpdateThreeStackSound(2, true, 100)
+    iST:UpdateThreeStackSound(3, true, 101)
+    iST:UpdateThreeStackSound(3, true, 101.1)
+    assert(#played == 1 and played[1][2] == "Master", "three stacks play once on the new stack cycle")
+    iST:UpdateThreeStackSound(2, true, 103)
+    iST:UpdateThreeStackSound(3, true, 104)
+    assert(#played == 1, "a corrected stack count does not replay the same cue")
+    iST:UpdateThreeStackSound(0, true, 105)
+    iST:UpdateThreeStackSound(3, true, 106)
+    assert(#played == 2, "a later three-stack cycle plays again")
+    local reminder = { enabled = true, soundExpiring = true, soundMissing = true, soundChoice = "MAP_PING" }
+    iST:UpdateReminderSound("SEAL", reminder, true, true, true, false, true, true, true)
+    iST:UpdateReminderSound("SEAL", reminder, true, true, true, false, true, true, true)
+    assert(#played == 3, "a low Seal plays once while remaining low")
+    iST:UpdateReminderSound("SEAL", reminder, true, true, true, false, false, false, false)
+    assert(#played == 3, "an unreadable aura does not start a new sound stage")
+    iST:UpdateReminderSound("SEAL", reminder, true, true, true, false, true, false, true)
+    assert(#played == 4, "a missing Seal plays after the low warning")
+    iST:UpdateReminderSound("SEAL", reminder, false, true, true, false, true, false, true)
+    iST:UpdateReminderSound("SEAL", reminder, true, true, true, true, true, false, true)
+    assert(#played == 4, "out-of-combat and preview reminders stay quiet")
+    iST:UpdateReminderSound("SEAL", reminder, true, true, true, false, true, false, true)
+    assert(#played == 5, "a new combat period can warn once again")
+    iST:UpdateReminderSound("FURY", reminder, true, true, true, false, true, false, true)
+    iST:UpdateReminderSound("FURY", reminder, true, true, true, false, true, false, true)
+    assert(#played == 6, "Fury has an independent one-shot sound stage")
+    iSTSettings.soundThreeStacks = false
+    iST.State.ThreeStackSoundReady = nil
+    iST.State.ThreeStackSoundAt = nil
+    iST.State.ReminderSoundStages = nil
+    PlaySound = oldPlaySound
+end
 iSTSettings.stackCounterColor = { r = 0.2, g = 0.3, b = 0.4, a = 1 }
 iST:InitializeSettings()
 assert(iSTSettings.stackCounterColor == nil,
@@ -524,7 +608,7 @@ assert(count() == 0, "the localized Echo also clears by aura instance")
 
 -- The aura API may return the previous stack count until after melee feedback.
 -- Re-reading that unchanged snapshot must not hide the hit or the release.
-iST:SetCurrentSeal(20154)
+iST:SetCurrentSeal(20375)
 auraResult = { applications = 1, expirationTime = now + 8, auraInstanceID = 300 }
 event("UNIT_AURA", "player", {})
 assert(count() == 1)
@@ -549,7 +633,7 @@ auraResult = { applications = 2, expirationTime = now + 15, auraInstanceID = 300
 event("UNIT_AURA", "player", {})
 assert(count() == 2, "a later buff update can confirm the next stack")
 inCombat = true
-iST:SetCurrentSeal(20375)
+iST:SetCurrentSeal(20154)
 iSTSettings.showThreeStackReadyText = true
 event("PLAYER_SWING", 3.6, Enum.PlayerSwingType.MainHand)
 assert(not iST.BarFrame.wrathCueFrame:IsShown(),
@@ -894,7 +978,7 @@ assert(not playerBubbles.shown, "the Paladin-only setting also controls player-f
 playerClass = "PALADIN"
 iST.State.InCombat = false
 iST:UpdatePlayerWrathBubbles(now)
-assert(not playerBubbles.shown, "the combat-only setting also controls player-frame bubbles")
+assert(playerBubbles.shown, "player-frame bubbles remain available outside combat when the Echo display is active")
 iST.State.InCombat = true
 iSTSettings.enabled = false
 iST:UpdatePlayerWrathBubbles(now)
@@ -1326,12 +1410,15 @@ assert(iST.BarFrame.nativeReadyText.text == "Unleash!"
 iSTSettings.wrathReadyText = "Switch now"
 iST:UpdateNativeReadyDisplay()
 local commandReadySpellID = iST.WrathEchoSpells[1].id
+talentRank = 1
 iSTSettings.fakeUnsealedWrath = false
+iST:RefreshUnsealedWrathState()
 iST:UpdateNativeReadyDisplay()
 assert(ready.slots.ready.filters.includeSpellIDs[commandReadySpellID]
     and not ready.slots.ready.filters.includeSpellIDs[20050],
     "the ready message follows the real Echo buffs when fake talent is turned off")
 iSTSettings.fakeUnsealedWrath = true
+talentRank = 0
 iST:UpdateNativeReadyDisplay()
 local previousPreviewStacks = iST.State.PreviewStacks
 iST.State.TestMode, iST.State.StackTestMode, iST.State.PreviewStacks = true, true, 3
@@ -2350,6 +2437,24 @@ assert(not indicatorDropdown.menu:IsShown(), "a locked indicator selector cannot
 inCombat = false
 iST.SettingsFrame.indicatorLockWatcher.OnEvent(nil, "PLAYER_REGEN_ENABLED")
 assert(indicatorDropdown:IsEnabled(), "the indicator selector unlocks after combat")
+do
+    local soundDropdown
+    for _, frame in ipairs(frames) do
+        if frame.menu and frame.menu.mouseWheelEnabled then soundDropdown = frame; break end
+    end
+    assert(soundDropdown, "sound choices use a scrolling picker")
+    local previousLibStub = LibStub
+    local names = {}
+    for index = 1, 12 do names[index] = "Shared tone " .. index end
+    LibStub = function() return { List = function() return names end } end
+    soundDropdown.OnClick(soundDropdown)
+    assert(#soundDropdown.menu.buttons == 10 and soundDropdown.menu:GetHeight() == 260,
+        "a large shared-sound list shows ten rows rather than covering the screen")
+    soundDropdown.menu.buttons[1].OnMouseWheel(soundDropdown.menu.buttons[1], -1)
+    assert(soundDropdown.menu.scrollOffset == 1, "mouse wheel over a sound row scrolls the choices")
+    soundDropdown.menu.dismiss.OnClick(soundDropdown.menu.dismiss)
+    LibStub = previousLibStub
+end
 local stageColorButton
 for _, frame in ipairs(frames) do
     if frame.OnClick then

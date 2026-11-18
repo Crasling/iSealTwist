@@ -148,6 +148,12 @@ L["ShowPlayerWrathBubblesDesc"] = Colors.Gray .. "Show a separate frame with thr
 L["WrathAttackNow"] = "Attack now"
 L["WrathSealUnleashed"] = "Seal unleashed!"
 L["WrathTrackingDesc"] = Colors.Gray .. "Tracks stacks from main-hand swings and hit feedback, then corrects them from the buff when readable. Misses, dodges and parries can briefly affect the displayed count.|r"
+L["SoundThreeStacks"] = "Sound at 3 Echo Stacks"
+L["SoundThreeStacksDesc"] = Colors.Gray .. "Play once when the stack tracker reaches three. Combat feedback can briefly affect this cue.|r"
+L["SoundChoice"] = "Sound"
+L["SoundTest"] = "Test Sound"
+L["SoundUnavailable"] = "[iST]: Sound unavailable. Enable its source addon or choose another sound."
+L["SoundSharedDesc"] = Colors.Gray .. "Sounds shared by other addons appear here when available. Test them first; their length depends on the sound file.|r"
 L["SectionSealPair"] = Colors.iST .. "Seal Pair"
 
 -- Seal pair dropdowns
@@ -225,6 +231,8 @@ L["ReminderCastBuff"] = "Cast %s"
 L["ReminderCastSeal"] = "Cast a seal"
 L["ReminderRefreshBuff"] = "Refresh %s"
 L["ReminderTimeLeft"] = "%s left"
+L["ReminderSoundExpiring"] = "Sound When Running Low in Combat"
+L["ReminderSoundMissing"] = "Sound When Missing in Combat"
 
 -- About
 L["SectionTesting"] = Colors.iST .. "Testing"

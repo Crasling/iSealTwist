@@ -1163,6 +1163,7 @@ function iST:UpdateWrathDisplay(now)
     -- Previews supply their own count; drawing the cue does not change live stacks.
     local count, active, armed = self:GetWrathDisplayState(now)
     count = math.max(0, math.min(3, math.floor(count or 0)))
+    self:UpdateThreeStackSound(count, active, now)
     local style = iSTSettings.wrathCue or "COUNTER"
     local color = self:GetWrathCueColor(count)
     self:UpdateStackCountDisplay(now, active and style == "COUNTER", count)

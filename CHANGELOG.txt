@@ -2,6 +2,12 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.8.12 - Sound Cues
+--------------------------------------------------------------------------------
+[ADDED] Optional sounds for three Echo stacks and Seal or Righteous Fury reminders.
+[ADDED] Choose and test each sound in settings.
+[ADDED] Use sounds shared by other active addons when available.
+
 v0.8.11 - Bar and Echo Display
 --------------------------------------------------------------------------------
 [ADDED] Choose a swing bar style and texture, with a preview in settings.

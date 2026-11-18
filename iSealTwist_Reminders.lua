@@ -8,9 +8,11 @@ local CAPITAL_MAPS = { [1453] = "Alliance", [1454] = "Horde", [1455] = "Alliance
 iST.ReminderDefaults = {
     FURY = { enabled = false, showIcon = true, showTime = true, locked = true, scale = 1,
         warningSeconds = 60, protOnly = false, dungeonsOnly = false, partyOnly = false,
+        soundExpiring = false, soundMissing = false, soundChoice = "MAP_PING",
         point = { "CENTER", "CENTER", -180, -120 } },
     SEAL = { enabled = false, showIcon = true, showTime = true, locked = true, scale = 1,
         warningSeconds = 5, onlyInCombat = false, hideAfterIdle = false, hideInCapitals = false,
+        soundExpiring = false, soundMissing = false, soundChoice = "MAP_PING",
         point = { "CENTER", "CENTER", 180, -120 } },
 }
 
@@ -77,6 +79,7 @@ function iST:InitializeReminderSettings()
         settings.scale = math.max(0.5, math.min(3, settings.scale))
         if not number(settings.warningSeconds) then settings.warningSeconds = defaults.warningSeconds end
         settings.warningSeconds = math.max(0, math.min(kind == "SEAL" and 30 or 600, settings.warningSeconds))
+        if not self:IsSoundChoiceValid(settings.soundChoice) then settings.soundChoice = defaults.soundChoice end
         local anchors = { CENTER = true, TOP = true, BOTTOM = true, LEFT = true, RIGHT = true,
             TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
         local point = settings.point
@@ -324,6 +327,8 @@ function iST:UpdateReminders()
     local _, class = read(UnitClass, "player")
     local visible = iSTSettings.enabled and (not iSTSettings.onlyAsPaladin or class == "PALADIN")
         and read(UnitIsDeadOrGhost, "player") ~= true
+    local inCombat = state.ReminderCombat == true or read(InCombatLockdown) == true
+        or read(UnitAffectingCombat, "player") == true
     for kind, frame in pairs(self.ReminderFrames) do
         local settings = iSTSettings.reminders[kind]
         if previewUntil[kind] and now >= previewUntil[kind] then previewUntil[kind] = nil end
@@ -355,8 +360,6 @@ function iST:UpdateReminders()
             end
             if settings.partyOnly and read(IsInGroup) ~= true then eligible = false end
         else
-            local inCombat = state.ReminderCombat == true or read(InCombatLockdown) == true
-                or read(UnitAffectingCombat, "player") == true
             if settings.onlyInCombat and not inCombat then eligible = false end
             if settings.hideAfterIdle and not inCombat and now - lastSealCombatAt >= SEAL_IDLE_HIDE_SECONDS then
                 eligible = false
@@ -365,6 +368,10 @@ function iST:UpdateReminders()
         end
         local warning = known and (not active or (remaining and settings.warningSeconds > 0 and remaining <= settings.warningSeconds))
         local show = visible and (preview or (settings.enabled and eligible and warning))
+        -- A Fury timer can become stale while its aura is unreadable in combat.
+        -- Sound "missing" only after Fury itself was confirmed absent.
+        local soundActive = kind == "FURY" and state.FuryPresent == true or active
+        self:UpdateReminderSound(kind, settings, inCombat, eligible, visible, preview, known, soundActive, warning)
         frame:SetShown(show == true)
         frame:SetFrameStrata(preview and "DIALOG" or "MEDIUM")
         frame:EnableMouse(not settings.locked or preview)

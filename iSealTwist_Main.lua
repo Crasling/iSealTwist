@@ -282,6 +282,8 @@ iST.SettingsDefault = {
     showSealIcon = true,
     showSealTimer = true,
     showWeaponSpeed = true,
+    soundThreeStacks = false,
+    soundThreeStacksChoice = "MAP_PING",
     onlyInCombat = true,
     onlyAsPaladin = true,
     barPoint = { "CENTER", nil, "CENTER", 0, -200 },
@@ -340,8 +342,12 @@ function iST:InitializeSettings()
             end
         end
     end
+    if not self:IsSoundChoiceValid(iSTSettings.soundThreeStacksChoice) then
+        iSTSettings.soundThreeStacksChoice = self.SettingsDefault.soundThreeStacksChoice
+    end
     -- Keep a saved cue when it is still supported, and move the old shared color to stage colors.
     if iSTSettings.wrathCue == "TEXT" then iSTSettings.wrathCue = "COUNTER" end
+    if iSTSettings.wrathCue == "SWORD" then iSTSettings.wrathCue = "BAR_COLOR" end
     iSTSettings.testThreeStackHighlight = nil
     -- Remove unfinished ready-message choices from saved settings.
     iSTSettings.showThreeStackReadyText = nil

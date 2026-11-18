@@ -401,7 +401,7 @@ local function OpenMacroWindow()
     end
 end
 
-local function CreateStyledDropdown(parent, width, getOptions, getValue, setValue, getOptionText, isDisabled)
+local function CreateStyledDropdown(parent, width, getOptions, getValue, setValue, getOptionText, isDisabled, maxRows)
     local dropdown = CreateFrame("Button", nil, parent, BACKDROP_TEMPLATE)
     dropdown:SetSize(width, 28)
     StyleSettingsButton(dropdown)
@@ -437,6 +437,17 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
         if openDropdown == dropdown then openDropdown = nil end
     end)
     dropdown.menu.buttons = {}
+    if maxRows then
+        local function ScrollMenu(menu, delta)
+            local options = getOptions() or {}
+            local maximum = math.max(0, #options - maxRows)
+            menu.scrollOffset = math.max(0, math.min(maximum, (menu.scrollOffset or 0) - delta))
+            dropdown:RefreshMenu()
+        end
+        dropdown.menu.scrollMenu = ScrollMenu
+        dropdown.menu:EnableMouseWheel(true)
+        dropdown.menu:SetScript("OnMouseWheel", ScrollMenu)
+    end
     dropdown.menu:Hide()
 
     local function OptionValue(option)
@@ -469,7 +480,10 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
     function dropdown:RefreshMenu()
         local options = getOptions() or {}
         local current = getValue()
-        for index, option in ipairs(options) do
+        local visibleRows = maxRows and math.min(#options, maxRows) or #options
+        self.menu.scrollOffset = math.max(0, math.min(self.menu.scrollOffset or 0, #options - visibleRows))
+        for index = 1, visibleRows do
+            local option = options[index + self.menu.scrollOffset]
             local selectedOption = option
             local value = OptionValue(option)
             local disabled = isDisabled and isDisabled(option) or false
@@ -496,6 +510,12 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
                 button:SetScript("OnLeave", function(menuButton)
                     menuButton:SetBackdropColor(0, 0, 0, menuButton.selected and 0.30 or 0)
                 end)
+                if maxRows then
+                    button:EnableMouseWheel(true)
+                    button:SetScript("OnMouseWheel", function(_, delta)
+                        self.menu.scrollMenu(self.menu, delta)
+                    end)
+                end
                 self.menu.buttons[index] = button
             end
             button:ClearAllPoints()
@@ -522,8 +542,8 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
             end)
             button:Show()
         end
-        for index = #options + 1, #self.menu.buttons do self.menu.buttons[index]:Hide() end
-        self.menu:SetHeight(math.max(12, (#options * 25) + 10))
+        for index = visibleRows + 1, #self.menu.buttons do self.menu.buttons[index]:Hide() end
+        self.menu:SetHeight(math.max(12, (visibleRows * 25) + 10))
     end
 
     dropdown:SetScript("OnClick", function(self)
@@ -536,6 +556,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
         if openDropdown and openDropdown.menu then openDropdown.menu:Hide() end
         openDropdown = self
         self:RefreshMenu()
+        self:Refresh()
         self.menu:ClearAllPoints()
         -- Open upward if there is not enough room below the dropdown.
         local bottom = self:GetBottom() or 0
@@ -554,13 +575,13 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
     return dropdown
 end
 
-local function CreateSettingsDropdown(parent, label, yOffset, width, getOptions, getValue, setValue)
+local function CreateSettingsDropdown(parent, label, yOffset, width, getOptions, getValue, setValue, maxRows)
     local labelText = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     labelText:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     labelText:SetText(label)
     labelText:SetTextColor(0.96, 0.90, 0.78)
 
-    local dropdown = CreateStyledDropdown(parent, width, getOptions, getValue, setValue)
+    local dropdown = CreateStyledDropdown(parent, width, getOptions, getValue, setValue, nil, nil, maxRows)
     dropdown:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset - 18)
     return dropdown, yOffset - 58, function() dropdown:Refresh() end
 end
@@ -1112,6 +1133,18 @@ function iST:CreateOptionsPanel()
         _, y = CreateInfoText(indicatorsContent, L["WrathCueDesc"], y, "GameFontDisableSmall")
         y = y - 8
 
+        _, y = CreateSettingsCheckbox(indicatorsContent, L["SoundThreeStacks"],
+            L["SoundThreeStacksDesc"], y,
+            function() return iSTSettings.soundThreeStacks end,
+            function(value) iSTSettings.soundThreeStacks = value end)
+        _, y = CreateSettingsDropdown(indicatorsContent, L["SoundChoice"], y, 250,
+            function() return iST:GetSoundOptions(iSTSettings.soundThreeStacksChoice) end,
+            function() return iSTSettings.soundThreeStacksChoice end,
+            function(value) iSTSettings.soundThreeStacksChoice = value end, 10)
+        _, y = CreateSettingsButton(indicatorsContent, L["SoundTest"], 130, y,
+            function() iST:TestCueSound(iSTSettings.soundThreeStacksChoice) end)
+        _, y = CreateInfoText(indicatorsContent, L["SoundSharedDesc"], y, "GameFontDisableSmall")
+
         _, y = CreateCustomSlider(indicatorsContent, L["StackCounterTextSize"], y, 8, 40, 1,
             function() return iSTSettings.stackCounterTextSize end,
             function(value)
@@ -1197,6 +1230,7 @@ function iST:CreateOptionsPanel()
     do
         local y = -10
         _, y = CreateInfoText(remindersContent, L["RemindersDesc"], y, "GameFontDisableSmall")
+        _, y = CreateInfoText(remindersContent, L["SoundSharedDesc"], y, "GameFontDisableSmall")
         y = y - 8
         for reminderIndex, kind in ipairs({ "FURY", "SEAL" }) do
             local reminderKind = kind
@@ -1233,6 +1267,16 @@ function iST:CreateOptionsPanel()
                 function() return settings.showIcon end, function(value) set("showIcon", value) end)
             _, y = CreateSettingsCheckbox(remindersContent, L["ReminderShowTime"], nil, y,
                 function() return settings.showTime end, function(value) set("showTime", value) end)
+            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderSoundExpiring"], nil, y,
+                function() return settings.soundExpiring end, function(value) set("soundExpiring", value) end)
+            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderSoundMissing"], nil, y,
+                function() return settings.soundMissing end, function(value) set("soundMissing", value) end)
+            _, y = CreateSettingsDropdown(remindersContent, L["SoundChoice"], y, 250,
+                function() return iST:GetSoundOptions(settings.soundChoice) end,
+                function() return settings.soundChoice end,
+                function(value) set("soundChoice", value) end, 10)
+            _, y = CreateSettingsButton(remindersContent, L["SoundTest"], 130, y,
+                function() iST:TestCueSound(settings.soundChoice) end)
             y = y - 6
             _, y = CreateCustomSlider(remindersContent, L["ReminderScale"], y, 0.5, 3, 0.05,
                 function() return settings.scale end, function(value) set("scale", value) end,
