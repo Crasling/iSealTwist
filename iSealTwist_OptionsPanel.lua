@@ -1406,6 +1406,7 @@ function iST:CreateOptionsPanel()
             function(v)
                 iSTSettings.showEchoTimer = v
                 iST:UpdateEchoTimerDisplay()
+                iST:UpdateMoveSurfaceMouse()
                 if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
             end)
         DependsOn(echoTimerCheckbox, WrathAvailable)
@@ -1648,6 +1649,7 @@ function iST:CreateOptionsPanel()
                     iSTSettings[key] = value
                     if key == "showStackCounter" then iST:CreateStackManagedDisplay() end
                     iST:UpdateWrathDisplay()
+                    iST:UpdateMoveSurfaceMouse()
                     RefreshEchoPreview()
                     if settingsFrame.UpdatePreviewLayout then settingsFrame.UpdatePreviewLayout() end
                     RefreshAvailability()
@@ -2737,7 +2739,7 @@ function iST:CreateOptionsPanel()
 end
 
 -- Update this version and its highlights together for the next release
--- that needs an automatic announcement. Older notes remain available in the changelog.
+-- that needs an automatic announcement. Hotfixes keep these notes and their dismissal state.
 local WHATS_NEW_VERSION = "0.9.1"
 
 function iST:OpenProfileTransfer(mode)
@@ -2920,7 +2922,7 @@ function iST:OpenWhatsNew()
 end
 
 function iST:MaybeShowWhatsNew()
-    if self.Version ~= WHATS_NEW_VERSION or not iSTAccountSettings
+    if not iSTAccountSettings
         or iSTAccountSettings.whatsNewSeenVersion == WHATS_NEW_VERSION then
         self.State.PendingWhatsNew = nil
         return

@@ -993,7 +993,7 @@ function iST:CreateSwingBar()
     bar.contentInset = CONTENT_INSET
     bar:SetClampedToScreen(true)
     bar:SetMovable(true)
-    bar:EnableMouse(true)
+    bar:EnableMouse(false)
 
     if bar.SetBackdrop then
         bar:SetBackdrop({
@@ -1018,7 +1018,8 @@ function iST:CreateSwingBar()
     -- Use drag start/stop so releasing outside the bar still saves its position.
     bar:RegisterForDrag("LeftButton")
     bar:SetScript("OnDragStart", function(self)
-        if not iSTSettings.barLocked and not (InCombatLockdown and InCombatLockdown()) then
+        if iST.State.EditMode and not iSTSettings.barLocked
+            and not (InCombatLockdown and InCombatLockdown()) then
             self.isDragging = true
             iST:BeginMoveGuides(self)
         end
@@ -1068,10 +1069,11 @@ function iST:CreateSwingBar()
         sealIconFrame:SetPoint("RIGHT", bar, "LEFT", -7, 0)
     end
     sealIconFrame:SetMovable(true)
-    sealIconFrame:EnableMouse(not iSTSettings.barLocked)
+    sealIconFrame:EnableMouse(false)
     sealIconFrame:RegisterForDrag("LeftButton")
     sealIconFrame:SetScript("OnDragStart", function(self)
-        if not iSTSettings.barLocked and not (InCombatLockdown and InCombatLockdown()) then
+        if iST.State.EditMode and not iSTSettings.barLocked
+            and not (InCombatLockdown and InCombatLockdown()) then
             self.isDragging = true
             iST:BeginMoveGuides(self)
         end
@@ -1395,7 +1397,8 @@ function iST:ShowBar()
         self.BarFrame.fadeTarget = nil
         self.BarFrame.fadeAlpha = 1
         SetSwingBarAlpha(self.BarFrame, 1)
-        self.BarFrame:EnableMouse(not iSTSettings.barLocked)
+        self.BarFrame:EnableMouse(self.State.EditMode == true and not iSTSettings.barLocked
+            and self.State.InCombat ~= true and not (InCombatLockdown and InCombatLockdown()))
         self.BarFrame:Show()
         self.State.BarVisible = true
     end
@@ -1410,7 +1413,8 @@ function iST:FadeBarTo(target)
         SetSwingBarAlpha(bar, target)
     end
     if bar.fadeTarget ~= target then
-        bar:EnableMouse(target > 0 and not iSTSettings.barLocked)
+        bar:EnableMouse(target > 0 and self.State.EditMode == true and not iSTSettings.barLocked
+            and self.State.InCombat ~= true and not (InCombatLockdown and InCombatLockdown()))
         if bar.fadeTarget ~= nil and not self.State.InCombat then
             self:DebugMsg(target > 0 and "Swing bar shown: active Seal or confirmed Echo stacks."
                 or "Swing bar faded: no active Seal or confirmed Echo stacks.", 3)
@@ -2183,6 +2187,37 @@ function iST:UpdateLatency()
 end
 
 -- Minimap and addon compartment button
+function iST:UpdateMoveSurfaceMouse()
+    local moving = self.State.EditMode == true and not iSTSettings.barLocked
+        and self.State.InCombat ~= true and not (InCombatLockdown and InCombatLockdown())
+    local bar = self.BarFrame
+    if bar then
+        pcall(bar.EnableMouse, bar, moving and bar:IsShown() and (bar.fadeTarget or 1) > 0)
+        for _, frame in pairs({ bar.sealIconFrame, bar.echoTimerFrame, bar.stackCountFrame }) do
+            if frame then pcall(frame.EnableMouse, frame, moving) end
+        end
+    end
+    if self.ReminderFrames then
+        for kind, frame in pairs(self.ReminderFrames) do
+            local settings = iSTSettings.reminders and iSTSettings.reminders[kind]
+            pcall(frame.EnableMouse, frame, moving and settings ~= nil and settings.enabled == true)
+        end
+    end
+    if not moving then
+        local center = self.CenterSwitchFrame
+        if center then
+            pcall(center.EnableMouse, center, false)
+            if center.dragHandle then
+                pcall(center.dragHandle.EnableMouse, center.dragHandle, false)
+                pcall(center.dragHandle.Hide, center.dragHandle)
+            end
+        end
+        if self.WorldEchoCueFrame then
+            pcall(self.WorldEchoCueFrame.EnableMouse, self.WorldEchoCueFrame, false)
+        end
+    end
+end
+
 function iST:SetBarLocked(locked, announce)
     iSTSettings.barLocked = locked == true
     if iSTSettings.barLocked and self.State.EditMode then
@@ -2191,19 +2226,7 @@ function iST:SetBarLocked(locked, announce)
         and not (InCombatLockdown and InCombatLockdown()) then
         self:StartEditMode()
     end
-    if self.BarFrame then
-        self.BarFrame:EnableMouse(not iSTSettings.barLocked
-            and self.BarFrame:IsShown() and (self.BarFrame.fadeTarget or 1) > 0)
-    end
-    if self.BarFrame and self.BarFrame.sealIconFrame then
-        self.BarFrame.sealIconFrame:EnableMouse(not iSTSettings.barLocked)
-    end
-    if self.BarFrame and self.BarFrame.echoTimerFrame then
-        self.BarFrame.echoTimerFrame:EnableMouse(not iSTSettings.barLocked)
-    end
-    if self.BarFrame and self.BarFrame.stackCountFrame then
-        self.BarFrame.stackCountFrame:EnableMouse(not iSTSettings.barLocked)
-    end
+    self:UpdateMoveSurfaceMouse()
     self:UpdateReminders()
     self:UpdateMoveOutlines()
     local checkbox = self.SettingsFrame and self.SettingsFrame.barLockCheckbox
@@ -2488,6 +2511,8 @@ function iST:StopTestMode()
     self:UpdateSealDisplay()
     self:UpdateWrathDisplay()
     self:UpdateBarVisibility()
+    self:UpdateMoveSurfaceMouse()
+    self:UpdateReminders()
     self:UpdateMoveOutlines()
 end
 
@@ -2538,6 +2563,7 @@ function iST:StartEditMode()
     if iSTSettings.showWorldEchoCue then self:SetWorldEchoCueMoveMode(true) end
     if iSTSettings.showCenterSwitchText then self:SetCenterSwitchMoveMode(true) end
     self:UpdateReminders()
+    self:UpdateMoveSurfaceMouse()
     self:UpdateMoveOutlines()
 end
 
@@ -2667,6 +2693,7 @@ local function OnEvent(self, event, ...)
     if event == "PLAYER_REGEN_DISABLED" then
         iST.State.InCombat = true
         iST:StopTestMode()
+        iST:UpdateMoveSurfaceMouse()
 
         iST:UpdateBarVisibility()
 
@@ -2693,6 +2720,7 @@ local function OnEvent(self, event, ...)
 
     if event == "PLAYER_REGEN_ENABLED" then
         iST.State.InCombat = false
+        iST:UpdateMoveSurfaceMouse()
         iST.State.CenterSwitchPhaseBlocked = nil
         -- Stored seals remain available through short combat breaks.
         if iSTSettings.debugMode then
@@ -2847,6 +2875,7 @@ function iST:OnAddonLoaded()
     self:InitializeReminders()
 
     self:UpdateBarVisibility()
+    self:UpdateMoveSurfaceMouse()
 
     self:UpdateLatency()
 

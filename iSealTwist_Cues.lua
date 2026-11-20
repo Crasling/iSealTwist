@@ -142,10 +142,10 @@ function iST:CreateWrathCue(bar)
     stackFrame:SetSize(104, 26)
     stackFrame:SetFrameLevel(bar:GetFrameLevel() + 6)
     stackFrame:SetMovable(true)
-    stackFrame:EnableMouse(not iSTSettings.barLocked)
+    stackFrame:EnableMouse(false)
     stackFrame:RegisterForDrag("LeftButton")
     stackFrame:SetScript("OnDragStart", function(self)
-        if not iSTSettings.barLocked and not CombatLocked() then
+        if iST.State.EditMode and not iSTSettings.barLocked and not CombatLocked() then
             self.isDragging = true
             iST:BeginMoveGuides(self)
         end
@@ -380,10 +380,10 @@ function iST:UpdateEchoTimerDisplay()
             end
             frame:SetFrameLevel(bar:GetFrameLevel() + 6)
             frame:SetMovable(true)
-            frame:EnableMouse(not iSTSettings.barLocked)
+            frame:EnableMouse(false)
             frame:RegisterForDrag("LeftButton")
             frame:SetScript("OnDragStart", function(self)
-                if not iSTSettings.barLocked and not CombatLocked() then
+                if iST.State.EditMode and not iSTSettings.barLocked and not CombatLocked() then
                     self.isDragging = true
                     iST:BeginMoveGuides(self)
                 end
@@ -670,6 +670,7 @@ function iST:UpdateNameplateEchoDisplay()
             host:EnableMouse(false)
             local container = CreateFrame("AuraContainer", nil, host, "CustomAuraContainerTemplate")
             container:SetAllPoints(host)
+            container:EnableMouse(false)
             container:SetUnit("player")
             host.container, host.slots = container, {}
             host.glows, host.dots, host.sealPips, host.pipRows = {}, {}, {}, {}
@@ -985,6 +986,7 @@ function iST:UpdateWorldEchoCue(preview)
             end
             local container = CreateFrame("AuraContainer", nil, frame, "CustomAuraContainerTemplate")
             container:SetAllPoints(frame)
+            container:EnableMouse(false)
             container:SetUnit("player")
             frame.container = container
             for _, slot in ipairs(frame.slots) do
@@ -1120,7 +1122,8 @@ function iST:SetWorldEchoCueMoveMode(moving)
         end
         return
     end
-    if moving and iSTSettings.barLocked then self:SetBarLocked(false) end
+    if moving and (not self.State.EditMode or iSTSettings.barLocked) then self:SetBarLocked(false) end
+    if moving and (not self.State.EditMode or iSTSettings.barLocked) then return end
     if moving and not self.WorldEchoCueFrame then self:UpdateWorldEchoCue(true) end
     local frame = self.WorldEchoCueFrame
     if not frame then return end
@@ -1208,19 +1211,29 @@ end
 
 function iST:SetCenterSwitchMoveMode(enabled)
     if enabled and CombatLocked() then return end
-    if enabled and iSTSettings.barLocked then self:SetBarLocked(false) end
+    if enabled and (not self.State.EditMode or iSTSettings.barLocked) then self:SetBarLocked(false) end
+    if enabled and (not self.State.EditMode or iSTSettings.barLocked) then return end
     if enabled and not self.CenterSwitchFrame then self:UpdateCenterSwitchText(true) end
     local frame = self.CenterSwitchFrame
     if not frame then return end
     frame.moving = enabled == true
+    local handle = frame.dragHandle
     if CombatLocked() then
         pcall(frame.EnableMouse, frame, false)
+        if handle then
+            pcall(handle.EnableMouse, handle, false)
+            pcall(handle.Hide, handle)
+        end
         pcall(frame.preview.Hide, frame.preview)
         pcall(frame.moveBackdrop.Hide, frame.moveBackdrop)
         frame.restoreStrata = true
         return
     end
-    frame:EnableMouse(frame.moving)
+    frame:EnableMouse(false)
+    if handle then
+        handle:EnableMouse(frame.moving)
+        handle:SetShown(frame.moving)
+    end
     frame.preview:SetShown(frame.moving)
     frame.moveBackdrop:SetShown(frame.moving)
     if frame.moving then
@@ -1294,22 +1307,30 @@ function iST:UpdateCenterSwitchText(forceCreate)
             host:SetClampedToScreen(true)
             host:SetMovable(true)
             host:EnableMouse(false)
-            host:SetScript("OnDragStart", function(self)
-                if self.moving and not CombatLocked() then
-                    iST:BeginMoveGuides(self)
+            local dragHandle = CreateFrame("Frame", nil, UIParent)
+            dragHandle:SetSize(260, 48)
+            dragHandle:SetPoint("CENTER", host, "CENTER")
+            dragHandle:SetFrameStrata("DIALOG")
+            dragHandle:SetFrameLevel(host:GetFrameLevel() + 10)
+            dragHandle:EnableMouse(false)
+            dragHandle:RegisterForDrag("LeftButton")
+            dragHandle:SetScript("OnDragStart", function()
+                if host.moving and not CombatLocked() then
+                    iST:BeginMoveGuides(host)
                 end
             end)
-            host:SetScript("OnDragStop", function(self)
-                iST:EndMoveGuides(self)
-                local point, _, relativePoint, x, y = self:GetPoint()
+            dragHandle:SetScript("OnDragStop", function()
+                iST:EndMoveGuides(host)
+                local point, _, relativePoint, x, y = host:GetPoint()
                 iSTSettings.centerSwitchPoint = { point, nil, relativePoint, x, y }
             end)
-            host:SetScript("OnMouseUp", function(self, button)
-                if button == "RightButton" and iST:CanResetMovePosition(self) then
+            dragHandle:SetScript("OnMouseUp", function(_, button)
+                if button == "RightButton" and iST:CanResetMovePosition(host) then
                     iST:ResetCenterSwitchPosition()
                 end
             end)
-            host:RegisterForDrag("LeftButton")
+            dragHandle:Hide()
+            host.dragHandle = dragHandle
             host.moveBackdrop = host:CreateTexture(nil, "BACKGROUND")
             host.moveBackdrop:SetAllPoints(host)
             host.moveBackdrop:SetColorTexture(0.10, 0.07, 0.025, 0.75)
@@ -1331,7 +1352,8 @@ function iST:UpdateCenterSwitchText(forceCreate)
                 for _, slot in ipairs(host.slots) do
                     local slotInfo = slot
                     local slotFrame = CreateFrame("Frame", nil, host)
-                    slotFrame:SetAllPoints(host)
+                    slotFrame:SetSize(1, 1)
+                    slotFrame:SetPoint("TOPLEFT", host, "TOPLEFT")
                     slotFrame:EnableMouse(false)
                     slotFrame:SetAlpha(phaseName == "switch" and 1 or 0)
                     host.phaseSlotFrames[phaseName][slotInfo.key] = slotFrame
@@ -1346,7 +1368,8 @@ function iST:UpdateCenterSwitchText(forceCreate)
                             button:SetAllPoints(slotFrame)
                             button:EnableMouse(false)
                             local message = button:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-                            message:SetAllPoints(button)
+                            message:SetSize(360, 68)
+                            message:SetPoint("CENTER", host, "CENTER")
                             message:SetJustifyH("CENTER")
                             message:SetJustifyV("MIDDLE")
                             message:SetShadowOffset(2, -2)
@@ -1378,6 +1401,11 @@ function iST:UpdateCenterSwitchText(forceCreate)
             return
         end
         frame = result
+        -- A newly created cue must be click-through before any move command.
+        frame.moving = false
+        frame:EnableMouse(false)
+        frame.dragHandle:EnableMouse(false)
+        frame.dragHandle:Hide()
         self.CenterSwitchFrame = frame
         local fallback = CreateFrame("Frame", nil, UIParent)
         fallback:SetAllPoints(frame)
@@ -1523,6 +1551,7 @@ function iST:UpdateNativeReadyDisplay()
         local ok, result = pcall(function()
             local frame = CreateFrame("AuraContainer", nil, bar, "CustomAuraContainerTemplate")
             frame:SetSize(250, 32)
+            frame:EnableMouse(false)
             frame:SetPoint("BOTTOM", bar, "TOP", 0, 35)
             frame:SetFrameLevel(bar:GetFrameLevel() + 7)
             frame:SetUnit("player")
@@ -2019,6 +2048,7 @@ function iST:CreateStackManagedDisplay()
         assert(C_AuraContainerUtil, "Blizzard's custom aura container API is unavailable")
         local frame = CreateFrame("AuraContainer", nil, bar.stackCountFrame, "CustomAuraContainerTemplate")
         frame:SetAllPoints(bar.stackCountFrame)
+        frame:EnableMouse(false)
         frame:SetFrameLevel(bar.stackCountFrame:GetFrameLevel() + 1)
         frame:SetUnit("player")
         local formatter = C_StringUtil and C_StringUtil.CreateAbbreviatedNumberFormatter

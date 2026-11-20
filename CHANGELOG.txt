@@ -2,6 +2,10 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.9.2 - Hotfix
+--------------------------------------------------------------------------------
+[FIXED] Indicators, reminders, and Switch/Attack text no longer block mouse clicks or camera movement while positions are locked.
+
 v0.9.1 - Echo Customization
 --------------------------------------------------------------------------------
 [ADDED] Choose a Switch target of >0, 1, 2, or 3 Echo stacks for each Seal. Targets also match higher counts; >0 keeps the cue after an Echo ends until you change Seals.

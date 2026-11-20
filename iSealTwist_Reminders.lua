@@ -292,6 +292,7 @@ function iST:InitializeReminders()
         frame:SetFrameStrata("MEDIUM")
         frame:SetClampedToScreen(true)
         frame:SetMovable(true)
+        frame:EnableMouse(false)
         frame:RegisterForDrag("LeftButton")
         -- Only the buff icon has a border. The warning itself floats over the world.
         frame.iconFrame = CreateFrame("Frame", nil, frame, "BackdropTemplate")
@@ -299,6 +300,7 @@ function iST:InitializeReminders()
         frame.iconFrame:SetPoint("LEFT", frame, "LEFT", 0, 0)
         frame.iconFrame:SetBackdrop({ bgFile = "Interface\\BUTTONS\\WHITE8X8", edgeFile = "Interface\\BUTTONS\\WHITE8X8", edgeSize = 1 })
         frame.iconFrame:SetBackdropColor(0, 0, 0, 0.8)
+        frame.iconFrame:EnableMouse(false)
         frame.icon = frame.iconFrame:CreateTexture(nil, "ARTWORK")
         frame.icon:SetPoint("TOPLEFT", frame.iconFrame, "TOPLEFT", 2, -2)
         frame.icon:SetPoint("BOTTOMRIGHT", frame.iconFrame, "BOTTOMRIGHT", -2, 2)
@@ -319,7 +321,7 @@ function iST:InitializeReminders()
             text:SetShadowOffset(1, -1)
         end
         frame:SetScript("OnDragStart", function(self)
-            if not iSTSettings.barLocked and iSTSettings.reminders[reminderKind].enabled
+            if iST.State.EditMode and not iSTSettings.barLocked and iSTSettings.reminders[reminderKind].enabled
                 and not (InCombatLockdown and InCombatLockdown()) then
                 self.isDragging = true
                 iST:BeginMoveGuides(self)
@@ -433,7 +435,8 @@ function iST:UpdateReminders()
         self:UpdateReminderSound(kind, settings, inCombat, eligible, visible, preview, known, soundActive, warning)
         frame:SetShown(show == true)
         frame:SetFrameStrata(preview and "DIALOG" or "MEDIUM")
-        frame:EnableMouse(not iSTSettings.barLocked and settings.enabled and not inCombat)
+        frame:EnableMouse(state.EditMode == true and not iSTSettings.barLocked
+            and settings.enabled and not inCombat)
         if show then
             if preview then
                 title = kind == "FURY" and L["ReminderFury"] or L["ReminderSeal"]
