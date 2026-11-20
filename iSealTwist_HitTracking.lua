@@ -227,7 +227,7 @@ function iST:ObserveWrathHitFeedback(unit, action, flags, amount, school)
     -- The swing already updated the display. A changed buff snapshot can
     -- correct it; delayed feedback must not add the same hit a second time.
     local observed, changed
-    if not iSTSettings.fakeUnsealedWrath then observed, changed = self:ObserveWrathAura(nil, true) end
+    observed, changed = self:ObserveWrathAura(nil, true)
     if pending.provisional then
         trace("swing #%d matched target hit: stacks=%d; buff changed=%s",
             pending.id, self.WrathTracker.count, tostring(changed == true))

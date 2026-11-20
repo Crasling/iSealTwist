@@ -1,13 +1,31 @@
 local _, iST = ...
 
--- Use game sounds so cues work without a sound addon or external files.
+-- Bundled cues always work without a separate media addon. Keep the old
+-- SoundKit keys so existing saved sound choices still play.
 iST.SoundChoices = {
     MAP_PING = { label = "Map ping", fallback = 3175 },
     AUCTION_WINDOW_OPEN = { label = "Bell", fallback = 5274 },
     IG_MAINMENU_OPTION_CHECKBOX_ON = { label = "Click", fallback = 856 },
     IG_QUEST_LOG_ABANDON_QUEST = { label = "Short warning", fallback = 846 },
+    ["FILE:Soft Chime"] = { label = "Soft Chime", file = "SoftChime.ogg" },
+    ["FILE:Bright Chime"] = { label = "Bright Chime", file = "BrightChime.ogg" },
+    ["FILE:Silver Bell"] = { label = "Silver Bell", file = "SilverBell.ogg" },
+    ["FILE:Double Bell"] = { label = "Double Bell", file = "DoubleBell.ogg" },
+    ["FILE:Rising Ping"] = { label = "Rising Ping", file = "RisingPing.ogg" },
+    ["FILE:Falling Ping"] = { label = "Falling Ping", file = "FallingPing.ogg" },
+    ["FILE:Warm Pulse"] = { label = "Warm Pulse", file = "WarmPulse.ogg" },
+    ["FILE:Sharp Pulse"] = { label = "Sharp Pulse", file = "SharpPulse.ogg" },
+    ["FILE:Echo Spark"] = { label = "Echo Spark", file = "EchoSpark.ogg" },
+    ["FILE:Alert Tick"] = { label = "Alert Tick", file = "AlertTick.ogg" },
+    ["FILE:Short Sweep"] = { label = "Short Sweep", file = "ShortSweep.ogg" },
+    ["FILE:Triad"] = { label = "Triad", file = "Triad.ogg" },
 }
-iST.SoundChoiceOrder = { "MAP_PING", "AUCTION_WINDOW_OPEN", "IG_MAINMENU_OPTION_CHECKBOX_ON", "IG_QUEST_LOG_ABANDON_QUEST" }
+iST.SoundChoiceOrder = {
+    "FILE:Soft Chime", "FILE:Bright Chime", "FILE:Silver Bell", "FILE:Double Bell",
+    "FILE:Rising Ping", "FILE:Falling Ping", "FILE:Warm Pulse", "FILE:Sharp Pulse",
+    "FILE:Echo Spark", "FILE:Alert Tick", "FILE:Short Sweep", "FILE:Triad",
+    "MAP_PING", "AUCTION_WINDOW_OPEN", "IG_MAINMENU_OPTION_CHECKBOX_ON", "IG_QUEST_LOG_ABANDON_QUEST",
+}
 
 local function SharedSounds()
     if not LibStub then return nil end
@@ -23,7 +41,9 @@ end
 function iST:GetSoundOptions(selected)
     local choices, found = {}, {}
     for _, key in ipairs(self.SoundChoiceOrder) do
-        choices[#choices + 1] = { value = key, text = self.SoundChoices[key].label }
+        local sound = self.SoundChoices[key]
+        choices[#choices + 1] = { value = key,
+            text = (sound.file and "iSealTwist: " or "WoW: ") .. sound.label }
         found[key] = true
     end
     local media = SharedSounds()
@@ -34,7 +54,15 @@ function iST:GetSoundOptions(selected)
                 if type(name) == "string" then
                     local key = "LSM:" .. name
                     if not found[key] then
-                        choices[#choices + 1] = { value = key, text = name .. " (shared)" }
+                        local source = "SharedMedia"
+                        if type(media.Fetch) == "function" then
+                            local pathOK, path = pcall(media.Fetch, media, "sound", name, true)
+                            if pathOK and type(path) == "string" then
+                                source = path:gsub("/", "\\"):match("[Ii]nterface\\[Aa]dd[Oo]ns\\([^\\]+)")
+                                    or source
+                            end
+                        end
+                        choices[#choices + 1] = { value = key, text = source .. ": " .. name }
                         found[key] = true
                     end
                 end
@@ -42,7 +70,8 @@ function iST:GetSoundOptions(selected)
         end
     end
     if type(selected) == "string" and selected:sub(1, 4) == "LSM:" and not found[selected] then
-        choices[#choices + 1] = { value = selected, text = selected:sub(5) .. " (unavailable)" }
+        choices[#choices + 1] = { value = selected,
+            text = "SharedMedia: " .. selected:sub(5) .. " (unavailable)" }
     end
     return choices
 end
@@ -57,7 +86,13 @@ function iST:PlayCueSound(choice)
         return playedOK and played == true
     end
     local selected = self.SoundChoices[choice]
-    if not selected or type(PlaySound) ~= "function" then return false end
+    if not selected then return false end
+    if selected.file then
+        if type(PlaySoundFile) ~= "function" then return false end
+        local ok, played = pcall(PlaySoundFile, self.AddonPath .. "Sounds\\" .. selected.file, "Master")
+        return ok and played == true
+    end
+    if type(PlaySound) ~= "function" then return false end
     local sound = SOUNDKIT and SOUNDKIT[choice] or selected.fallback
     if type(sound) ~= "number" then return false end
     local ok, played = pcall(PlaySound, sound, "Master")
@@ -68,7 +103,10 @@ function iST:TestCueSound(choice)
     if not self:PlayCueSound(choice) then print(self.L["SoundUnavailable"]) end
 end
 
-function iST:UpdateThreeStackSound(count, active, now)
+function iST:UpdateThreeStackSound(count, active, now, confirmed)
+    -- A swing changes the visible counter before its hit result arrives.
+    -- Only a matched hit or readable Echo aura may trigger or rearm the cue.
+    if not confirmed then return end
     local state = self.State
     active = active and self:ShouldShowBar()
     -- Arm a new cue only after the stacks have cleared. A brief correction
@@ -77,8 +115,8 @@ function iST:UpdateThreeStackSound(count, active, now)
         state.ThreeStackSoundReady = true
         return
     end
-    if count < 3 then return end
-    if not state.ThreeStackSoundReady then return end
+    if count < self:GetTwistStackTarget(self.WrathTracker.seal) then return end
+    if state.ThreeStackSoundReady == false then return end
     state.ThreeStackSoundReady = false
     if state.TestMode or not iSTSettings.soundThreeStacks then return end
     now = now or GetTime()

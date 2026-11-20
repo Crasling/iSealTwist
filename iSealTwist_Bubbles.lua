@@ -53,6 +53,61 @@ function iST:RenderStackBubbles(frame, count, color)
     end
 end
 
+function iST:CreateStackSealIcons(parent, size, gap, texture, nativeButton)
+    local strip = CreateFrame("Frame", nil, parent)
+    strip:SetSize(size * 3 + gap * 2, size + 8)
+    strip:EnableMouse(false)
+    strip.dimIcons, strip.brightIcons = {}, {}
+    local clip
+    if nativeButton then
+        local progress = CreateFrame("StatusBar", nil, nativeButton)
+        progress:SetAllPoints(strip)
+        progress:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+        progress:SetAlpha(0)
+        clip = CreateFrame("Frame", nil, nativeButton, "DisableUntrustedLayoutScriptsTemplate")
+        clip:SetClipsChildren(true)
+        clip:EnableMouse(false)
+        clip:SetPoint("TOPLEFT", progress, "TOPLEFT")
+        clip:SetPoint("BOTTOMRIGHT", progress:GetStatusBarTexture(), "BOTTOMRIGHT")
+        nativeButton:SetApplicationBar(progress, { maxApplications = 3 })
+        strip.progress, strip.clip = progress, clip
+    end
+    for index = 1, 3 do
+        local x = (index - 2) * (size + gap)
+        local dim = strip:CreateTexture(nil, "ARTWORK")
+        dim:SetSize(size, size)
+        dim:SetPoint("CENTER", strip, "CENTER", x, 0)
+        dim:SetTexture(texture)
+        dim:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        dim:SetVertexColor(0.45, 0.42, 0.34, 0.42)
+        local bright = (clip or strip):CreateTexture(nil, "OVERLAY")
+        bright:SetSize(size, size)
+        bright:SetPoint("CENTER", strip, "CENTER", x, 0)
+        bright:SetTexture(texture)
+        bright:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        strip.dimIcons[index], strip.brightIcons[index] = dim, bright
+    end
+    strip.texture = texture
+    return strip
+end
+
+function iST:RenderStackSealIcons(strip, count, texture)
+    if not strip then return end
+    if texture and strip.texture ~= texture then
+        for index = 1, 3 do
+            strip.dimIcons[index]:SetTexture(texture)
+            strip.brightIcons[index]:SetTexture(texture)
+        end
+        strip.texture = texture
+    end
+    if strip.progress then return end
+    if strip.lastCount == count then return end
+    strip.lastCount = count
+    for index, icon in ipairs(strip.brightIcons) do
+        icon:SetAlpha(index <= count and 1 or 0)
+    end
+end
+
 local function GetPlayerManaAnchor()
     if not PlayerFrame then return end
     -- Prefer the getter, with the current player-frame layout as a fallback.
@@ -91,10 +146,15 @@ function iST:CreatePlayerWrathFrame()
     inset:SetPoint("TOPLEFT", frame, "TOPLEFT", 5, -5)
     inset:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 5)
     inset:SetColorTexture(0.025, 0.02, 0.012, 0.85)
+    frame.inset = inset
     local orbs = self:CreateStackBubbles(frame, nil, 19, 10)
     orbs:SetPoint("CENTER", frame, "CENTER")
     orbs:Show()
     frame.orbs, frame.bubbles = orbs.orbs, orbs
+    local icons = self:CreateStackSealIcons(frame, 21, 5)
+    icons:SetPoint("CENTER", frame, "CENTER")
+    icons:Hide()
+    frame.sealIcons = icons
     frame.updateAccum = 0
     -- The swing bar can be hidden between attacks, so the bubbles need their own
     -- update timer to clear expired stacks.
@@ -112,11 +172,17 @@ end
 function iST:UpdatePlayerWrathBubbles(now)
     local frame = self.PlayerWrathFrame
     if not frame then return end
-    local count, active = self:GetWrathDisplayState(now or GetTime())
-    if not iSTSettings.showPlayerWrathBubbles or not active or not self:ShouldShowBar() then
+    local count, active = 0, self:IsWrathTrackingEnabled()
+    if self.State.TestMode then count, active = self:GetWrathDisplayState(now or GetTime()) end
+    if not iSTSettings.showPlayerWrathBubbles or not active or not self:ShouldShowAuxiliaryCues() then
         frame:Hide()
         return
     end
+    local iconStyle = iSTSettings.stackBubbleStyle == "SEAL_ICONS"
+    local bar = self.BarFrame
+    local native = bar and (iconStyle and bar.nativeSealIconsPlayerVisible == true
+        or not iconStyle and bar.nativeStagePlayerVisible == true)
+    if not self.State.TestMode and not native then frame:Hide() return end
     local mana = GetPlayerManaAnchor()
     if not IsVisible(PlayerFrame) or not IsVisible(mana) then frame:Hide() return end
     if UnitHasVehicleUI then
@@ -139,8 +205,25 @@ function iST:UpdatePlayerWrathBubbles(now)
         local scale = manaScale / parentScale
         if frame.anchorScale ~= scale then frame:SetScale(scale); frame.anchorScale = scale end
     end
-    local native = self.BarFrame and self.BarFrame.nativeStagePlayerVisible == true
-    self:RenderStackBubbles(frame.bubbles, native and 0 or count,
-        self:GetWrathCueColor(native and 0 or count))
+    local icons = iconStyle
+    if frame.iconStyle ~= icons then
+        local ok = pcall(function()
+            frame:SetBackdropColor(0.12, 0.09, 0.04, icons and 0 or 0.95)
+            frame:SetBackdropBorderColor(0.86, 0.68, 0.28, icons and 0 or 1)
+            frame.inset:SetAlpha(icons and 0 or 1)
+        end)
+        if ok then frame.iconStyle = icons end
+    end
+    frame.bubbles:SetShown(not icons)
+    if icons then
+        local source = self.State.TestMode and iSTSettings.twistFromSeal
+        local texture = source and bar and bar.stackSealIcons[source]
+        frame.sealIcons:SetShown(self.State.TestMode and count > 0 and texture ~= nil)
+        if self.State.TestMode and texture then self:RenderStackSealIcons(frame.sealIcons, count, texture) end
+    else
+        frame.sealIcons:Hide()
+        local stage = self.State.TestMode and count or 0
+        self:RenderStackBubbles(frame.bubbles, stage, self:GetWrathCueColor(stage))
+    end
     frame:Show()
 end

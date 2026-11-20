@@ -8,11 +8,11 @@ local CAPITAL_MAPS = { [1453] = "Alliance", [1454] = "Horde", [1455] = "Alliance
 iST.ReminderDefaults = {
     FURY = { enabled = false, showIcon = true, showTime = true, locked = true, scale = 1,
         warningSeconds = 60, protOnly = false, dungeonsOnly = false, partyOnly = false,
-        soundExpiring = false, soundMissing = false, soundChoice = "MAP_PING",
+        soundExpiring = false, soundMissing = false, soundChoice = "FILE:Sharp Pulse",
         point = { "CENTER", "CENTER", -180, -120 } },
     SEAL = { enabled = false, showIcon = true, showTime = true, locked = true, scale = 1,
         warningSeconds = 5, onlyInCombat = false, hideAfterIdle = false, hideInCapitals = false,
-        soundExpiring = false, soundMissing = false, soundChoice = "MAP_PING",
+        soundExpiring = false, soundMissing = false, soundChoice = "FILE:Alert Tick",
         point = { "CENTER", "CENTER", 180, -120 } },
 }
 
@@ -32,7 +32,7 @@ local function enabled()
     return iSTSettings and iSTSettings.reminders
         and (iSTSettings.reminders.FURY.enabled or iSTSettings.reminders.SEAL.enabled)
 end
-local previewUntil, nextProtectionRead = {}, 0
+local previewUntil, nextProtectionRead, protectionRefreshGeneration = {}, 0, 0
 local lastSealCombatAt = GetTime()
 local capitalMap, nextCapitalCheck = nil, 0
 
@@ -93,18 +93,66 @@ function iST:RefreshReminderProtection()
     -- talent read instead of guessing the character's specialization.
     if read(InCombatLockdown) ~= false or read(UnitAffectingCombat, "player") ~= false then return end
     local _, class = read(UnitClass, "player")
-    if class ~= "PALADIN" then self.State.ReminderProtection = false; return end
-    local reader = C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo
-    if type(reader) ~= "function" then return end
-    local points = {}
-    for index = 1, 3 do
-        local ok, spent = pcall(function() return select(7, reader(index, false, false)) end)
-        if not ok or not number(spent) or spent < 0 then return end
-        points[index] = spent
+    if class ~= "PALADIN" then
+        self.State.ReminderProtection = false
+        self.State.ReminderProtectionGroup = nil
+        self.State.ReminderProtectionConfigID = nil
+        return
     end
+    local configID = read(C_ClassTalents and C_ClassTalents.GetActiveConfigID)
+    if not number(configID) then return end
+    local group = read(C_SpecializationInfo and C_SpecializationInfo.GetActiveSpecGroup, false, false)
+    if not number(group) then group = nil end
+    local state = self.State
+    if state.ReminderProtectionConfigID == configID and state.ReminderProtectionGroup == group
+        and state.ReminderProtection ~= nil
+        and GetTime() < (state.ReminderProtectionNextScanAt or 0) then return end
+    local traits = C_Traits
+    if not traits or type(traits.GetGroupDisplayInfoByTreeID) ~= "function" then return end
+    local ok, points = pcall(function()
+        local config = traits.GetConfigInfo(configID)
+        if secret(config) or type(config) ~= "table" then return nil end
+        local treeIDs = config.treeIDs
+        if secret(treeIDs) or type(treeIDs) ~= "table" or not number(treeIDs[1]) then return nil end
+        local treeID = treeIDs[1]
+        local groups = traits.GetGroupDisplayInfoByTreeID(treeID)
+        if secret(groups) or type(groups) ~= "table" or #groups < 3 then return nil end
+        table.sort(groups, function(a, b) return a.orderIndex < b.orderIndex end)
+        local groupIndex, result = {}, { 0, 0, 0 }
+        for index = 1, 3 do
+            local info = groups[index]
+            if secret(info) or not number(info.groupID) then return nil end
+            groupIndex[info.groupID] = index
+        end
+        local nodes = traits.GetTreeNodes(treeID)
+        if secret(nodes) or type(nodes) ~= "table" then return nil end
+        for _, nodeID in ipairs(nodes) do
+            if not number(nodeID) then return nil end
+            local node = traits.GetNodeInfo(configID, nodeID)
+            if secret(node) then return nil end
+            if node and node.isVisible and node.entryIDs and node.entryIDs[1] then
+                local rank = node.activeRank or node.currentRank
+                if not number(rank) then return nil end
+                if rank > 0 then
+                    local memberships = node.groupIDs
+                    if secret(memberships) or type(memberships) ~= "table" then return nil end
+                    for _, groupID in ipairs(memberships) do
+                        local index = groupIndex[groupID]
+                        if index then result[index] = result[index] + rank; break end
+                    end
+                end
+            end
+        end
+        return result
+    end)
+    if not ok or not points then return end
+    state.ReminderProtectionGroup = group
+    state.ReminderProtectionConfigID = configID
+    state.ReminderProtectionNextScanAt = GetTime() + 5
     self.State.ReminderProtection = points[2] > 0 and points[2] > points[1] and points[2] > points[3]
-    self:DebugMsg(string.format("Righteous Fury reminder: talent points Holy %d / Protection %d / Retribution %d; Protection filter %s.",
-        points[1], points[2], points[3], self.State.ReminderProtection and "matched" or "not matched"), 3)
+    self:DebugMsg(string.format("Righteous Fury reminder: active config %d, group %s; points Holy %d / Protection %d / Retribution %d; Protection filter %s.",
+        configID, tostring(state.ReminderProtectionGroup or "?"), points[1], points[2], points[3],
+        state.ReminderProtection and "matched" or "not matched"), 3)
 end
 
 local function furyScanAllowed()
@@ -320,7 +368,7 @@ function iST:UpdateReminders()
         self:RefreshReminderFury()
     end
     if iSTSettings.reminders.FURY.enabled and iSTSettings.reminders.FURY.protOnly
-        and state.ReminderProtection == nil and now >= nextProtectionRead then
+        and now >= nextProtectionRead then
         nextProtectionRead = now + 1
         self:RefreshReminderProtection()
     end
@@ -415,7 +463,8 @@ local events = CreateFrame("Frame")
 for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "PLAYER_DEAD",
     "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
     "UNIT_AURA", "UNIT_SPELLCAST_SUCCEEDED", "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED", "ACTIVE_TALENT_GROUP_CHANGED",
-    "ACTIVE_PLAYER_SPECIALIZATION_CHANGED", "PLAYER_SPECIALIZATION_CHANGED" }) do
+    "ACTIVE_PLAYER_SPECIALIZATION_CHANGED", "PLAYER_SPECIALIZATION_CHANGED", "TRAIT_NODE_CHANGED",
+    "TRAIT_TREE_CURRENCY_INFO_UPDATED" }) do
     if C_EventUtils.IsEventValid(event) then events:RegisterEvent(event) end
 end
 events:SetScript("OnEvent", function(_, event, ...)
@@ -430,10 +479,29 @@ events:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS"
         or event == "ZONE_CHANGED_NEW_AREA" then nextCapitalCheck = 0 end
     if event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "ACTIVE_TALENT_GROUP_CHANGED"
-        or event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_SPECIALIZATION_CHANGED" then
+        or event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_SPECIALIZATION_CHANGED"
+        or event == "TRAIT_NODE_CHANGED" or event == "TRAIT_TREE_CURRENCY_INFO_UPDATED" then
         if event == "PLAYER_SPECIALIZATION_CHANGED" and (secret((...)) or (...) ~= "player") then return end
         iST.State.ReminderProtection = nil
+        iST.State.ReminderProtectionGroup = nil
+        iST.State.ReminderProtectionConfigID = nil
+        iST.State.ReminderProtectionNextScanAt = 0
         nextProtectionRead = 0
+        if iSTSettings.reminders.FURY.enabled and iSTSettings.reminders.FURY.protOnly then
+            -- Talent events may arrive before the new points are available.
+            -- Recheck once the active tree has settled, including same-group edits.
+            protectionRefreshGeneration = protectionRefreshGeneration + 1
+            local generation = protectionRefreshGeneration
+            C_Timer.After(0.3, function()
+                if generation ~= protectionRefreshGeneration then return end
+                iST.State.ReminderProtection = nil
+                iST.State.ReminderProtectionGroup = nil
+                iST.State.ReminderProtectionConfigID = nil
+                iST.State.ReminderProtectionNextScanAt = 0
+                nextProtectionRead = 0
+                iST:UpdateReminders()
+            end)
+        end
     end
     if not enabled() then iST:UpdateReminders(); return end
     local furyFromEvent = false

@@ -151,6 +151,20 @@ for spellID, name in pairs(iST.SEALS) do
     end
 end
 
+iST.SealBarColorOrder = {
+    "Seal of Command", "Seal of Righteousness", "Seal of Fury", "Seal of Justice",
+    "Seal of Light", "Seal of Wisdom", "Seal of the Crusader",
+}
+iST.SealBarColorDefaults = {
+    ["Seal of Command"] = { r = 1, g = 0.66, b = 0.12, a = 0.9 },
+    ["Seal of Righteousness"] = { r = 0.83, g = 0.82, b = 0.72, a = 0.9 },
+    ["Seal of Fury"] = { r = 1, g = 0.38, b = 0.20, a = 0.9 },
+    ["Seal of Justice"] = { r = 0.68, g = 0.46, b = 0.88, a = 0.9 },
+    ["Seal of Light"] = { r = 1, g = 0.86, b = 0.42, a = 0.9 },
+    ["Seal of Wisdom"] = { r = 0.30, g = 0.65, b = 1, a = 0.9 },
+    ["Seal of the Crusader"] = { r = 1, g = 0.52, b = 0.25, a = 0.9 },
+}
+
 -- Translated names identify the seal family; spellbook checks distinguish
 -- an unlisted cast rank from a triggered effect with the same name.
 iST.KNOWN_SEAL_NAMES = {
@@ -271,7 +285,6 @@ iST.WrathTracker = iST:NewWrathTracker()
 iST.SettingsDefault = {
     enabled = true,
     debugMode = false,
-    fakeUnsealedWrath = false,
     barWidth = 250,
     barHeight = 25,
     barStyle = "CLASSIC",
@@ -281,23 +294,42 @@ iST.SettingsDefault = {
     showLatency = true,
     showSealIcon = true,
     showSealTimer = true,
+    showEchoTimer = false,
+    showNameplateEcho = false,
+    nameplateEchoGlow = true,
+    nameplateEchoStyle = "DOTS",
+    nameplateEchoScale = 1,
+    nameplateEchoOffsetY = -5,
+    showSealName = true,
     showWeaponSpeed = true,
+    showSwingRemaining = true,
     soundThreeStacks = false,
-    soundThreeStacksChoice = "MAP_PING",
-    onlyInCombat = true,
+    soundThreeStacksChoice = "FILE:Echo Spark",
+    barVisibility = "COMBAT_OR_AURA",
     onlyAsPaladin = true,
     barPoint = { "CENTER", nil, "CENTER", 0, -200 },
     swingTextSize     = 11,
     stackCounterTextSize = 16,
     showCenterSwitchText = true,
     centerSwitchText = "Switch now",
+    centerSwitchVisual = "TEXT",
     centerAttackText = "Attack now",
     centerSwitchPoint = { "CENTER", nil, "CENTER", 0, 0 },
     wrathCircleSize = 18,
     sealTextSize      = 10,
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
-    wrathCue = "COUNTER",
+    showStackCounter = true,
+    showStackCircles = false,
+    stackBubbleStyle = "CIRCLES",
+    showStackBarColor = false,
+    showStackSwordImages = false,
+    showWorldEchoCue = false,
+    worldEchoCueStyle = "WINGS",
+    worldEchoCueScale = 1,
+    worldEchoCueColor = { r = 1, g = 0.76, b = 0.22, a = 1 },
+    nameplateEchoColor = { r = 1, g = 0.72, b = 0.20, a = 1 },
+    echoTimerTextColor = { r = 1, g = 0.82, b = 0.35, a = 1 },
     showPlayerWrathBubbles = false,
     wrathColorScheme = "GOLD",
     wrathColor0 = { r = 0.50, g = 0.45, b = 0.34, a = 1 },
@@ -305,15 +337,31 @@ iST.SettingsDefault = {
     wrathColor2 = { r = 1, g = 0.68, b = 0.17, a = 1 },
     wrathColor3 = { r = 1, g = 0.78, b = 0.24, a = 1 },
     barColor          = { r = 1,    g = 0.59, b = 0.09, a = 0.9 },
+    barColorBySeal    = false,
+    highlightWrongSeal = true,
+    wrongSealColor = { r = 1, g = 0.13, b = 0.09, a = 1 },
     borderNormalColor = { r = 0.3,  g = 0.3,  b = 0.3,  a = 0.8 },
     twistFromSeal     = "Seal of Command",
     twistIntoSeal     = "Seal of Justice",
+    twistFromStacks   = 3,
+    twistIntoStacks   = 3,
     MinimapButton = { hide = false, minimapPos = 220, showInCompartment = true },
 }
 
 -- Fill in new settings without replacing the player's saved choices.
 function iST:InitializeSettings()
     if not iSTSettings then iSTSettings = {} end
+    if type(iSTAccountSettings) ~= "table" then iSTAccountSettings = {} end
+    if iSTAccountSettings.whatsNewSeenVersion == nil
+        and type(iSTSettings.whatsNewSeenVersion) == "string" then
+        iSTAccountSettings.whatsNewSeenVersion = iSTSettings.whatsNewSeenVersion
+    end
+    iSTSettings.whatsNewSeenVersion = nil
+    iSTSettings.fakeUnsealedWrath = nil
+    iSTSettings.vengeanceDisplaySpellID = nil
+    if iSTSettings.barVisibility == nil then
+        iSTSettings.barVisibility = iSTSettings.onlyInCombat == false and "ALWAYS" or "COMBAT_OR_AURA"
+    end
     -- Keep the counter's previous size when giving it a separate slider.
     if iSTSettings.stackCounterTextSize == nil and type(iSTSettings.twistTextSize) == "number" then
         iSTSettings.stackCounterTextSize = iSTSettings.twistTextSize
@@ -342,18 +390,51 @@ function iST:InitializeSettings()
             end
         end
     end
+    iSTSettings.barColorBySeal = iSTSettings.barColorBySeal == true
+    if type(iSTSettings.sealBarColors) ~= "table" then iSTSettings.sealBarColors = {} end
+    for seal, default in pairs(self.SealBarColorDefaults) do
+        local color = iSTSettings.sealBarColors[seal]
+        if type(color) ~= "table" then color = {}; iSTSettings.sealBarColors[seal] = color end
+        for _, channel in ipairs({ "r", "g", "b", "a" }) do
+            local value = color[channel]
+            if type(value) ~= "number" or value ~= value or value < 0 or value > 1 then
+                color[channel] = default[channel]
+            end
+        end
+    end
     if not self:IsSoundChoiceValid(iSTSettings.soundThreeStacksChoice) then
         iSTSettings.soundThreeStacksChoice = self.SettingsDefault.soundThreeStacksChoice
     end
-    -- Keep a saved cue when it is still supported, and move the old shared color to stage colors.
-    if iSTSettings.wrathCue == "TEXT" then iSTSettings.wrathCue = "COUNTER" end
-    if iSTSettings.wrathCue == "SWORD" then iSTSettings.wrathCue = "BAR_COLOR" end
+    -- Import the single old indicator once; afterwards each indicator is independent.
+    if iSTSettings.indicatorsMigrated ~= true then
+        local cue = iSTSettings.wrathCue
+        if cue == "TEXT" then cue = "COUNTER" end
+        if cue == "SWORD" then cue = "BAR_COLOR" end
+        if cue then
+            iSTSettings.showStackCounter = cue == "COUNTER"
+            iSTSettings.showStackCircles = cue == "CIRCLES"
+            iSTSettings.showStackBarColor = cue == "BAR_COLOR"
+            iSTSettings.showStackSwordImages = cue == "SWORD_IMAGES"
+        end
+        iSTSettings.indicatorsMigrated = true
+    end
+    iSTSettings.wrathCue = nil
     iSTSettings.testThreeStackHighlight = nil
     -- Remove unfinished ready-message choices from saved settings.
     iSTSettings.showThreeStackReadyText = nil
     iSTSettings.wrathReadyText = nil
-    local validCues = { BAR_COLOR = true, SWORD_IMAGES = true, COUNTER = true, CIRCLES = true, OFF = true }
-    if not validCues[iSTSettings.wrathCue] then iSTSettings.wrathCue = self.SettingsDefault.wrathCue end
+    if iSTSettings.worldEchoCueStyle ~= "GLOW" and iSTSettings.worldEchoCueStyle ~= "WINGS"
+        and iSTSettings.worldEchoCueStyle ~= "SPARKS" and iSTSettings.worldEchoCueStyle ~= "FRAME" then
+        iSTSettings.worldEchoCueStyle = "WINGS"
+    end
+    if iSTSettings.stackBubbleStyle ~= "CIRCLES" and iSTSettings.stackBubbleStyle ~= "SEAL_ICONS" then
+        iSTSettings.stackBubbleStyle = "CIRCLES"
+    end
+    if iSTSettings.nameplateEchoStyle ~= "DOTS" and iSTSettings.nameplateEchoStyle ~= "SEAL_ICONS" then
+        iSTSettings.nameplateEchoStyle = "DOTS"
+    end
+    if type(iSTSettings.worldEchoCueScale) ~= "number" then iSTSettings.worldEchoCueScale = 1 end
+    iSTSettings.worldEchoCueScale = math.max(0.5, math.min(2.5, iSTSettings.worldEchoCueScale))
     local validBarStyles = { CLASSIC = true, BLOCK = true, GLOSSY = true, FRAMELESS = true }
     if not validBarStyles[iSTSettings.barStyle] then
         iSTSettings.barStyle = self.SettingsDefault.barStyle
@@ -371,10 +452,65 @@ function iST:InitializeSettings()
     -- The old fixed-From guidance could hide the real Echo count after a
     -- different opening seal. Keep existing characters on the normal display.
     iSTSettings.sealStackMode = nil
+    if iSTSettings.centerSwitchText == "3 stacks ready" then
+        iSTSettings.centerSwitchText = "Echoes ready"
+    end
+    if iSTSettings.centerSwitchVisual ~= "TEXT" and iSTSettings.centerSwitchVisual ~= "RADIANT" then
+        iSTSettings.centerSwitchVisual = "TEXT"
+    end
+    if iSTSettings.barVisibility ~= "ALWAYS" and iSTSettings.barVisibility ~= "COMBAT"
+        and iSTSettings.barVisibility ~= "COMBAT_OR_AURA" then
+        iSTSettings.barVisibility = "COMBAT_OR_AURA"
+    end
+    iSTSettings.onlyInCombat = nil
+    for _, key in ipairs({ "twistFromStacks", "twistIntoStacks" }) do
+        local value = iSTSettings[key]
+        if type(value) ~= "number" or value ~= math.floor(value) or value < 1 or value > 3 then
+            iSTSettings[key] = 3
+        end
+    end
     self:InitializeWrathColors(legacyWrathColor)
     self:InitializeReminderSettings()
     iSTSettings.wrathCueColor = nil
     iSTSettings.twistWarningColor = nil
+end
+
+function iST:GetTwistStackTarget(seal)
+    if seal == iSTSettings.twistFromSeal then return iSTSettings.twistFromStacks or 3 end
+    if seal == iSTSettings.twistIntoSeal then return iSTSettings.twistIntoStacks or 3 end
+    return 3
+end
+
+function iST:SetTwistStackTarget(side, target)
+    if side ~= "From" and side ~= "Into" then return false end
+    if type(target) ~= "number" or target ~= math.floor(target) or target < 1 or target > 3 then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        self:PrintToChat(self.L["StackTargetCombatBlocked"])
+        return false
+    end
+    iSTSettings["twist" .. side .. "Stacks"] = target
+    self:ApplyStackStageFormatter()
+    self:UpdateCenterSwitchText()
+    self:CreateStackManagedDisplay()
+    self:UpdateWrathDisplay()
+    return true
+end
+
+function iST:SetTwistSeal(side, seal)
+    if side ~= "From" and side ~= "Into" or not self.SEAL_SPELL_IDS[seal] then return false end
+    if InCombatLockdown and InCombatLockdown() then
+        self:PrintToChat(self.L["SealPairCombatBlocked"])
+        return false
+    end
+    local key = "twist" .. side .. "Seal"
+    local other = side == "From" and iSTSettings.twistIntoSeal or iSTSettings.twistFromSeal
+    if seal == other then return false end
+    iSTSettings[key] = seal
+    self:ApplyStackStageFormatter()
+    self:UpdateCenterSwitchText()
+    self:UpdateWrathDisplay()
+    self:RequestTwistMacroRefresh()
+    return true
 end
 
 function iST:GetBarFontPath()
@@ -429,11 +565,6 @@ function iST:ApplyBarTypography()
         bar.stackCountTotal:SetPoint("LEFT", bar.stackCountFrame, "CENTER", 0, 0)
         bar.stackCountTotal:SetSize(totalWidth, rowHeight)
         bar.stackCountTotal:SetJustifyH("LEFT")
-        if bar.stackSourceIconFrame then
-            bar.stackSourceIconFrame:SetSize(stackIconSize, stackIconSize)
-            bar.stackSourceIconFrame:ClearAllPoints()
-            bar.stackSourceIconFrame:SetPoint("RIGHT", bar.stackCountFrame, "CENTER", -countWidth - 8, 0)
-        end
         if self.LayoutManagedStackReadout then self:LayoutManagedStackReadout() end
     end
     local iconSize = math.max(16, iSTSettings.sealIconSize or iSTSettings.barHeight or 25)
@@ -531,12 +662,16 @@ function iST:CreateSwingBar()
 
     -- Save the final anchor when the player releases the unlocked bar.
     bar:SetScript("OnMouseDown", function(self, button)
-        if button == "LeftButton" and not iSTSettings.barLocked then
+        if button == "LeftButton" and not iSTSettings.barLocked
+            and not (InCombatLockdown and InCombatLockdown()) then
+            self.isDragging = true
             self:StartMoving()
         end
     end)
     bar:SetScript("OnMouseUp", function(self)
+        if not self.isDragging then return end
         self:StopMovingOrSizing()
+        self.isDragging = nil
         iST:SaveBarPosition()
     end)
 
@@ -566,7 +701,34 @@ function iST:CreateSwingBar()
 
     -- Circular seal icon (left of bar)
     local sealIconFrame = CreateFrame("Frame", nil, bar)
-    sealIconFrame:SetPoint("RIGHT", bar, "LEFT", -7, 0)
+    if iSTSettings.sealIconPoint then
+        local point = iSTSettings.sealIconPoint
+        sealIconFrame:SetPoint("CENTER", UIParent, "CENTER", point[1], point[2])
+    else
+        sealIconFrame:SetPoint("RIGHT", bar, "LEFT", -7, 0)
+    end
+    sealIconFrame:SetMovable(true)
+    sealIconFrame:EnableMouse(not iSTSettings.barLocked)
+    sealIconFrame:RegisterForDrag("LeftButton")
+    sealIconFrame:SetScript("OnDragStart", function(self)
+        if not iSTSettings.barLocked and not (InCombatLockdown and InCombatLockdown()) then
+            self.isDragging = true
+            self:StartMoving()
+        end
+    end)
+    sealIconFrame:SetScript("OnDragStop", function(self)
+        if not self.isDragging then return end
+        self:StopMovingOrSizing()
+        self.isDragging = nil
+        local x, y = self:GetCenter()
+        local rootX, rootY = UIParent:GetCenter()
+        if x and y and rootX and rootY then
+            iSTSettings.sealIconPoint = { x - rootX, y - rootY }
+            self:ClearAllPoints()
+            self:SetPoint("CENTER", UIParent, "CENTER", iSTSettings.sealIconPoint[1],
+                iSTSettings.sealIconPoint[2])
+        end
+    end)
     sealIconFrame:Hide()
 
     local sealIconShadow = sealIconFrame:CreateTexture(nil, "BACKGROUND")
@@ -696,6 +858,7 @@ function iST:CreateSwingBar()
     self.BarFrame = bar
     self:ApplyBarStyle()
     self:CreateWrathCue(bar)
+    self:AnchorAttachedIndicators()
     self:ApplyBarTypography()
     self:CreateStackManagedDisplay()
 end
@@ -705,6 +868,20 @@ function iST:SaveBarPosition()
     if not self.BarFrame then return end
     local point, _, relativePoint, xOfs, yOfs = self.BarFrame:GetPoint()
     iSTSettings.barPoint = { point, nil, relativePoint, xOfs, yOfs }
+    self:AnchorAttachedIndicators()
+end
+
+function iST:AnchorAttachedIndicators()
+    local bar = self.BarFrame
+    if not bar then return end
+    if bar.sealIconFrame and not iSTSettings.sealIconPoint then
+        bar.sealIconFrame:ClearAllPoints()
+        bar.sealIconFrame:SetPoint("RIGHT", bar, "LEFT", bar.wrathIconOffset or -7, 0)
+    end
+    if bar.stackCountFrame and not iSTSettings.stackCountPoint then
+        bar.stackCountFrame:ClearAllPoints()
+        bar.stackCountFrame:SetPoint("BOTTOM", bar, "TOP", 0, 9)
+    end
 end
 
 function iST:RestoreBarPosition()
@@ -713,6 +890,7 @@ function iST:RestoreBarPosition()
     if p and p[1] then
         self.BarFrame:ClearAllPoints()
         self.BarFrame:SetPoint(p[1], UIParent, p[3], p[4], p[5])
+        self:AnchorAttachedIndicators()
     end
 end
 
@@ -720,6 +898,11 @@ function iST:ResetBarPosition()
     iSTSettings.barPoint = { "CENTER", nil, "CENTER", 0, -200 }
     self:RestoreBarPosition()
     print(L["BarReset"])
+end
+
+function iST:ResetSealIconPosition()
+    iSTSettings.sealIconPoint = nil
+    self:AnchorAttachedIndicators()
 end
 
 -- Align the bar to the screen's horizontal center without changing its height.
@@ -740,7 +923,7 @@ function iST:OnBarUpdate(elapsed)
     if not bar then return end
 
     self:UpdateBarFade(elapsed)
-    if iSTSettings.onlyInCombat and not self.State.InCombat and not self.State.TestMode then
+    if iSTSettings.barVisibility ~= "ALWAYS" and not self.State.InCombat and not self.State.TestMode then
         bar.prepareCheckAccum = (bar.prepareCheckAccum or 0) + elapsed
         if bar.prepareCheckAccum >= 0.2 then
             bar.prepareCheckAccum = 0
@@ -781,7 +964,8 @@ function iST:OnBarUpdate(elapsed)
         local progress = self:GetSwingBarProgress(now)
         bar.fill:SetWidth(math.max(1, progress * width))
         self:UpdateParryAnimation(now, progress, width)
-        bar.timeText:SetText(string.format("%.1fs", math.max(0, state.NextSwingTime - now)))
+        bar.timeText:SetText(iSTSettings.showSwingRemaining
+            and string.format("%.1fs", math.max(0, state.NextSwingTime - now)) or "")
         if iSTSettings.showWeaponSpeed then
             bar.speedText:SetText(string.format("%.2f", state.WeaponSpeed))
             bar.speedText:Show()
@@ -811,7 +995,6 @@ function iST:HideBar()
         SetSwingBarAlpha(self.BarFrame, 1)
         self.BarFrame:Hide()
         if self.BarFrame.stackCountFrame then self.BarFrame.stackCountFrame:Hide() end
-        if self.BarFrame.stackSourceIconFrame then self.BarFrame.stackSourceIconFrame:Hide() end
         self.State.BarVisible = false
     end
 end
@@ -821,7 +1004,7 @@ function iST:ShowBar()
         self.BarFrame.fadeTarget = nil
         self.BarFrame.fadeAlpha = 1
         SetSwingBarAlpha(self.BarFrame, 1)
-        self.BarFrame:EnableMouse(true)
+        self.BarFrame:EnableMouse(not iSTSettings.barLocked)
         self.BarFrame:Show()
         self.State.BarVisible = true
     end
@@ -836,7 +1019,7 @@ function iST:FadeBarTo(target)
         SetSwingBarAlpha(bar, target)
     end
     if bar.fadeTarget ~= target then
-        bar:EnableMouse(target > 0)
+        bar:EnableMouse(target > 0 and not iSTSettings.barLocked)
         if bar.fadeTarget ~= nil and not self.State.InCombat then
             self:DebugMsg(target > 0 and "Swing bar shown: active Seal or confirmed Echo stacks."
                 or "Swing bar faded: no active Seal or confirmed Echo stacks.", 3)
@@ -872,6 +1055,11 @@ function iST:ShouldShowBar()
     return true
 end
 
+function iST:ShouldShowAuxiliaryCues()
+    return self:ShouldShowBar() and (iSTSettings.barVisibility ~= "COMBAT"
+        or self.State.InCombat or self.State.TestMode)
+end
+
 function iST:HasActiveSeal()
     local expires = self.State.SealExpiresAt
     local seal = self.State.CurrentSealName
@@ -880,12 +1068,22 @@ function iST:HasActiveSeal()
         and not IsSecret(expires) and type(expires) == "number" and expires > now
 end
 
+function iST:GetBarFillColor()
+    if iSTSettings.barColorBySeal and self:HasActiveSeal() then
+        local colors = iSTSettings.sealBarColors
+        local color = colors and colors[self.State.CurrentSealName]
+        if type(color) == "table" then return color end
+    end
+    if iSTSettings.highlightWrongSeal and self:IsWrathTrackingEnabled() and self:HasActiveSeal()
+        and self.State.CurrentSealName ~= iSTSettings.twistFromSeal
+        and self.State.CurrentSealName ~= iSTSettings.twistIntoSeal then
+        return iSTSettings.wrongSealColor
+    end
+    return iSTSettings.barColor
+end
+
 function iST:HasConfirmedWrathStacks()
-    local tracker = self.WrathTracker
-    local count = tracker:GetCount(GetTime())
-    local auraID
-    if iSTSettings.fakeUnsealedWrath then auraID = self.State.VengeanceStackAuraID
-    else auraID = self.State.WrathAuraInstanceID end
+    local auraID = self.State.WrathAuraInstanceID
     if not IsSecret(auraID) and type(auraID) == "number" then
         local reader = C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID
         if type(reader) == "function" then
@@ -893,7 +1091,7 @@ function iST:HasConfirmedWrathStacks()
             if ok and not IsSecret(aura) then return aura ~= nil end
         end
     end
-    return not iSTSettings.fakeUnsealedWrath and not tracker.countUnconfirmed and count > 0
+    return false
 end
 
 function iST:UpdateBarVisibility()
@@ -901,8 +1099,10 @@ function iST:UpdateBarVisibility()
     if not self:ShouldShowBar() then
         self:HideBar()
     -- A confirmed Echo can keep the bar up after the Seal ends.
-    elseif iSTSettings.onlyInCombat and not self.State.TestMode then
-        self:FadeBarTo((self.State.InCombat or self:HasActiveSeal() or self:HasConfirmedWrathStacks()) and 1 or 0)
+    elseif iSTSettings.barVisibility ~= "ALWAYS" and not self.State.TestMode then
+        local visible = self.State.InCombat or (iSTSettings.barVisibility == "COMBAT_OR_AURA"
+            and (self:HasActiveSeal() or self:HasConfirmedWrathStacks()))
+        self:FadeBarTo(visible and 1 or 0)
     else
         self:ShowBar()
     end
@@ -1034,25 +1234,28 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
     local now = GetTime()
     self:CheckParryPrediction(now, isMeleeAttack, sourceEvent)
 
-    -- Update the cue at the swing. Waiting for target feedback makes release
-    -- late and loses hits when the target changes before feedback arrives.
     if isMeleeAttack then
         if self:IsWrathTrackingEnabled() then
             if (self.State.SealExpiresAt or 0) <= GetTime() then self:ClearCurrentSeal() end
-            local pending = self:QueueWrathSwing(now)
-            if pending then
-                local grouped = IsInGroup and IsInGroup()
-                pending.grouped = IsSecret(grouped) or grouped == true
-                local spent = self.WrathTracker:Attack(self.State.CurrentSealName, now)
-                if spent > 0 then
-                    pending.release = { at = now, auraID = self.State.WrathAuraInstanceID }
-                    self.State.PendingWrathRelease = pending.release
+            -- Native Echo auras drive live cues. Keep swing/feedback matching
+            -- only for diagnostics.
+            local capture = self.HitDebug and self.HitDebug:IsActive()
+            if iSTSettings.debugMode or capture then
+                local pending = self:QueueWrathSwing(now)
+                if pending then
+                    local grouped = IsInGroup and IsInGroup()
+                    pending.grouped = IsSecret(grouped) or grouped == true
+                    local spent = self.WrathTracker:Attack(self.State.CurrentSealName, now)
+                    if spent > 0 then
+                        pending.release = { at = now, auraID = self.State.WrathAuraInstanceID }
+                        self.State.PendingWrathRelease = pending.release
+                    end
+                    pending.provisional = { count = self.WrathTracker.count, seal = self.WrathTracker.seal,
+                        expiresAt = self.WrathTracker.expiresAt }
+                    self:UpdateWrathDisplay(now)
                 end
-                pending.provisional = { count = self.WrathTracker.count, seal = self.WrathTracker.seal,
-                    expiresAt = self.WrathTracker.expiresAt }
-                self:UpdateWrathDisplay(now)
-                self:ScheduleWrathAuraCheck()
             end
+            self:ScheduleWrathAuraCheck()
         end
     end
     self.State.Idle = false
@@ -1152,42 +1355,18 @@ function iST:HasUnsealedWrath()
 end
 
 function iST:IsWrathTrackingEnabled()
-    return iSTSettings.fakeUnsealedWrath == true or self:HasUnsealedWrath()
-end
-
-function iST:SetFakeUnsealedWrath(enabled)
-    -- Start fresh when switching between real and fake talent tracking.
-    iSTSettings.fakeUnsealedWrath = enabled == true
-    self:CancelWrathAuraChecks()
-    self:CancelPendingWrathHits()
-    self:StopTestMode()
-    self.WrathTracker:Reset()
-    self.State.PendingWrathRelease = nil
-    self.State.WrathUnleashedUntil = nil
-    self.State.WrathAuraInstanceID = nil
-    self.State.WrathEchoSeal = nil
-    self.State.WrathLastSealCastName = nil
-    self.State.WrathLastSwitchFrom = nil
-    self.State.WrathAuraSnapshot = nil
-    self.State.VengeanceStackAuraID = nil
-    self:RefreshUnsealedWrathState()
-    if enabled then
-        self:CreateStackManagedDisplay()
-        self:RefreshVengeanceStackAura()
-    end
-    self:UpdateStackManagedFilter()
-    if self.BarFrame then self.BarFrame.nextStackCountDisplay = nil end
-    self:UpdateWrathDisplay()
-    self:DebugMsg("Fake Unsealed Wrath " .. (enabled and "enabled" or "disabled") .. ".", 3)
+    return self:HasUnsealedWrath()
 end
 
 function iST:RefreshUnsealedWrathState()
     self.State.UnsealedWrathKnown = nil
     self.State.NextWrathTalentCheck = 0
-    if not self:IsWrathTrackingEnabled() then
+    local wrathEnabled = self:IsWrathTrackingEnabled()
+    if not wrathEnabled then
         self:CancelWrathAuraChecks()
         self:CancelPendingWrathHits()
         self.WrathTracker:Reset()
+        self.State.ThreeStackSoundReady = true
         self.State.PendingWrathRelease = nil
         self.State.WrathUnleashedUntil = nil
         self.State.WrathAuraInstanceID = nil
@@ -1195,6 +1374,9 @@ function iST:RefreshUnsealedWrathState()
         self.State.WrathLastSealCastName = nil
         self.State.WrathLastSwitchFrom = nil
         self.State.WrathAuraSnapshot = nil
+    else
+        -- A newly learned talent needs its native Echo buttons before combat.
+        self:CreateStackManagedDisplay()
     end
     self:InvalidateBarState()
     self:UpdateBarVisibility()
@@ -1205,12 +1387,9 @@ function iST:GetWrathDisplayState(now)
     if self.State.TestMode then
         return self.State.PreviewStacks, self.State.StackTestMode
     end
-    local count = self.WrathTracker:GetCount(now or GetTime())
-    -- Once the seal is changed, the next attack is the release step.
-    local armed = count > 0 and self.WrathTracker.seal ~= nil
-        and self.State.CurrentSealName ~= nil and self.State.CurrentSealName ~= self.WrathTracker.seal
-    local active = self:IsWrathTrackingEnabled()
-    return count, active, armed
+    -- Native aura buttons compare live counts without exposing protected
+    -- numbers to addon code.
+    return 0, self:IsWrathTrackingEnabled(), false
 end
 
 function iST:ConfirmWrathRelease()
@@ -1227,7 +1406,7 @@ function iST:CancelWrathAuraChecks()
 end
 
 function iST:ScheduleWrathAuraCheck()
-    if self.State.WrathAuraCheckPending or iSTSettings.fakeUnsealedWrath then return end
+    if self.State.WrathAuraCheckPending then return end
     self.State.WrathAuraCheckPending = true
     local generation = self.State.WrathAuraCheckGeneration or 0
     -- Read after the swing's aura update has settled. Coalesce requests so a
@@ -1336,12 +1515,12 @@ function iST:ApplyWrathAura(aura, source, refreshed)
         self:DebugMsg(string.format("Unsealed Wrath confirmed by %s: %d -> %d/3; timer %s.",
             source, previous, tracker.count, tracker.expiryUnconfirmed and "derived from stack updates" or "confirmed by buff"), 3)
     end
+    self:UpdateThreeStackSound(tracker.count, self:IsWrathTrackingEnabled(), GetTime(), true)
     self:UpdateWrathDisplay()
     return true, true
 end
 
 function iST:ObserveWrathAura(updateInfo, delayed)
-    if iSTSettings.fakeUnsealedWrath then return end
     if not self:HasUnsealedWrath() then return end
     local state, tracker = self.State, self.WrathTracker
     local removedCurrent = false
@@ -1387,6 +1566,7 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         state.WrathAuraSnapshot = nil
         local pending = state.PendingWrathRelease
         if pending and pending.auraID == removedID then self:ConfirmWrathRelease() end
+        self:UpdateThreeStackSound(0, self:IsWrathTrackingEnabled(), GetTime(), true)
         self:UpdateWrathDisplay()
         return true, true
     else
@@ -1487,6 +1667,7 @@ function iST:ClearCurrentSeal()
     self.State.SealExpiresAt = 0
     self.State.SealGeneration = (self.State.SealGeneration or 0) + 1
     self:UpdateSealDisplay()
+    if iSTSettings.barColorBySeal or iSTSettings.highlightWrongSeal then self:UpdateWrathDisplay() end
 end
 
 function iST:UpdateSealTimer(now)
@@ -1561,7 +1742,7 @@ function iST:UpdateSealDisplay()
 
     self:UpdateSealTimer()
 
-    if self.State.CurrentSealName then
+    if iSTSettings.showSealName and self.State.CurrentSealName then
         bar.sealText:SetText(self.State.CurrentSealName)
     else
         bar.sealText:SetText("")
@@ -1581,6 +1762,16 @@ end
 -- Minimap and addon compartment button
 function iST:SetBarLocked(locked, announce)
     iSTSettings.barLocked = locked == true
+    if self.BarFrame then
+        self.BarFrame:EnableMouse(not iSTSettings.barLocked
+            and self.BarFrame:IsShown() and (self.BarFrame.fadeTarget or 1) > 0)
+    end
+    if self.BarFrame and self.BarFrame.sealIconFrame then
+        self.BarFrame.sealIconFrame:EnableMouse(not iSTSettings.barLocked)
+    end
+    if self.BarFrame and self.BarFrame.stackCountFrame then
+        self.BarFrame.stackCountFrame:EnableMouse(not iSTSettings.barLocked)
+    end
     local checkbox = self.SettingsFrame and self.SettingsFrame.barLockCheckbox
     if checkbox then checkbox:SetChecked(iSTSettings.barLocked) end
     if announce then print(L[iSTSettings.barLocked and "BarLocked" or "BarUnlocked"]) end
@@ -1591,18 +1782,20 @@ function iST:ToggleBarLock()
 end
 
 function iST:CreateMinimapButton()
-    if not LDBroker or not LDBIcon then return end
+    local broker = LDBroker or (LibStub and LibStub("LibDataBroker-1.1", true))
+    local iconLibrary = LDBIcon or (LibStub and LibStub("LibDBIcon-1.0", true))
+    if not broker or not iconLibrary then return end
     if self.MinimapDataObject then return end
 
-    self.MinimapDataObject = LDBroker:NewDataObject("iSealTwist", {
+    self.MinimapDataObject = broker:NewDataObject("iSealTwist", {
         type = "data source",
         text = "iSealTwist",
         icon = "Interface\\AddOns\\iSealTwist\\Images\\Logo_iST",
         iconCoords = { 0.14, 0.86, 0.10, 0.82 },
         OnClick = function(_, button)
-            if button == "LeftButton" and IsShiftKeyDown() then
+            if button == "RightButton" and IsShiftKeyDown() then
                 iST:ToggleBarLock()
-            elseif button == "LeftButton" then
+            elseif button == "LeftButton" and IsShiftKeyDown() then
                 iSTSettings.enabled = not iSTSettings.enabled
                 if iSTSettings.enabled then
                     print(L["BarEnabled"])
@@ -1610,6 +1803,8 @@ function iST:CreateMinimapButton()
                     print(L["BarDisabled"])
                 end
                 iST:UpdateBarVisibility()
+            elseif button == "LeftButton" then
+                iST:QuickMacroToggle()
             elseif button == "RightButton" then
                 iST:SettingsToggle()
             end
@@ -1620,6 +1815,7 @@ function iST:CreateMinimapButton()
             tooltip:AddLine(L["MinimapLeftClick"], 1, 1, 1)
             tooltip:AddLine(L["MinimapShiftLeftClick"], 1, 1, 1)
             tooltip:AddLine(L["MinimapRightClick"], 1, 1, 1)
+            tooltip:AddLine(L["MinimapShiftRightClick"], 1, 1, 1)
             tooltip:AddLine(" ", 1, 1, 1)
             tooltip:AddLine(L["TooltipStatus"] .. (iSTSettings.enabled and L["StatusEnabled"] or L["StatusDisabled"]), 1, 1, 1)
             tooltip:Show()
@@ -1630,7 +1826,7 @@ function iST:CreateMinimapButton()
         iSTSettings.MinimapButton = { hide = false, minimapPos = 220, showInCompartment = true }
     end
     iSTSettings.MinimapButton.showInCompartment = true
-    LDBIcon:Register("iSealTwist", self.MinimapDataObject, iSTSettings.MinimapButton)
+    iconLibrary:Register("iSealTwist", self.MinimapDataObject, iSTSettings.MinimapButton)
 end
 
 -- Seal-pair macro
@@ -1928,6 +2124,11 @@ local function OnEvent(self, event, ...)
         return
     end
 
+    if event == "PLAYER_LOGOUT" then
+        if iST.SaveActiveProfile then iST:SaveActiveProfile() end
+        return
+    end
+
     if event == "PLAYER_ENTERING_WORLD" then
         local combat = InCombatLockdown and InCombatLockdown()
         if not IsSecret(combat) then
@@ -1971,6 +2172,12 @@ local function OnEvent(self, event, ...)
 
     if event == "PLAYER_TARGET_CHANGED" then
         iST:CancelPendingWrathHits(true)
+        iST:UpdateNameplateEchoDisplay()
+        return
+    end
+
+    if event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
+        if iSTSettings.showNameplateEcho then iST:UpdateNameplateEchoDisplay() end
         return
     end
 
@@ -1982,6 +2189,16 @@ local function OnEvent(self, event, ...)
 
         if iST.SettingsFrame and iST.SettingsFrame:IsShown() then
             iST.SettingsFrame:Hide()
+        end
+        if iST.QuickMacroFrame and iST.QuickMacroFrame:IsShown() then
+            iST.QuickMacroFrame:Hide()
+        end
+        if iST.WhatsNewFrame and iST.WhatsNewFrame:IsShown() then
+            iST.State.PendingWhatsNew = true
+            iST.WhatsNewFrame:Hide()
+        end
+        if iST.ProfileTransferFrame and iST.ProfileTransferFrame:IsShown() then
+            iST.ProfileTransferFrame:Hide()
         end
         return
     end
@@ -1995,18 +2212,22 @@ local function OnEvent(self, event, ...)
         iST.State.InCombat = false
         iST.State.CenterSwitchPhaseBlocked = nil
         -- Stored seals remain available through short combat breaks.
-        iST.WrathTracker:GetCount(GetTime())
+        if iSTSettings.debugMode then
+            iST.WrathTracker:GetCount(GetTime())
+        end
         iST:ScanForActiveSealOutOfCombat("PLAYER_REGEN_ENABLED")
         iST:ObserveWrathAura()
         iST:UpdateBarVisibility()
         iST:CreateStackManagedDisplay()
-        iST:RefreshVengeanceStackAura()
         if iST.State.PendingStackCounterColor then iST:ApplyStackCounterColor() end
         if iST.State.PendingStackStageFormatter then iST:ApplyStackStageFormatter() end
         if iST.State.PendingStackTypography then iST:ApplyBarTypography() end
         if iST.State.PendingWrathCircleSize then iST:ApplyWrathCircleSize() end
         if iST.State.PendingMacroRefresh then
             iST:RequestTwistMacroRefresh()
+        end
+        if iST.State.PendingWhatsNew and iST.MaybeShowWhatsNew then
+            iST:MaybeShowWhatsNew()
         end
         return
     end
@@ -2016,7 +2237,6 @@ local function OnEvent(self, event, ...)
         if not IsSecret(unit) and unit == "player" then
             iST:ScanForActiveSealOutOfCombat("UNIT_AURA")
             iST:ObserveWrathAura(updateInfo)
-            iST:RefreshVengeanceStackAura(updateInfo)
             if iST.BarFrame then
                 iST.BarFrame.nextStackCountDisplay = nil
             end
@@ -2092,10 +2312,13 @@ eventFrame:SetScript("OnEvent", OnEvent)
 for _, eventName in ipairs({
     "ADDON_LOADED",
     "PLAYER_LOGIN",
+    "PLAYER_LOGOUT",
     "PLAYER_ENTERING_WORLD",
     "PLAYER_SWING",
     "UNIT_COMBAT",
     "PLAYER_TARGET_CHANGED",
+    "NAME_PLATE_UNIT_ADDED",
+    "NAME_PLATE_UNIT_REMOVED",
     "PLAYER_REGEN_DISABLED",
     "PLAYER_REGEN_ENABLED",
     "PLAYER_DEAD",
@@ -2117,6 +2340,7 @@ end
 -- Startup
 function iST:OnAddonLoaded()
     self:InitializeSettings()
+    if self.ReconcileActiveProfileOnLoad then self:ReconcileActiveProfileOnLoad() end
     local combat = InCombatLockdown and InCombatLockdown()
     if not IsSecret(combat) then self.State.InCombat = combat == true end
     if iSTSettings.twistIntoSeal == iSTSettings.twistFromSeal then
@@ -2155,6 +2379,12 @@ function iST:OnPlayerLogin()
         self:CreateOptionsPanel()
     end
 
+    C_Timer.After(4, function()
+        if iST.State.Initialized and iST.MaybeShowWhatsNew then
+            iST:MaybeShowWhatsNew()
+        end
+    end)
+
     -- Check the talent and active buffs again after the player UI has loaded.
     C_Timer.After(1, function()
         if iST.State.Initialized then
@@ -2162,7 +2392,6 @@ function iST:OnPlayerLogin()
             iST:ScanForActiveSealOutOfCombat("PLAYER_LOGIN")
             iST:ObserveWrathAura()
             iST:CreateStackManagedDisplay()
-            iST:RefreshVengeanceStackAura()
         end
     end)
 end

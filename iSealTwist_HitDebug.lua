@@ -77,7 +77,7 @@ function HitDebug:Snapshot(reason)
     local state, tracker = iST.State, iST.WrathTracker
     self:Record("STATE", "reason=" .. reason .. " combat=" .. text(call(InCombatLockdown))
         .. " seal=" .. text(state.CurrentSealName) .. " stacks=" .. text(tracker.count)
-        .. " countUnconfirmed=" .. text(tracker.countUnconfirmed) .. " fake=" .. text(iSTSettings.fakeUnsealedWrath)
+        .. " countUnconfirmed=" .. text(tracker.countUnconfirmed)
         .. " talentCached=" .. text(state.UnsealedWrathKnown)
         .. " wrathInstance=" .. text(state.WrathAuraInstanceID) .. " target#=" .. targetCount)
     local restriction = call(C_Secrets and C_Secrets.ShouldAurasBeSecret)

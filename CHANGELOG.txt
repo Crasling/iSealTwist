@@ -2,6 +2,24 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.9.1 - Echo Customization
+--------------------------------------------------------------------------------
+[ADDED] Choose a Switch target of >0, 1, 2, or 3 Echo stacks for each Seal. Targets also match higher counts; >0 keeps the cue after an Echo ends until you change Seals.
+[ADDED] Show Switch, Attack, or both messages with separate text and colors.
+[ADDED] Combine the Echo counter, bar and player-mana pips, Echo timer, nameplate display, and bar colors. Seal icons are the default pip style.
+[ADDED] Color the swing bar by active Seal, even while Echo stack colors are on.
+[ADDED] Track Echo time and stacks on target nameplates with the Seals icon, a blue timer ring, and resizable dots or Seal icons.
+[ADDED] Preview the selected bar and Echo indicators in a collapsible panel.
+[ADDED] Twelve bundled sounds with previews in a dedicated Sounds page. The Echo Switch sound remains Experimental.
+[ADDED] Save and rename profiles, export setups, and import shared setups into new profiles. Main remains the default profile.
+[ADDED] Open a compact Seal Pair and Macro panel from the minimap button. Shift-click shortcuts toggle iST and Lock All Positions.
+[ADDED] An account-wide What's New panel appears once and can be reopened from About.
+[ADDED] Resize bar and player-mana pips separately, adjust text and fonts, and move the Seal icon, Echo timer, and counter independently.
+[IMPROVED] Lock All Positions includes enabled reminders and indicators, with alignment guides, Shift for free placement, and right-click to reset positions.
+[FIXED] The Protection-only Righteous Fury reminder follows spec and talent changes.
+[REMOVED] Fake Unsealed Wrath mode.
+[CHANGED] Sword Images are hidden for now.
+
 v0.8.12 - Sound Cues
 --------------------------------------------------------------------------------
 [ADDED] Optional sounds for three Echo stacks and Seal or Righteous Fury reminders.
