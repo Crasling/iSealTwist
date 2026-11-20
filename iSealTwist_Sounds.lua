@@ -103,6 +103,28 @@ function iST:TestCueSound(choice)
     if not self:PlayCueSound(choice) then print(self.L["SoundUnavailable"]) end
 end
 
+function iST:CheckCueSound(which)
+    local settings = iSTSettings
+    if not settings then return end
+    local state = self.State
+    local combat = state.InCombat == true
+    local kind = type(which) == "string" and which:upper() or ""
+    local reminder = settings.reminders and settings.reminders[kind]
+    local choice = reminder and reminder.soundChoice or settings.soundThreeStacksChoice
+    local played = self:PlayCueSound(choice)
+    print(string.format("[iST] %s sound check: combat=%s, choice=%s, playback=%s, Echo count restricted=%s.",
+        reminder and kind or "Echo", tostring(combat), tostring(choice),
+        played and "OK" or "failed", tostring(state.WrathCountRestricted == true)))
+    for _, kind in ipairs({ "FURY", "SEAL" }) do
+        local reminder = settings.reminders and settings.reminders[kind]
+        if reminder then
+            print(string.format("[iST] %s sound: reminder=%s, low=%s, missing=%s.", kind,
+                tostring(reminder.enabled == true), tostring(reminder.soundExpiring == true),
+                tostring(reminder.soundMissing == true)))
+        end
+    end
+end
+
 function iST:UpdateThreeStackSound(count, active, now, confirmed)
     -- A swing changes the visible counter before its hit result arrives.
     -- Only a matched hit or readable Echo aura may trigger or rearm the cue.
@@ -115,8 +137,16 @@ function iST:UpdateThreeStackSound(count, active, now, confirmed)
         state.ThreeStackSoundReady = true
         return
     end
-    if count < self:GetTwistStackTarget(self.WrathTracker.seal) then return end
+    local source = self.WrathTracker.seal
+    if count < self:GetTwistStackTarget(source) then return end
     if state.ThreeStackSoundReady == false then return end
+    -- The sound belongs to the same phase as the center switch message.
+    -- A delayed readable aura must not play it after the player has switched.
+    if not iSTSettings.showCenterSwitchText or iSTSettings.centerSwitchMode == "ATTACK"
+        or self:IsEchoSwitchPhase(source) ~= true then
+        state.ThreeStackSoundReady = false
+        return
+    end
     state.ThreeStackSoundReady = false
     if state.TestMode or not iSTSettings.soundThreeStacks then return end
     now = now or GetTime()

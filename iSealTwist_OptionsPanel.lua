@@ -89,6 +89,64 @@ end
 
 -- Layout helpers return the next free row so descriptions can wrap naturally.
 
+local SETTING_DESCRIPTIONS = {
+    [L["BarVisibility"]] = L["BarVisibilityDesc"],
+    [L["WrathCueCounter"]] = L["WrathCueCounterDesc"],
+    [L["WrathCueCircles"]] = L["WrathCueCirclesDesc"],
+    [L["WrathCueBarColor"]] = L["WrathCueBarColorDesc"],
+    [L["StackBubbleStyle"]] = L["StackBubbleStyleDesc"],
+    [L["StackCounterTextSize"]] = L["StackCounterTextSizeDesc"],
+    [L["WrathCircleSize"]] = L["WrathCircleSizeDesc"],
+    [L["PlayerPipSize"]] = L["PlayerPipSizeDesc"],
+    [L["CenterSwitchMode"]] = L["CenterSwitchModeDesc"],
+    [L["CenterSwitchPhrase"]] = L["CenterSwitchPhraseDesc"],
+    [L["CenterAttackPhrase"]] = L["CenterAttackPhraseDesc"],
+    [L["ReminderEnable"]] = L["ReminderEnableDesc"],
+    [L["OnlyInCombat"]] = L["ReminderOnlyInCombatDesc"],
+    [L["ReminderThreshold"]] = L["ReminderThresholdDesc"],
+    [L["ReminderShowIcon"]] = L["ReminderShowIconDesc"],
+    [L["ReminderShowTime"]] = L["ReminderShowTimeDesc"],
+    [L["ReminderScale"]] = L["ReminderScaleDesc"],
+    [L["ReminderSoundExpiring"]] = L["ReminderSoundExpiringDesc"],
+    [L["ReminderSoundMissing"]] = L["ReminderSoundMissingDesc"],
+    [L["SoundChoice"]] = L["SoundChoiceDesc"],
+    [L["BarStyle"]] = L["BarStyleDesc"],
+    [L["BarTexture"]] = L["BarTextureDesc"],
+    [L["BarWidth"]] = L["BarWidthDesc"],
+    [L["BarHeight"]] = L["BarHeightDesc"],
+    [L["IconSize"]] = L["IconSizeDesc"],
+    [L["SwingTextSize"]] = L["SwingTextSizeDesc"],
+    [L["CurrentSealTextSize"]] = L["CurrentSealTextSizeDesc"],
+    [L["LatencyTextSize"]] = L["LatencyTextSizeDesc"],
+    [L["ColorBar"]] = L["ColorBarDesc"],
+    [L["ColorWrongSeal"]] = L["ColorWrongSealDesc"],
+    [L["ColorBorderNormal"]] = L["ColorBorderNormalDesc"],
+    [L["PreviewSealColor"]] = L["PreviewSealColorDesc"],
+    [L["WrathColorScheme"]] = L["WrathColorSchemeDesc"],
+    [L["ColorSwitchMessage"]] = L["ColorSwitchMessageDesc"],
+    [L["ColorAttackMessage"]] = L["ColorAttackMessageDesc"],
+    [L["ColorNameplateEcho"]] = L["ColorNameplateEchoDesc"],
+    [L["ColorEchoTimerText"]] = L["ColorEchoTimerTextDesc"],
+    [L["NameplateEchoStyle"]] = L["NameplateEchoStyleDesc"],
+    [L["NameplateEchoScale"]] = L["NameplateEchoScaleDesc"],
+    [L["NameplateEchoPipSize"]] = L["NameplateEchoPipSizeDesc"],
+    [L["NameplateEchoOffset"]] = L["NameplateEchoOffsetDesc"],
+    [L["NameplateEchoGlow"]] = L["NameplateEchoGlowDesc"],
+    [L["ProfileChoose"]] = L["ProfileChooseDesc"],
+    [L["DebugMode"]] = L["DebugModeDesc"],
+}
+
+local function CreateSettingDescription(parent, text, xOffset, yOffset, width)
+    if not text or text == "" then return nil, yOffset end
+    local description = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    description:SetPoint("TOPLEFT", parent, "TOPLEFT", xOffset, yOffset)
+    description:SetWidth(width)
+    description:SetJustifyH("LEFT")
+    description:SetWordWrap(true)
+    description:SetText(text)
+    return description, yOffset - math.max(12, description:GetStringHeight()) - 8
+end
+
 local function CreateSectionHeader(parent, text, yOffset)
     local header = CreateFrame("Frame", nil, parent, BACKDROP_TEMPLATE)
     header:SetHeight(24)
@@ -113,9 +171,10 @@ local function CreateSectionHeader(parent, text, yOffset)
     return header, yOffset - 34
 end
 
-local function CreateSettingsCheckbox(parent, label, descText, yOffset, getFunc, setFunc)
+local function CreateSettingsCheckbox(parent, label, descText, yOffset, getFunc, setFunc, indent)
+    indent = indent or 0
     local cb = CreateFrame("CheckButton", nil, parent, CHECKBOX_TEMPLATE)
-    cb:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
+    cb:SetPoint("TOPLEFT", parent, "TOPLEFT", 20 + indent, yOffset)
     if not cb.Text then
         cb.Text = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         cb.Text:SetPoint("LEFT", cb, "RIGHT", 4, 0)
@@ -128,21 +187,24 @@ local function CreateSettingsCheckbox(parent, label, descText, yOffset, getFunc,
     cb:SetScript("OnClick", function(self)
         setFunc(self:GetChecked() and true or false)
         if iST.InvalidateBarState then iST:InvalidateBarState() end
+        if iST.SettingsFrame and iST.SettingsFrame.RefreshAvailability then
+            iST.SettingsFrame.RefreshAvailability()
+        end
     end)
 
     -- The checkbox template is taller than its label. Reserve the whole control
     -- before placing descriptions or the next row underneath it.
     local nextY = yOffset - math.max(24, cb:GetHeight()) - 6
-    if descText and descText ~= "" then
-        local desc = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        desc:SetPoint("TOPLEFT", parent, "TOPLEFT", 52, nextY)
-        desc:SetWidth(parent:GetWidth() - 72)
-        desc:SetJustifyH("LEFT")
-        desc:SetWordWrap(true)
-        desc:SetText(descText)
-        local height = desc:GetStringHeight()
-        if height < 12 then height = 12 end
-        nextY = nextY - height - 6
+    local description
+    description, nextY = CreateSettingDescription(parent, descText or SETTING_DESCRIPTIONS[label],
+        52 + indent, nextY, parent:GetWidth() - 72 - indent)
+
+    function cb:SetControlEnabled(enabled)
+        enabled = enabled == true
+        if self:IsEnabled() == enabled then return end
+        if enabled then self:Enable() else self:Disable() end
+        self:SetAlpha(enabled and 1 or 0.4)
+        if description then description:SetAlpha(enabled and 1 or 0.4) end
     end
 
     return cb, nextY
@@ -161,6 +223,8 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
 
     local valueText = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     valueText:SetPoint("LEFT", sliderLabel, "RIGHT", 10, 0)
+    local description, nextY = CreateSettingDescription(parent, SETTING_DESCRIPTIONS[label],
+        20, yOffset - ROW_HEIGHT, parent:GetWidth() - 40)
 
     local function UpdateValueText(val)
         if formatFunc then
@@ -253,9 +317,24 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
 
     -- Dragging either the knob or the track updates the setting as it moves.
     local isDragging = false
-    thumb:SetScript("OnMouseDown", function() isDragging = true end)
+    local controlEnabled = true
+    function track:SetControlEnabled(enabled)
+        enabled = enabled == true
+        if controlEnabled == enabled then return end
+        controlEnabled = enabled
+        if not controlEnabled then isDragging = false end
+        self:EnableMouse(controlEnabled)
+        self:EnableMouseWheel(controlEnabled)
+        thumb:EnableMouse(controlEnabled)
+        self:SetAlpha(controlEnabled and 1 or 0.35)
+        sliderLabel:SetAlpha(controlEnabled and 1 or 0.45)
+        valueText:SetAlpha(controlEnabled and 1 or 0.45)
+        if description then description:SetAlpha(controlEnabled and 1 or 0.45) end
+    end
+    thumb:SetScript("OnMouseDown", function() if controlEnabled then isDragging = true end end)
     thumb:SetScript("OnMouseUp", function() isDragging = false end)
     track:SetScript("OnMouseDown", function()
+        if not controlEnabled then return end
         local val = ValueFromMouse()
         setFunc(val)
         if iST.InvalidateBarState then iST:InvalidateBarState() end
@@ -264,7 +343,7 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
     end)
     track:SetScript("OnMouseUp", function() isDragging = false end)
     track:SetScript("OnUpdate", function()
-        if not isDragging then return end
+        if not controlEnabled or not isDragging then return end
         local val = ValueFromMouse()
         setFunc(val)
         if iST.InvalidateBarState then iST:InvalidateBarState() end
@@ -272,6 +351,7 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
     end)
     track:EnableMouseWheel(true)
     track:SetScript("OnMouseWheel", function(_, delta)
+        if not controlEnabled then return end
         local current = getFunc()
         local newVal = SnapValue(current + delta * step)
         newVal = math.max(minVal, math.min(maxVal, newVal))
@@ -281,7 +361,7 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
     end)
 
     SetVisualValue(getFunc())
-    return track, yOffset - ROW_HEIGHT
+    return track, nextY
 end
 
 local function StyleSettingsButton(btn)
@@ -405,6 +485,12 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
     local dropdown = CreateFrame("Button", nil, parent, BACKDROP_TEMPLATE)
     dropdown:SetSize(width, 28)
     StyleSettingsButton(dropdown)
+    function dropdown:SetControlEnabled(enabled)
+        enabled = enabled == true
+        if self:IsEnabled() == enabled then return end
+        if enabled then self:Enable() else self:Disable() end
+        if not enabled and self.menu then self.menu:Hide() end
+    end
 
     dropdown.text = dropdown:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     dropdown.text:SetPoint("LEFT", dropdown, "LEFT", 11, 0)
@@ -448,7 +534,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
         dropdown.menu.scrollMenu = ScrollMenu
         dropdown.menu:EnableMouseWheel(true)
         dropdown.menu:SetScript("OnMouseWheel", ScrollMenu)
-        if previewSound then
+        if maxRows then
             local track = CreateFrame("Button", nil, dropdown.menu, BACKDROP_TEMPLATE)
             track:SetWidth(8)
             track:SetPoint("TOPRIGHT", dropdown.menu, "TOPRIGHT", -4, -5)
@@ -462,7 +548,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
             thumb:SetWidth(8)
             thumb:SetColorTexture(0.78, 0.50, 0.16, 1)
             track.thumb = thumb
-            local function SeekSound(self)
+            local function SeekMenu(self)
                 if not GetCursorPosition then return end
                 local _, cursorY = GetCursorPosition()
                 local scale = self:GetEffectiveScale()
@@ -473,11 +559,11 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
                 dropdown.menu.scrollOffset = math.floor(maximum * fraction + 0.5)
                 dropdown:RefreshMenu()
             end
-            track:SetScript("OnMouseDown", SeekSound)
+            track:SetScript("OnMouseDown", SeekMenu)
             track:RegisterForDrag("LeftButton")
             track:SetScript("OnDragStart", function(self)
-                SeekSound(self)
-                self:SetScript("OnUpdate", SeekSound)
+                SeekMenu(self)
+                self:SetScript("OnUpdate", SeekMenu)
             end)
             track:SetScript("OnDragStop", function(self)
                 self:SetScript("OnUpdate", nil)
@@ -590,6 +676,9 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
                 self:Refresh()
                 self.menu:Hide()
                 if openDropdown == self then openDropdown = nil end
+                if iST.SettingsFrame and iST.SettingsFrame.RefreshAvailability then
+                    iST.SettingsFrame.RefreshAvailability()
+                end
             end)
             if button.speaker then
                 button.speaker:SetScript("OnClick", function() previewSound(value) end)
@@ -643,7 +732,7 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
     return dropdown
 end
 
-local function CreateSettingsDropdown(parent, label, yOffset, width, getOptions, getValue, setValue, maxRows, previewSound)
+local function CreateSettingsDropdown(parent, label, yOffset, width, getOptions, getValue, setValue, maxRows, previewSound, descText)
     local labelText = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     labelText:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
     labelText:SetText(label)
@@ -651,7 +740,17 @@ local function CreateSettingsDropdown(parent, label, yOffset, width, getOptions,
 
     local dropdown = CreateStyledDropdown(parent, width, getOptions, getValue, setValue, nil, nil, maxRows, previewSound)
     dropdown:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset - 18)
-    return dropdown, yOffset - 58, function() dropdown:Refresh() end
+    local description, nextY = CreateSettingDescription(parent, descText or SETTING_DESCRIPTIONS[label],
+        20, yOffset - 58, parent:GetWidth() - 40)
+    function dropdown:SetControlEnabled(enabled)
+        enabled = enabled == true
+        if self:IsEnabled() == enabled then return end
+        if enabled then self:Enable() else self:Disable() end
+        if not enabled then self.menu:Hide() end
+        labelText:SetAlpha(enabled and 1 or 0.4)
+        if description then description:SetAlpha(enabled and 1 or 0.4) end
+    end
+    return dropdown, nextY, function() dropdown:Refresh() end
 end
 
 local function CreateInfoText(parent, text, yOffset, fontObj)
@@ -673,6 +772,9 @@ local function CreateColorEditor(parent, label, yOffset, getFunc, onChange, capt
     button:SetBackdrop(PANEL_BACKDROP)
     button:SetBackdropColor(0.035, 0.030, 0.022, 0.92)
     button:SetBackdropBorderColor(0.32, 0.25, 0.14, 1)
+    local description, nextY = CreateSettingDescription(parent,
+        SETTING_DESCRIPTIONS[label] or string.format(L["CustomColorDesc"], label),
+        20, yOffset - 36, parent:GetWidth() - 40)
 
     local highlight = button:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetAllPoints()
@@ -772,8 +874,16 @@ local function CreateColorEditor(parent, label, yOffset, getFunc, onChange, capt
         end
     end)
 
+    function button:SetControlEnabled(enabled)
+        enabled = enabled == true
+        if self:IsEnabled() == enabled then return end
+        if enabled then self:Enable() else self:Disable() end
+        self:SetAlpha(enabled and 1 or 0.4)
+        if description then description:SetAlpha(enabled and 1 or 0.4) end
+    end
+
     RefreshSwatch()
-    return yOffset - 36, RefreshSwatch
+    return nextY, RefreshSwatch, button
 end
 
 -- Build the window once; opening it later reuses the same controls.
@@ -794,6 +904,35 @@ function iST:CreateOptionsPanel()
     settingsFrame:SetFrameStrata("HIGH")
 
     StyleSettingsSurface(settingsFrame)
+
+    local dependentControls = {}
+    local function DependsOn(control, condition)
+        dependentControls[#dependentControls + 1] = { control = control, condition = condition }
+        return control
+    end
+    local function RefreshAvailability()
+        for _, dependency in ipairs(dependentControls) do
+            local control = dependency.control
+            local enabled = dependency.condition() == true
+            if control.SetControlEnabled then
+                control:SetControlEnabled(enabled)
+            elseif control:IsEnabled() ~= enabled then
+                if enabled then control:Enable() else control:Disable() end
+            end
+        end
+    end
+    settingsFrame.RefreshAvailability = RefreshAvailability
+    settingsFrame:HookScript("OnShow", RefreshAvailability)
+    local availabilityElapsed = 0
+    settingsFrame:HookScript("OnUpdate", function(_, elapsed)
+        availabilityElapsed = availabilityElapsed + elapsed
+        if availabilityElapsed < 0.15 then return end
+        availabilityElapsed = 0
+        RefreshAvailability()
+    end)
+    local function WrathAvailable()
+        return iST:IsWrathTrackingEnabled() == true
+    end
 
     local shadow = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
     shadow:SetPoint("TOPLEFT", settingsFrame, -1, 1)
@@ -935,11 +1074,21 @@ function iST:CreateOptionsPanel()
         profilesContainer,
     }
 
+    local function LayoutPreviewSpace(height)
+        for _, container in ipairs(tabContents) do
+            container:ClearAllPoints()
+            container:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 5, -62 - height)
+            container:SetPoint("BOTTOMRIGHT", contentArea, "BOTTOMRIGHT", -5, 5)
+        end
+    end
+
     local sidebarButtons = {}
     local activeIndex = 1
 
     local function ShowTab(index)
         activeIndex = index
+        RefreshAvailability()
+        if settingsFrame.CustomCuePopup then settingsFrame.CustomCuePopup:Hide() end
         if openDropdown and openDropdown.menu then openDropdown.menu:Hide() end
         openDropdown = nil
         pageHeader.title:SetText(pageInfo[index][1])
@@ -947,6 +1096,9 @@ function iST:CreateOptionsPanel()
         for i, content in ipairs(tabContents) do
             content:SetShown(i == index)
         end
+        if settingsFrame.UpdatePreviewLayout then settingsFrame.UpdatePreviewLayout() end
+        if index ~= 3 then settingsFrame.previewSealOverride = nil end
+        if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
         for i, btn in pairs(sidebarButtons) do
             if i == index then
                 btn.bg:Show()
@@ -1059,7 +1211,7 @@ function iST:CreateOptionsPanel()
         local pairCard = CreateFrame("Frame", nil, generalContent, BACKDROP_TEMPLATE)
         pairCard:SetPoint("TOPLEFT", generalContent, "TOPLEFT", 20, y)
         pairCard:SetPoint("TOPRIGHT", generalContent, "TOPRIGHT", -20, y)
-        pairCard:SetHeight(218)
+        pairCard:SetHeight(272)
         StyleSettingsSurface(pairCard)
 
         local fromLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -1101,6 +1253,7 @@ function iST:CreateOptionsPanel()
                 if not iST:SetTwistSeal("From", value) then return end
                 if intoDropdown then intoDropdown:Refresh() end
                 UpdateSealDirection()
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
             end,
             function(option) return option.text end,
             function(option) return option.value == iSTSettings.twistIntoSeal end)
@@ -1113,18 +1266,34 @@ function iST:CreateOptionsPanel()
                 if not iST:SetTwistSeal("Into", value) then return end
                 fromDropdown:Refresh()
                 UpdateSealDirection()
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
             end,
             function(option) return option.text end,
             function(option) return option.value == iSTSettings.twistFromSeal end)
         intoDropdown:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -32)
+        DependsOn(fromDropdown, function() return not CombatLocked() end)
+        DependsOn(intoDropdown, function() return not CombatLocked() end)
+        local firstHelp = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        firstHelp:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -65)
+        firstHelp:SetWidth(190)
+        firstHelp:SetJustifyH("LEFT")
+        firstHelp:SetWordWrap(true)
+        firstHelp:SetText(L["TwistFromSealDesc"])
+        local secondHelp = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        secondHelp:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -65)
+        secondHelp:SetWidth(190)
+        secondHelp:SetJustifyH("LEFT")
+        secondHelp:SetWordWrap(true)
+        secondHelp:SetText(L["TwistIntoSealDesc"])
         legend = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         local fromTargetLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        fromTargetLabel:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -78)
+        fromTargetLabel:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -106)
         fromTargetLabel:SetText(L["SwitchAtStacks"])
         local intoTargetLabel = pairCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        intoTargetLabel:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -78)
+        intoTargetLabel:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -106)
         intoTargetLabel:SetText(L["SwitchAtStacks"])
         local stackOptions = {
+            { value = 0, text = L["AnyEchoStack"] },
             { value = 1, text = L["OneStack"] },
             { value = 2, text = L["TwoStacks"] },
             { value = 3, text = L["ThreeStacks"] },
@@ -1132,22 +1301,45 @@ function iST:CreateOptionsPanel()
         local fromTarget = CreateStyledDropdown(pairCard, 190,
             function() return stackOptions end,
             function() return iSTSettings.twistFromStacks end,
-            function(value) iST:SetTwistStackTarget("From", value) end)
-        fromTarget:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -96)
+            function(value)
+                iST:SetTwistStackTarget("From", value)
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
+            end)
+        fromTarget:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -124)
         local intoTarget = CreateStyledDropdown(pairCard, 190,
             function() return stackOptions end,
             function() return iSTSettings.twistIntoStacks end,
-            function(value) iST:SetTwistStackTarget("Into", value) end)
-        intoTarget:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -96)
-        legend:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -138)
-        legend:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -138)
+            function(value)
+                iST:SetTwistStackTarget("Into", value)
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
+            end)
+        intoTarget:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -124)
+        local targetHelp = pairCard:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        targetHelp:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -158)
+        targetHelp:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -158)
+        targetHelp:SetJustifyH("LEFT")
+        targetHelp:SetText(L["SwitchAtStacksDesc"])
+        local function TargetAvailability(dropdown, label)
+            local baseSetControlEnabled = dropdown.SetControlEnabled
+            function dropdown:SetControlEnabled(enabled)
+                baseSetControlEnabled(self, enabled)
+                label:SetAlpha(enabled and 1 or 0.4)
+                targetHelp:SetAlpha(enabled and 1 or 0.4)
+            end
+            DependsOn(dropdown, function() return WrathAvailable() and not CombatLocked() end)
+        end
+        TargetAvailability(fromTarget, fromTargetLabel)
+        TargetAvailability(intoTarget, intoTargetLabel)
+        legend:SetPoint("TOPLEFT", pairCard, "TOPLEFT", 16, -185)
+        legend:SetPoint("TOPRIGHT", pairCard, "TOPRIGHT", -16, -185)
         legend:SetJustifyH("LEFT")
         legend:SetHeight(34)
         UpdateSealDirection()
 
-        local macrosButton = CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -182, OpenMacroWindow)
+        local macrosButton = CreateSettingsButtonAt(pairCard, L["OpenMacros"], 130, 170, -235, OpenMacroWindow)
         macrosButton:ClearAllPoints()
-        macrosButton:SetPoint("TOP", pairCard, "TOP", 0, -182)
+        macrosButton:SetPoint("TOP", pairCard, "TOP", 0, -235)
+        DependsOn(macrosButton, function() return not CombatLocked() end)
 
         y = y - pairCard:GetHeight() - 8
 
@@ -1174,7 +1366,10 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowLatency"], L["ShowLatencyDesc"], y,
             function() return iSTSettings.showLatency end,
-            function(v) iSTSettings.showLatency = v end
+            function(v)
+                iSTSettings.showLatency = v
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
+            end
         )
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowSealIcon"], L["ShowSealIconDesc"], y,
@@ -1182,53 +1377,78 @@ function iST:CreateOptionsPanel()
             function(v)
                 iSTSettings.showSealIcon = v
                 iST:UpdateSealDisplay()
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
             end
         )
 
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowSealTimer"], L["ShowSealTimerDesc"], y,
+        local sealTimerCheckbox
+        sealTimerCheckbox, y = CreateSettingsCheckbox(indicatorsContent, L["ShowSealTimer"], L["ShowSealTimerDesc"], y,
             function() return iSTSettings.showSealTimer end,
             function(v)
                 iSTSettings.showSealTimer = v
                 iST:UpdateSealTimer()
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
             end
         )
+        DependsOn(sealTimerCheckbox, function() return iSTSettings.showSealIcon end)
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowSealName"], L["ShowSealNameDesc"], y,
             function() return iSTSettings.showSealName end,
-            function(v) iSTSettings.showSealName = v; iST:UpdateSealDisplay() end)
+            function(v)
+                iSTSettings.showSealName = v
+                iST:UpdateSealDisplay()
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
+            end)
 
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowEchoTimer"], L["ShowEchoTimerDesc"], y,
+        local echoTimerCheckbox
+        echoTimerCheckbox, y = CreateSettingsCheckbox(indicatorsContent, L["ShowEchoTimer"], L["ShowEchoTimerDesc"], y,
             function() return iSTSettings.showEchoTimer end,
-            function(v) iSTSettings.showEchoTimer = v; iST:UpdateEchoTimerDisplay() end)
+            function(v)
+                iSTSettings.showEchoTimer = v
+                iST:UpdateEchoTimerDisplay()
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
+            end)
+        DependsOn(echoTimerCheckbox, WrathAvailable)
 
-        _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowNameplateEcho"], L["ShowNameplateEchoDesc"], y,
+        local nameplateCheckbox
+        nameplateCheckbox, y = CreateSettingsCheckbox(indicatorsContent, L["ShowNameplateEcho"], L["ShowNameplateEchoDesc"], y,
             function() return iSTSettings.showNameplateEcho end,
             function(v) iSTSettings.showNameplateEcho = v; iST:UpdateNameplateEchoDisplay() end)
+        DependsOn(nameplateCheckbox, WrathAvailable)
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowWeaponSpeed"], L["ShowWeaponSpeedDesc"], y,
             function() return iSTSettings.showWeaponSpeed end,
-            function(v) iSTSettings.showWeaponSpeed = v end
+            function(v)
+                iSTSettings.showWeaponSpeed = v
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
+            end
         )
 
         _, y = CreateSettingsCheckbox(indicatorsContent, L["ShowSwingRemaining"], L["ShowSwingRemainingDesc"], y,
             function() return iSTSettings.showSwingRemaining end,
-            function(v) iSTSettings.showSwingRemaining = v; iST:InvalidateBarState() end)
+            function(v)
+                iSTSettings.showSwingRemaining = v
+                iST:InvalidateBarState()
+                if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
+            end)
 
         _, y = CreateSectionHeader(indicatorsContent, L["SectionUnsealedWrath"], y)
-        local echoPreview = CreateFrame("Frame", nil, indicatorsContent, BACKDROP_TEMPLATE)
-        echoPreview:SetPoint("TOPLEFT", indicatorsContent, "TOPLEFT", 20, y)
-        echoPreview:SetPoint("TOPRIGHT", indicatorsContent, "TOPRIGHT", -20, y)
+        local echoPreview = CreateFrame("Frame", nil, contentArea, BACKDROP_TEMPLATE)
+        echoPreview:SetPoint("TOPLEFT", contentArea, "TOPLEFT", 20, -62)
+        echoPreview:SetPoint("TOPRIGHT", contentArea, "TOPRIGHT", -20, -62)
         echoPreview:SetHeight(206)
         StyleSettingsSurface(echoPreview)
         local previewTitle = echoPreview:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         previewTitle:SetPoint("TOPLEFT", echoPreview, "TOPLEFT", 14, -10)
         previewTitle:SetText(L["EchoSetupPreview"])
-        local previewNote = echoPreview:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        local previewBody = CreateFrame("Frame", nil, echoPreview)
+        previewBody:SetAllPoints(echoPreview)
+        local previewNote = previewBody:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         previewNote:SetPoint("BOTTOMLEFT", echoPreview, "BOTTOMLEFT", 14, 11)
         previewNote:SetPoint("BOTTOMRIGHT", echoPreview, "BOTTOMRIGHT", -14, 11)
         previewNote:SetJustifyH("LEFT")
         previewNote:SetText(L["EchoSetupPreviewDesc"])
-        local previewBar = CreateFrame("Frame", nil, echoPreview, BACKDROP_TEMPLATE)
+        local previewBar = CreateFrame("Frame", nil, previewBody, BACKDROP_TEMPLATE)
         previewBar:SetPoint("CENTER", echoPreview, "CENTER", 0, -31)
         previewBar:SetBackdrop({ edgeFile = "Interface\\BUTTONS\\WHITE8X8", edgeSize = 1 })
         previewBar.fill = previewBar:CreateTexture(nil, "ARTWORK")
@@ -1237,50 +1457,64 @@ function iST:CreateOptionsPanel()
         local speed = previewBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         speed:SetPoint("LEFT", previewBar, "LEFT", 7, 0)
         speed:SetText("3.30")
+        speed:SetTextColor(0.8, 0.8, 0.8, 0.7)
         local remaining = previewBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         remaining:SetPoint("RIGHT", previewBar, "RIGHT", -7, 0)
         remaining:SetText("1.2s")
-        local sealName = echoPreview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        remaining:SetTextColor(1, 1, 1, 1)
+        local latency = previewBody:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        latency:SetPoint("TOPRIGHT", previewBar, "BOTTOMRIGHT", 0, -3)
+        latency:SetText("22ms")
+        latency:SetTextColor(0.5, 0.5, 0.5, 0.8)
+        local sealName = previewBody:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         sealName:SetPoint("TOP", previewBar, "BOTTOM", 0, -4)
-        local sealRing = echoPreview:CreateTexture(nil, "BORDER")
+        sealName:SetTextColor(1, 0.59, 0.09, 0.9)
+        local sealRing = previewBody:CreateTexture(nil, "BORDER")
         sealRing:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
         sealRing:SetPoint("RIGHT", previewBar, "LEFT", -7, 0)
         sealRing:SetVertexColor(1, 0.59, 0.09, 0.95)
-        local sealIcon = echoPreview:CreateTexture(nil, "ARTWORK")
+        local sealIcon = previewBody:CreateTexture(nil, "ARTWORK")
         sealIcon:SetPoint("CENTER", sealRing, "CENTER")
         sealIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        if sealIcon.AddMaskTexture and echoPreview.CreateMaskTexture then
-            local mask = echoPreview:CreateMaskTexture()
+        local sealTime = previewBody:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        sealTime:SetPoint("CENTER", sealRing, "CENTER")
+        sealTime:SetText("26")
+        sealTime:SetTextColor(1, 1, 1, 1)
+        local sealLabel = previewBody:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        sealLabel:SetPoint("BOTTOM", sealRing, "TOP", 0, 1)
+        sealLabel:SetText(L["SealTimerLabel"])
+        sealLabel:SetTextColor(0.35, 0.82, 1, 1)
+        if sealIcon.AddMaskTexture and previewBody.CreateMaskTexture then
+            local mask = previewBody:CreateMaskTexture()
             mask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
             mask:SetAllPoints(sealIcon)
             sealIcon:AddMaskTexture(mask)
         end
-        local counter = echoPreview:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local counter = previewBody:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         counter:SetPoint("BOTTOM", previewBar, "TOP", 0, 7)
         counter:SetJustifyH("CENTER")
-        local pips = {}
-        for index = 1, 3 do
-            local pip = echoPreview:CreateTexture(nil, "ARTWORK")
-            pip:SetPoint("BOTTOM", previewBar, "TOP", (index - 2) * 25, 6)
-            pips[index] = pip
-        end
-        local echoRing = echoPreview:CreateTexture(nil, "BORDER")
+        local previewCircles = iST:CreateStackBubbles(previewBody, nil, 18, 9)
+        previewCircles:SetPoint("BOTTOM", previewBar, "TOP", 0, 6)
+        local previewIcons = iST:CreateStackSealIcons(previewBody, 18, 5)
+        previewIcons:SetPoint("BOTTOM", previewBar, "TOP", 0, 6)
+        iST:CreateSwordImageCue(previewBar)
+        local echoRing = previewBody:CreateTexture(nil, "BORDER")
         echoRing:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
         echoRing:SetPoint("LEFT", previewBar, "RIGHT", 7, 0)
         echoRing:SetVertexColor(0.20, 0.72, 1, 0.95)
-        local echoIcon = echoPreview:CreateTexture(nil, "ARTWORK")
+        local echoIcon = previewBody:CreateTexture(nil, "ARTWORK")
         echoIcon:SetPoint("CENTER", echoRing, "CENTER")
         echoIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        if echoIcon.AddMaskTexture and echoPreview.CreateMaskTexture then
-            local mask = echoPreview:CreateMaskTexture()
+        if echoIcon.AddMaskTexture and previewBody.CreateMaskTexture then
+            local mask = previewBody:CreateMaskTexture()
             mask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
             mask:SetAllPoints(echoIcon)
             echoIcon:AddMaskTexture(mask)
         end
-        local echoTime = echoPreview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local echoTime = previewBody:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         echoTime:SetPoint("CENTER", echoRing, "CENTER")
         echoTime:SetText("12")
-        local echoLabel = echoPreview:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        local echoLabel = previewBody:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         echoLabel:SetPoint("BOTTOM", echoRing, "TOP", 0, 1)
         echoLabel:SetText(L["EchoLabel"])
         echoLabel:SetTextColor(0.35, 0.82, 1, 1)
@@ -1288,7 +1522,7 @@ function iST:CreateOptionsPanel()
             local width = math.max(100, math.min(360, iSTSettings.barWidth or 250))
             local height = iSTSettings.barHeight or 25
             local iconSize = math.max(16, math.min(64, iSTSettings.sealIconSize or 25))
-            local source = iSTSettings.twistFromSeal
+            local source = settingsFrame.previewSealOverride or iSTSettings.twistFromSeal
             local texture = iST.BarFrame and iST.BarFrame.stackSealIcons[source]
             local stageColor = iST:GetWrathCueColor(2)
             local fillColor = iSTSettings.barColorBySeal and iSTSettings.sealBarColors[source]
@@ -1300,23 +1534,43 @@ function iST:CreateOptionsPanel()
             local border = iSTSettings.borderNormalColor
             previewBar:SetBackdropBorderColor(border.r, border.g, border.b, border.a or 1)
             local fontPath = iST:GetBarFontPath()
-            local swingSize = math.max(8, math.min(iSTSettings.swingTextSize or 11, height - 4))
+            local swingSize = math.max(8, math.min(iSTSettings.swingTextSize or 11,
+                math.floor(height - 4), math.floor((iSTSettings.barWidth - 16) / 5)))
             speed:SetFont(fontPath, swingSize, "OUTLINE")
             remaining:SetFont(fontPath, swingSize, "OUTLINE")
+            latency:SetFont(fontPath, iSTSettings.latencyTextSize or 9, "OUTLINE")
             speed:SetShown(iSTSettings.showWeaponSpeed)
             remaining:SetShown(iSTSettings.showSwingRemaining)
+            latency:SetShown(iSTSettings.showLatency)
             sealName:SetText(source or "")
             sealName:SetFont(fontPath, iSTSettings.sealTextSize or 10, "OUTLINE")
             sealName:SetShown(iSTSettings.showSealName)
             sealRing:SetSize(iconSize + 8, iconSize + 8)
             sealIcon:SetSize(iconSize, iconSize)
             sealIcon:SetTexture(texture)
+            local timerSize = math.max(8, math.floor(iconSize * 0.46 + 0.5))
+            local opticalOffset = timerSize * 0.1
+            sealTime:ClearAllPoints()
+            sealTime:SetSize(iconSize, iconSize)
+            sealTime:SetPoint("CENTER", sealIcon, "CENTER", opticalOffset - 1, -opticalOffset)
+            sealTime:SetFont(fontPath, timerSize, "THICKOUTLINE")
+            sealRing:SetVertexColor(1, 0.59, 0.09, 0.95)
+            sealTime:SetTextColor(1, 1, 1, 1)
+            sealLabel:SetFont(fontPath, math.max(8, math.floor(iconSize * 0.23 + 0.5)), "OUTLINE")
+            sealLabel:Hide()
             sealRing:SetShown(iSTSettings.showSealIcon)
             sealIcon:SetShown(iSTSettings.showSealIcon)
+            sealTime:SetShown(iSTSettings.showSealIcon and iSTSettings.showSealTimer)
             echoRing:SetSize(iconSize + 8, iconSize + 8)
             echoIcon:SetSize(iconSize, iconSize)
             echoIcon:SetTexture(texture)
-            echoTime:SetFont(fontPath, math.max(8, math.floor(iconSize * 0.46 + 0.5)), "THICKOUTLINE")
+            echoTime:ClearAllPoints()
+            echoTime:SetSize(iconSize, iconSize)
+            echoTime:SetPoint("CENTER", echoIcon, "CENTER", opticalOffset - 1, -opticalOffset)
+            echoTime:SetFont(fontPath, timerSize, "THICKOUTLINE")
+            local echoTextColor = iSTSettings.echoTimerTextColor
+            echoTime:SetTextColor(echoTextColor.r, echoTextColor.g, echoTextColor.b,
+                echoTextColor.a or 1)
             echoLabel:SetFont(fontPath, math.max(8, math.floor(iconSize * 0.23 + 0.5)), "OUTLINE")
             echoRing:SetShown(iSTSettings.showEchoTimer)
             echoIcon:SetShown(iSTSettings.showEchoTimer)
@@ -1325,34 +1579,66 @@ function iST:CreateOptionsPanel()
             local showCounter = iSTSettings.showStackCounter
             counter:SetShown(showCounter)
             counter:SetFont(fontPath, iSTSettings.stackCounterTextSize or 16, "THICKOUTLINE")
-            counter:SetText("2 / " .. iST:GetTwistStackTarget(source))
+            counter:SetText("2 / " .. iST:GetTwistStackTargetLabel(source))
             counter:SetTextColor(stageColor.r, stageColor.g, stageColor.b, stageColor.a or 1)
-            for index, pip in ipairs(pips) do
-                local show = iSTSettings.showStackCircles
-                pip:SetShown(show)
-                if show then
-                    local pipSize = iSTSettings.wrathCircleSize or 18
-                    pip:SetSize(pipSize, pipSize)
-                    pip:SetTexture(iSTSettings.stackBubbleStyle == "SEAL_ICONS" and texture
-                        or "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
-                    pip:SetVertexColor(stageColor.r, stageColor.g, stageColor.b,
-                        index <= 2 and 1 or 0.25)
-                end
-            end
+            local pipSize = math.max(10, math.min(50, iSTSettings.wrathCircleSize or 18))
+            iST:ResizeStackBubbles(previewCircles, pipSize)
+            iST:ResizeStackSealIcons(previewIcons, pipSize)
+            local target = iST:GetTwistStackTarget(source)
+            iST:RenderStackBubbles(previewCircles, 2, stageColor, target)
+            iST:RenderStackSealIcons(previewIcons, 2, texture, target)
+            local circleShift = (3 - previewCircles.visiblePips) * (pipSize + previewCircles.pipGap) / 2
+            previewCircles:ClearAllPoints()
+            previewCircles:SetPoint("BOTTOM", previewBar, "TOP", circleShift, 6)
+            local iconShift = (3 - previewIcons.visiblePips) * (pipSize + previewIcons.pipGap) / 2
+            previewIcons:ClearAllPoints()
+            previewIcons:SetPoint("BOTTOM", previewBar, "TOP", iconShift, 6)
+            previewCircles:SetShown(iSTSettings.showStackCircles
+                and iSTSettings.stackBubbleStyle == "CIRCLES")
+            previewIcons:SetShown(iSTSettings.showStackCircles
+                and iSTSettings.stackBubbleStyle == "SEAL_ICONS" and texture ~= nil)
+            iST:UpdateSwordImageCue(previewBar, 2, iSTSettings.showStackSwordImages, stageColor)
+            sealRing:ClearAllPoints()
+            sealRing:SetPoint("RIGHT", previewBar, "LEFT",
+                iSTSettings.showStackSwordImages and -(previewBar.wrathSwordImages.leftOverhang + 7) or -7, 0)
             if showCounter and iSTSettings.showStackCircles then
                 counter:ClearAllPoints()
                 counter:SetPoint("BOTTOM", previewBar, "TOP", 0,
-                    math.max(35, (iSTSettings.wrathCircleSize or 18) + 15))
+                    math.max(35, pipSize + 15))
             else
                 counter:ClearAllPoints()
                 counter:SetPoint("BOTTOM", previewBar, "TOP", 0, 7)
             end
         end
+        settingsFrame.RefreshEchoPreview = RefreshEchoPreview
+        local previewToggle = CreateFrame("Button", nil, echoPreview, BACKDROP_TEMPLATE)
+        previewToggle:SetSize(110, 24)
+        previewToggle:SetPoint("TOPRIGHT", echoPreview, "TOPRIGHT", -8, -5)
+        StyleSettingsButton(previewToggle)
+        local previewCollapsed = false
+        local function UpdatePreviewLayout()
+            local visible = activeIndex == 2 or activeIndex == 3
+            echoPreview:SetShown(visible)
+            local expandedHeight = math.max(206, 135
+                + (iSTSettings.showStackCounter and (iSTSettings.stackCounterTextSize or 16) or 0)
+                + (iSTSettings.showStackCircles and (iSTSettings.wrathCircleSize or 18) or 0))
+            echoPreview:SetHeight(previewCollapsed and 34 or expandedHeight)
+            previewBody:SetShown(not previewCollapsed)
+            previewToggle:SetText(previewCollapsed and L["ShowPreview"] or L["HidePreview"])
+            LayoutPreviewSpace(visible and echoPreview:GetHeight() + 10 or 0)
+            if visible and not previewCollapsed then RefreshEchoPreview() end
+        end
+        settingsFrame.UpdatePreviewLayout = UpdatePreviewLayout
+        previewToggle:SetScript("OnClick", function()
+            previewCollapsed = not previewCollapsed
+            UpdatePreviewLayout()
+        end)
+        UpdatePreviewLayout()
         echoPreview:SetScript("OnShow", RefreshEchoPreview)
         indicatorsContent:HookScript("OnShow", RefreshEchoPreview)
         RefreshEchoPreview()
-        y = y - echoPreview:GetHeight() - 10
         local indicatorCheckboxes = {}
+        local counterSizeSlider, pipSizeSlider, playerPipSizeSlider, playerFrameCheckbox
         local function AddIndicator(key, label, description)
             local checkbox
             checkbox, y = CreateSettingsCheckbox(indicatorsContent, label, description, y,
@@ -1363,178 +1649,221 @@ function iST:CreateOptionsPanel()
                     if key == "showStackCounter" then iST:CreateStackManagedDisplay() end
                     iST:UpdateWrathDisplay()
                     RefreshEchoPreview()
+                    if settingsFrame.UpdatePreviewLayout then settingsFrame.UpdatePreviewLayout() end
+                    RefreshAvailability()
                 end)
             indicatorCheckboxes[#indicatorCheckboxes + 1] = checkbox
+            DependsOn(checkbox, function() return WrathAvailable() and not CombatLocked() end)
         end
         AddIndicator("showStackCounter", L["WrathCueCounter"])
         AddIndicator("showStackCircles", L["WrathCueCircles"])
         AddIndicator("showStackBarColor", L["WrathCueBarColor"])
-        AddIndicator("showStackSwordImages", L["WrathCueSwordImages"])
-        AddIndicator("showWorldEchoCue", L["WorldEchoCue"])
         AddIndicator("showPlayerWrathBubbles", L["ShowPlayerWrathBubbles"], L["ShowPlayerWrathBubblesDesc"])
+        playerFrameCheckbox, y = CreateSettingsCheckbox(indicatorsContent,
+            L["ShowPlayerPipFrame"], L["ShowPlayerPipFrameDesc"], y,
+            function() return iSTSettings.showPlayerPipFrame end,
+            function(value)
+                iSTSettings.showPlayerPipFrame = value
+                iST:UpdatePlayerWrathBubbles(GetTime())
+            end, 20)
+        DependsOn(playerFrameCheckbox, function()
+            return WrathAvailable() and iSTSettings.showPlayerWrathBubbles and not CombatLocked()
+        end)
         settingsFrame.indicatorCheckboxes = indicatorCheckboxes
         _, y = CreateInfoText(indicatorsContent, L["WrathCueDesc"], y, "GameFontDisableSmall")
         y = y - 8
-        local worldStyleDropdown, stackStyleDropdown
-        local function RefreshIndicatorControls()
-            for _, checkbox in ipairs(indicatorCheckboxes) do
-                if CombatLocked() then checkbox:Disable() else checkbox:Enable() end
-            end
-            if worldStyleDropdown then
-                if CombatLocked() then
-                    if openDropdown == worldStyleDropdown then worldStyleDropdown.menu:Hide() end
-                    worldStyleDropdown:Disable()
-                else
-                    worldStyleDropdown:Enable()
-                end
-            end
-            if stackStyleDropdown then
-                if CombatLocked() then
-                    if openDropdown == stackStyleDropdown then stackStyleDropdown.menu:Hide() end
-                    stackStyleDropdown:Disable()
-                else
-                    stackStyleDropdown:Enable()
-                end
-            end
-        end
-        local indicatorLockWatcher = CreateFrame("Frame", nil, settingsFrame)
-        indicatorLockWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
-        indicatorLockWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-        indicatorLockWatcher:SetScript("OnEvent", RefreshIndicatorControls)
-        settingsFrame.indicatorLockWatcher = indicatorLockWatcher
-        settingsFrame:HookScript("OnShow", RefreshIndicatorControls)
-        RefreshIndicatorControls()
+        local stackStyleDropdown
         _, y = CreateSectionHeader(indicatorsContent, L["SectionIndicatorStyle"], y)
         stackStyleDropdown, y = CreateSettingsDropdown(indicatorsContent, L["StackBubbleStyle"], y, 250,
             function() return {
-                { value = "CIRCLES", text = L["StackBubbleCircles"] },
                 { value = "SEAL_ICONS", text = L["StackBubbleSealIcons"] },
+                { value = "CIRCLES", text = L["StackBubbleCircles"] },
             } end,
             function() return iSTSettings.stackBubbleStyle end,
             function(value)
                 if CombatLocked() then return end
                 iSTSettings.stackBubbleStyle = value
+                iST:UpdateSealTimer()
                 iST:UpdateWrathDisplay()
                 iST:UpdatePlayerWrathBubbles(GetTime())
                 RefreshEchoPreview()
             end)
-        _, y = CreateCustomSlider(indicatorsContent, L["StackCounterTextSize"], y, 8, 40, 1,
+        DependsOn(stackStyleDropdown, function()
+            return WrathAvailable() and not CombatLocked()
+                and (iSTSettings.showStackCircles or iSTSettings.showPlayerWrathBubbles)
+        end)
+        counterSizeSlider, y = CreateCustomSlider(indicatorsContent, L["StackCounterTextSize"], y, 10, 50, 1,
             function() return iSTSettings.stackCounterTextSize end,
             function(value)
                 iSTSettings.stackCounterTextSize = value
                 iST:ApplyBarTypography()
                 RefreshEchoPreview()
+                settingsFrame.UpdatePreviewLayout()
             end,
-            function(value) return value .. "pt" end)
+            function(value) return value .. "px" end)
+        DependsOn(counterSizeSlider, function() return WrathAvailable() and iSTSettings.showStackCounter end)
 
-        _, y = CreateCustomSlider(indicatorsContent, L["WrathCircleSize"], y, 10, 40, 1,
+        pipSizeSlider, y = CreateCustomSlider(indicatorsContent, L["WrathCircleSize"], y, 10, 50, 1,
             function() return iSTSettings.wrathCircleSize end,
             function(value)
                 iSTSettings.wrathCircleSize = value
                 iST:ApplyWrathCircleSize()
                 RefreshEchoPreview()
+                settingsFrame.UpdatePreviewLayout()
             end,
             function(value) return value .. "px" end)
-
-        _, y = CreateSectionHeader(indicatorsContent, L["SectionFloatingCue"], y)
-        worldStyleDropdown, y = CreateSettingsDropdown(indicatorsContent, L["WorldEchoCueStyle"], y, 250,
-            function() return {
-                { value = "WINGS", text = L["WorldEchoCueWings"] },
-                { value = "GLOW", text = L["WorldEchoCueGlow"] },
-                { value = "SPARKS", text = L["WorldEchoCueSparks"] },
-                { value = "FRAME", text = L["WorldEchoCueFrame"] },
-            } end,
-            function() return iSTSettings.worldEchoCueStyle end,
+        DependsOn(pipSizeSlider, function() return WrathAvailable() and iSTSettings.showStackCircles end)
+        playerPipSizeSlider, y = CreateCustomSlider(indicatorsContent, L["PlayerPipSize"], y, 10, 50, 1,
+            function() return iSTSettings.playerPipSize end,
             function(value)
-                if CombatLocked() then return end
-                iSTSettings.worldEchoCueStyle = value
-                iST:UpdateWorldEchoCue()
-            end)
-        RefreshIndicatorControls()
-        _, y = CreateCustomSlider(indicatorsContent, L["WorldEchoCueScale"], y, 0.5, 2.5, 0.05,
-            function() return iSTSettings.worldEchoCueScale end,
-            function(value) iSTSettings.worldEchoCueScale = value; iST:UpdateWorldEchoCue() end,
-            function(value) return string.format("%.2fx", value) end)
-        local worldMoveButton
-        worldMoveButton, y = CreateSettingsButton(indicatorsContent,
-            L["MoveWorldEchoCue"], 170, y, function()
-                local moving = not (iST.WorldEchoCueFrame and iST.WorldEchoCueFrame.moving)
-                iST:SetWorldEchoCueMoveMode(moving)
-                local active = iST.WorldEchoCueFrame and iST.WorldEchoCueFrame.moving
-                worldMoveButton:SetText(active and L["DoneMovingWorldEchoCue"] or L["MoveWorldEchoCue"])
-            end)
-        _, y = CreateSettingsButton(indicatorsContent, L["ResetWorldEchoCuePosition"], 190, y,
-            function() iST:ResetWorldEchoCuePosition() end)
-        settingsFrame:HookScript("OnHide", function()
-            if iST.WorldEchoCueFrame and iST.WorldEchoCueFrame.moving then
-                iST:SetWorldEchoCueMoveMode(false)
-                worldMoveButton:SetText(L["MoveWorldEchoCue"])
-            end
+                iSTSettings.playerPipSize = value
+                iST:ApplyWrathCircleSize()
+                iST:UpdatePlayerWrathBubbles(GetTime())
+            end,
+            function(value) return value .. "px" end)
+        DependsOn(playerPipSizeSlider, function()
+            return WrathAvailable() and iSTSettings.showPlayerWrathBubbles
         end)
 
         _, y = CreateSectionHeader(indicatorsContent, L["SectionCenterCue"], y)
-        _, y = CreateSettingsCheckbox(indicatorsContent,
+        local centerCheckbox
+        centerCheckbox, y = CreateSettingsCheckbox(indicatorsContent,
             L["CenterSwitchText"], L["CenterSwitchTextDesc"], y,
             function() return iSTSettings.showCenterSwitchText end,
             function(value)
                 if CombatLocked() then return end
                 iSTSettings.showCenterSwitchText = value
+                if iST.State.EditMode then iST:SetCenterSwitchMoveMode(value) end
                 iST:UpdateCenterSwitchText()
             end)
+        DependsOn(centerCheckbox, function() return WrathAvailable() and not CombatLocked() end)
 
-        _, y = CreateSettingsDropdown(indicatorsContent, L["CenterSwitchVisual"], y, 250,
+        local centerModeDropdown
+        centerModeDropdown, y = CreateSettingsDropdown(indicatorsContent, L["CenterSwitchMode"], y, 250,
             function() return {
-                { value = "TEXT", text = L["CenterVisualText"] },
-                { value = "RADIANT", text = L["CenterVisualRadiant"] },
+                { value = "BOTH", text = L["CenterModeBoth"] },
+                { value = "SWITCH", text = L["CenterModeSwitch"] },
+                { value = "ATTACK", text = L["CenterModeAttack"] },
             } end,
-            function() return iSTSettings.centerSwitchVisual end,
+            function() return iSTSettings.centerSwitchMode end,
             function(value)
                 if CombatLocked() then return end
-                iSTSettings.centerSwitchVisual = value
+                iSTSettings.centerSwitchMode = value
                 iST:UpdateCenterSwitchText()
             end)
+        DependsOn(centerModeDropdown, function()
+            return WrathAvailable() and iSTSettings.showCenterSwitchText and not CombatLocked()
+        end)
 
-        _, y = CreateSettingsDropdown(indicatorsContent, L["CenterSwitchPhrase"], y, 250,
-            function()
-                return {
-                    { value = "Switch now", text = "Switch now" },
-                    { value = "Unleash!", text = "Unleash!" },
-                    { value = "Echoes ready", text = "Echoes ready" },
-                }
-            end,
-            function() return iSTSettings.centerSwitchText end,
-            function(value)
-                if CombatLocked() then return end
-                iSTSettings.centerSwitchText = value
-                iST:UpdateCenterSwitchText()
-            end)
+        local customPopup = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
+        customPopup:SetSize(350, 140)
+        customPopup:SetPoint("CENTER", settingsFrame, "CENTER")
+        customPopup:SetFrameStrata("DIALOG")
+        customPopup:EnableMouse(true)
+        StyleSettingsSurface(customPopup)
+        customPopup:Hide()
+        settingsFrame.CustomCuePopup = customPopup
+        local customTitle = customPopup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        customTitle:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 16, -13)
+        local customBox = CreateFrame("EditBox", nil, customPopup, BACKDROP_TEMPLATE)
+        customBox:SetSize(318, 28)
+        customBox:SetPoint("TOPLEFT", customPopup, "TOPLEFT", 16, -42)
+        StyleSettingsSurface(customBox)
+        customBox:SetFontObject(ChatFontNormal)
+        customBox:SetTextInsets(8, 8, 0, 0)
+        customBox:SetMaxLetters(60)
+        customBox:SetAutoFocus(false)
+        local function SaveCustomCue()
+            if CombatLocked() then customPopup:Hide() return end
+            local value = customBox:GetText():match("^%s*(.-)%s*$")
+            if value == "" then value = customPopup.fallback end
+            iSTSettings[customPopup.key] = value
+            iSTSettings[customPopup.customKey] = value
+            customPopup:Hide()
+            customBox:ClearFocus()
+            customPopup.dropdown:Refresh()
+            iST:UpdateCenterSwitchText()
+        end
+        customBox:SetScript("OnEnterPressed", SaveCustomCue)
+        customBox:SetScript("OnEscapePressed", function(self)
+            self:ClearFocus()
+            customPopup:Hide()
+        end)
+        CreateSettingsButtonAt(customPopup, L["SaveCustomMessage"], 130, 16, -91, SaveCustomCue)
+        CreateSettingsButtonAt(customPopup, L["CancelCustomMessage"], 130, 164, -91,
+            function() customBox:ClearFocus(); customPopup:Hide() end)
+        settingsFrame:HookScript("OnHide", function() customPopup:Hide() end)
 
-        _, y = CreateSettingsDropdown(indicatorsContent, L["CenterAttackPhrase"], y, 250,
-            function()
-                return {
-                    { value = "Attack now", text = "Attack now" },
-                    { value = "Unleash now", text = "Unleash now" },
-                    { value = "Strike now", text = "Strike now" },
-                }
-            end,
-            function() return iSTSettings.centerAttackText end,
-            function(value)
-                if CombatLocked() then return end
-                iSTSettings.centerAttackText = value
-                iST:UpdateCenterSwitchText()
-            end)
+        local function AddCueTextPicker(label, key, customKey, fallback, presets, description)
+            local dropdown
+            local function IsPreset(value)
+                for _, preset in ipairs(presets) do
+                    if value == preset then return true end
+                end
+                return false
+            end
+            dropdown, y = CreateSettingsDropdown(indicatorsContent, label, y, 250,
+                function()
+                    local options = {}
+                    for _, preset in ipairs(presets) do
+                        options[#options + 1] = { value = preset, text = preset }
+                    end
+                    options[#options + 1] = { value = "CUSTOM", text = L["CustomMessage"] }
+                    return options
+                end,
+                function()
+                    local value = iSTSettings[key] or fallback
+                    return IsPreset(value) and value or "CUSTOM"
+                end,
+                function(value)
+                    if CombatLocked() then return end
+                    if value == "CUSTOM" then
+                        customPopup.key, customPopup.customKey = key, customKey
+                        customPopup.fallback, customPopup.dropdown = fallback, dropdown
+                        customTitle:SetText(label)
+                        customBox:SetText(iSTSettings[customKey] or iSTSettings[key] or fallback)
+                        customPopup:Show()
+                        customBox:SetFocus()
+                    else
+                        iSTSettings[key] = value
+                        iST:UpdateCenterSwitchText()
+                    end
+                end, nil, nil, description)
+            return dropdown
+        end
+        local switchTextDropdown = AddCueTextPicker(L["CenterSwitchPhrase"], "centerSwitchText", "centerSwitchCustomText",
+            "Switch now", { "Switch now", "Unleash!", "Echoes ready" }, L["CenterSwitchPhraseDesc"])
+        DependsOn(switchTextDropdown, function()
+            return WrathAvailable() and iSTSettings.showCenterSwitchText
+                and iSTSettings.centerSwitchMode ~= "ATTACK" and not CombatLocked()
+        end)
+        local attackTextDropdown = AddCueTextPicker(L["CenterAttackPhrase"], "centerAttackText", "centerAttackCustomText",
+            "Attack now", { "Attack now", "Unleash now", "Strike now" }, L["CenterAttackPhraseDesc"])
+        DependsOn(attackTextDropdown, function()
+            return WrathAvailable() and iSTSettings.showCenterSwitchText
+                and iSTSettings.centerSwitchMode ~= "SWITCH" and not CombatLocked()
+        end)
 
         local moveButton
         moveButton, y = CreateSettingsButton(indicatorsContent,
             L["MoveCenterSwitchText"], 170, y, function()
                 if CombatLocked() then return end
                 local moving = not (iST.CenterSwitchFrame and iST.CenterSwitchFrame.moving)
-                iST:SetCenterSwitchMoveMode(moving)
+            if moving then
+                iST:SetCenterSwitchMoveMode(true)
+            else
+                iST:SetCenterSwitchMoveMode(false)
+                iST:SetBarLocked(true)
+            end
                 local active = iST.CenterSwitchFrame and iST.CenterSwitchFrame.moving
                 moveButton:SetText(active and L["DoneMovingCenterSwitchText"] or L["MoveCenterSwitchText"])
             end)
+        settingsFrame.centerMoveButton = moveButton
+        DependsOn(moveButton, function()
+            return WrathAvailable() and iSTSettings.showCenterSwitchText and not CombatLocked()
+        end)
         settingsFrame:HookScript("OnHide", function()
-            if iST.CenterSwitchFrame and iST.CenterSwitchFrame.moving then
+            if not iST.State.EditMode and iST.CenterSwitchFrame and iST.CenterSwitchFrame.moving then
                 iST:SetCenterSwitchMoveMode(false)
                 moveButton:SetText(L["MoveCenterSwitchText"])
             end
@@ -1560,39 +1889,59 @@ function iST:CreateOptionsPanel()
             _, y = CreateSettingsCheckbox(remindersContent, L["ReminderEnable"], nil, y,
                 function() return settings.enabled end, function(value) set("enabled", value) end)
             if kind == "FURY" then
-                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderProtOnly"], L["ReminderProtOnlyDesc"], y,
+                local protCheckbox
+                protCheckbox, y = CreateSettingsCheckbox(remindersContent, L["ReminderProtOnly"], L["ReminderProtOnlyDesc"], y,
                     function() return settings.protOnly end, function(value) set("protOnly", value) end)
-                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderDungeonsOnly"], L["ReminderDungeonsOnlyDesc"], y,
+                DependsOn(protCheckbox, function() return settings.enabled end)
+                local dungeonCheckbox
+                dungeonCheckbox, y = CreateSettingsCheckbox(remindersContent, L["ReminderDungeonsOnly"], L["ReminderDungeonsOnlyDesc"], y,
                     function() return settings.dungeonsOnly end, function(value) set("dungeonsOnly", value) end)
-                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderPartyOnly"], L["ReminderPartyOnlyDesc"], y,
+                DependsOn(dungeonCheckbox, function() return settings.enabled end)
+                local partyCheckbox
+                partyCheckbox, y = CreateSettingsCheckbox(remindersContent, L["ReminderPartyOnly"], L["ReminderPartyOnlyDesc"], y,
                     function() return settings.partyOnly end, function(value) set("partyOnly", value) end)
+                DependsOn(partyCheckbox, function() return settings.enabled end)
             else
-                _, y = CreateSettingsCheckbox(remindersContent, L["OnlyInCombat"], nil, y,
+                local combatCheckbox
+                combatCheckbox, y = CreateSettingsCheckbox(remindersContent, L["OnlyInCombat"], nil, y,
                     function() return settings.onlyInCombat end, function(value) set("onlyInCombat", value) end)
-                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderHideAfterIdle"], L["ReminderHideAfterIdleDesc"], y,
+                DependsOn(combatCheckbox, function() return settings.enabled end)
+                local idleCheckbox
+                idleCheckbox, y = CreateSettingsCheckbox(remindersContent, L["ReminderHideAfterIdle"], L["ReminderHideAfterIdleDesc"], y,
                     function() return settings.hideAfterIdle end, function(value) set("hideAfterIdle", value) end)
-                _, y = CreateSettingsCheckbox(remindersContent, L["ReminderHideInCapitals"], L["ReminderHideInCapitalsDesc"], y,
+                DependsOn(idleCheckbox, function() return settings.enabled end)
+                local capitalsCheckbox
+                capitalsCheckbox, y = CreateSettingsCheckbox(remindersContent, L["ReminderHideInCapitals"], L["ReminderHideInCapitalsDesc"], y,
                     function() return settings.hideInCapitals end, function(value) set("hideInCapitals", value) end)
+                DependsOn(capitalsCheckbox, function() return settings.enabled end)
             end
             y = y - 6
-            _, y = CreateCustomSlider(remindersContent, L["ReminderThreshold"], y,
+            local thresholdSlider
+            thresholdSlider, y = CreateCustomSlider(remindersContent, L["ReminderThreshold"], y,
                 0, kind == "FURY" and 600 or 30, kind == "FURY" and 5 or 1,
                 function() return settings.warningSeconds end, function(value) set("warningSeconds", value) end,
                 function(value) return value == 0 and L["ReminderMissingOnly"] or string.format(L["ReminderSeconds"], value) end)
-            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderShowIcon"], nil, y,
+            DependsOn(thresholdSlider, function() return settings.enabled end)
+            local iconCheckbox
+            iconCheckbox, y = CreateSettingsCheckbox(remindersContent, L["ReminderShowIcon"], nil, y,
                 function() return settings.showIcon end, function(value) set("showIcon", value) end)
-            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderShowTime"], nil, y,
+            DependsOn(iconCheckbox, function() return settings.enabled end)
+            local timeCheckbox
+            timeCheckbox, y = CreateSettingsCheckbox(remindersContent, L["ReminderShowTime"], nil, y,
                 function() return settings.showTime end, function(value) set("showTime", value) end)
+            DependsOn(timeCheckbox, function() return settings.enabled and settings.warningSeconds > 0 end)
             y = y - 6
-            _, y = CreateCustomSlider(remindersContent, L["ReminderScale"], y, 0.5, 3, 0.05,
+            local reminderScaleSlider
+            reminderScaleSlider, y = CreateCustomSlider(remindersContent, L["ReminderScale"], y, 0.5, 3, 0.05,
                 function() return settings.scale end, function(value) set("scale", value) end,
                 function(value) return string.format("%.2fx", value) end)
-            _, y = CreateSettingsCheckbox(remindersContent, L["ReminderLock"], nil, y,
-                function() return settings.locked end, function(value) set("locked", value) end)
-            CreateSettingsButtonAt(remindersContent, L["ReminderPreviewMove"], 180, 20, y,
-                function() iST:PreviewReminder(reminderKind) end)
-            CreateSettingsButtonAt(remindersContent, L["ResetPosition"], 160, 210, y,
-                function() iST:ResetReminderPosition(reminderKind) end)
+            DependsOn(reminderScaleSlider, function() return settings.enabled end)
+            DependsOn(CreateSettingsButtonAt(remindersContent, L["ReminderPreviewMove"], 180, 20, y,
+                function() iST:PreviewReminder(reminderKind) end),
+                function() return settings.enabled end)
+            DependsOn(CreateSettingsButtonAt(remindersContent, L["ResetPosition"], 160, 210, y,
+                function() iST:ResetReminderPosition(reminderKind) end),
+                function() return settings.enabled end)
             y = y - 50
         end
         scrollChildren[8]:SetHeight(math.abs(y) + 10)
@@ -1603,30 +1952,43 @@ function iST:CreateOptionsPanel()
         local y = -10
         _, y = CreateInfoText(soundsContent, L["SoundSharedDesc"], y, "GameFontDisableSmall")
         _, y = CreateSectionHeader(soundsContent, L["SectionEchoSound"], y)
-        _, y = CreateSettingsCheckbox(soundsContent, L["SoundThreeStacks"],
+        local echoSoundCheckbox
+        echoSoundCheckbox, y = CreateSettingsCheckbox(soundsContent, L["SoundThreeStacks"],
             L["SoundThreeStacksDesc"], y,
             function() return iSTSettings.soundThreeStacks end,
             function(value) iSTSettings.soundThreeStacks = value end)
-        _, y = CreateSettingsDropdown(soundsContent, L["SoundChoice"], y, 370,
+        DependsOn(echoSoundCheckbox, WrathAvailable)
+        local echoSoundDropdown
+        echoSoundDropdown, y = CreateSettingsDropdown(soundsContent, L["SoundChoice"], y, 370,
             function() return iST:GetSoundOptions(iSTSettings.soundThreeStacksChoice) end,
             function() return iSTSettings.soundThreeStacksChoice end,
             function(value) iSTSettings.soundThreeStacksChoice = value end, 8,
             function(value) iST:TestCueSound(value) end)
+        DependsOn(echoSoundDropdown, function() return WrathAvailable() and iSTSettings.soundThreeStacks end)
         for soundIndex, kind in ipairs({ "FURY", "SEAL" }) do
             local settings = iSTSettings.reminders[kind]
             _, y = CreateSectionHeader(soundsContent,
                 kind == "FURY" and L["ReminderFury"] or L["ReminderSeal"], y)
-            _, y = CreateSettingsCheckbox(soundsContent, L["ReminderSoundExpiring"], nil, y,
+            local expiringCheckbox
+            expiringCheckbox, y = CreateSettingsCheckbox(soundsContent, L["ReminderSoundExpiring"], nil, y,
                 function() return settings.soundExpiring end,
                 function(value) settings.soundExpiring = value; iST:ApplyReminderSettings() end)
-            _, y = CreateSettingsCheckbox(soundsContent, L["ReminderSoundMissing"], nil, y,
+            DependsOn(expiringCheckbox, function() return settings.enabled and settings.warningSeconds > 0 end)
+            local missingCheckbox
+            missingCheckbox, y = CreateSettingsCheckbox(soundsContent, L["ReminderSoundMissing"], nil, y,
                 function() return settings.soundMissing end,
                 function(value) settings.soundMissing = value; iST:ApplyReminderSettings() end)
-            _, y = CreateSettingsDropdown(soundsContent, L["SoundChoice"], y, 370,
+            DependsOn(missingCheckbox, function() return settings.enabled end)
+            local reminderSoundDropdown
+            reminderSoundDropdown, y = CreateSettingsDropdown(soundsContent, L["SoundChoice"], y, 370,
                 function() return iST:GetSoundOptions(settings.soundChoice) end,
                 function() return settings.soundChoice end,
                 function(value) settings.soundChoice = value; iST:ApplyReminderSettings() end, 8,
                 function(value) iST:TestCueSound(value) end)
+            DependsOn(reminderSoundDropdown, function()
+                return settings.enabled and (settings.soundMissing
+                    or (settings.soundExpiring and settings.warningSeconds > 0))
+            end)
         end
         scrollChildren[9]:SetHeight(math.abs(y) + 10)
     end
@@ -1647,10 +2009,12 @@ function iST:CreateOptionsPanel()
             return seal
         end
 
-        local function AddColorEditor(label, getFunc, onChange, captureOriginal)
-            local refresh
-            y, refresh = CreateColorEditor(customizationContent, label, y, getFunc, onChange, captureOriginal)
+        local function AddColorEditor(label, getFunc, onChange, captureOriginal, condition)
+            local refresh, button
+            y, refresh, button = CreateColorEditor(customizationContent, label, y,
+                getFunc, onChange, captureOriginal)
             table.insert(colorRefreshers, refresh)
+            if condition then DependsOn(button, condition) end
         end
 
         _, y = CreateSectionHeader(customizationContent, L["SectionBarAppearance"], y)
@@ -1691,47 +2055,13 @@ function iST:CreateOptionsPanel()
                 if refreshBarPreview then refreshBarPreview() end
             end)
 
-        local barPreviewCard = CreateFrame("Frame", nil, customizationContent, BACKDROP_TEMPLATE)
-        barPreviewCard:SetPoint("TOPLEFT", customizationContent, "TOPLEFT", 20, y)
-        barPreviewCard:SetPoint("TOPRIGHT", customizationContent, "TOPRIGHT", -20, y)
-        barPreviewCard:SetHeight(94)
-        StyleSettingsSurface(barPreviewCard)
-
-        local barPreviewLabel = barPreviewCard:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        barPreviewLabel:SetPoint("TOPLEFT", barPreviewCard, "TOPLEFT", 12, -9)
-        barPreviewLabel:SetText(L["BarPreview"])
-
-        local previewBar = CreateFrame("Frame", nil, barPreviewCard, BACKDROP_TEMPLATE)
-        previewBar:SetPoint("CENTER", barPreviewCard, "CENTER", 0, -10)
-        previewBar:SetBackdrop({ edgeFile = "Interface\\BUTTONS\\WHITE8X8", edgeSize = 1 })
-        previewBar.fill = previewBar:CreateTexture(nil, "ARTWORK")
-        previewBar.gloss = previewBar:CreateTexture(nil, "ARTWORK", nil, 6)
-        previewBar.gloss:SetTexture("Interface\\BUTTONS\\WHITE8X8")
-
-        local previewStart = previewBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        previewStart:SetPoint("LEFT", previewBar, "LEFT", 8, 0)
-        previewStart:SetText("3.30")
-        local previewRemaining = previewBar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        previewRemaining:SetPoint("RIGHT", previewBar, "RIGHT", -8, 0)
-        previewRemaining:SetText("1.2s")
-
         refreshBarPreview = function()
-            local width = iSTSettings.barWidth or 250
-            local height = iSTSettings.barHeight or 25
-            local border = iSTSettings.borderNormalColor
-            local color = iSTSettings.barColorBySeal
-                and iSTSettings.sealBarColors[sealColorPreview] or iSTSettings.barColor
-            previewBar:SetSize(width, height)
-            previewBar:SetBackdropBorderColor(border.r, border.g, border.b, border.a or 1)
-            iST:ApplyBarStyle(previewBar)
-            previewBar.fill:SetWidth(math.max(1, (width - previewBar.contentInset * 2) * 0.65))
-            previewBar.fill:SetVertexColor(color.r, color.g, color.b, color.a or 1)
+            settingsFrame.previewSealOverride = sealColorPreview
+            if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
         end
-        barPreviewCard:SetScript("OnShow", refreshBarPreview)
-        refreshBarPreview()
-        y = y - barPreviewCard:GetHeight() - 12
+        customizationContent:HookScript("OnShow", refreshBarPreview)
 
-        _, y = CreateCustomSlider(customizationContent, L["BarWidth"], y, 100, 500, 10,
+        _, y = CreateCustomSlider(customizationContent, L["BarWidth"], y, 150, 500, 10,
             function() return iSTSettings.barWidth end,
             function(v)
                 iSTSettings.barWidth = v
@@ -1761,78 +2091,101 @@ function iST:CreateOptionsPanel()
             function(v) return v .. "px" end
         )
 
-        _, y = CreateCustomSlider(customizationContent, L["IconSize"], y, 16, 64, 1,
+        local sealIconSizeSlider
+        sealIconSizeSlider, y = CreateCustomSlider(customizationContent, L["IconSize"], y, 16, 64, 1,
             function() return iSTSettings.sealIconSize end,
             function(v)
                 iSTSettings.sealIconSize = v
                 if iST.BarFrame and iST.BarFrame.UpdateModernDimensions then
                     iST.BarFrame:UpdateModernDimensions(iSTSettings.barHeight)
                 end
+                iST:UpdateWrathDisplay()
+                refreshBarPreview()
             end,
             function(v) return v .. "px" end
         )
+        DependsOn(sealIconSizeSlider, function()
+            return iSTSettings.showSealIcon or (WrathAvailable() and iSTSettings.showEchoTimer)
+        end)
 
         _, y = CreateSectionHeader(customizationContent, L["SectionTextAppearance"], y)
 
-        _, y = CreateCustomSlider(customizationContent, L["SwingTextSize"], y, 8, 28, 1,
+        local swingTextSizeSlider
+        swingTextSizeSlider, y = CreateCustomSlider(customizationContent, L["SwingTextSize"], y, 8, 28, 1,
             function() return iSTSettings.swingTextSize end,
             function(v)
                 iSTSettings.swingTextSize = v
                 iST:ApplyBarTypography()
+                refreshBarPreview()
             end,
             function(v) return v .. "pt" end
         )
+        DependsOn(swingTextSizeSlider, function()
+            return iSTSettings.showWeaponSpeed or iSTSettings.showSwingRemaining
+        end)
 
-        _, y = CreateCustomSlider(customizationContent, L["CurrentSealTextSize"], y, 8, 24, 1,
+        local sealTextSizeSlider
+        sealTextSizeSlider, y = CreateCustomSlider(customizationContent, L["CurrentSealTextSize"], y, 8, 24, 1,
             function() return iSTSettings.sealTextSize end,
             function(v)
                 iSTSettings.sealTextSize = v
                 iST:ApplyBarTypography()
+                refreshBarPreview()
             end,
             function(v) return v .. "pt" end
         )
+        DependsOn(sealTextSizeSlider, function() return iSTSettings.showSealName end)
 
-        _, y = CreateCustomSlider(customizationContent, L["LatencyTextSize"], y, 8, 20, 1,
+        local latencyTextSizeSlider
+        latencyTextSizeSlider, y = CreateCustomSlider(customizationContent, L["LatencyTextSize"], y, 8, 20, 1,
             function() return iSTSettings.latencyTextSize end,
             function(v)
                 iSTSettings.latencyTextSize = v
                 iST:ApplyBarTypography()
+                refreshBarPreview()
             end,
             function(v) return v .. "pt" end
         )
+        DependsOn(latencyTextSizeSlider, function() return iSTSettings.showLatency end)
 
         local function GetFontOptions()
             local options = {}
-            for _, font in ipairs(iST.FONT_CHOICES) do
+            for _, font in ipairs(iST:GetAvailableFontChoices()) do
                 table.insert(options, { value = font.value, text = font.label })
             end
             return options
         end
 
-        _, y = CreateSettingsDropdown(customizationContent, L["BarFont"], y, 220,
+        _, y = CreateSettingsDropdown(customizationContent, L["BarFont"], y, 250,
             GetFontOptions,
             function() return iSTSettings.barFont end,
             function(value)
                 iSTSettings.barFont = value
                 iST:ApplyBarTypography()
-            end
-        )
+                iST:UpdateWrathDisplay()
+                refreshBarPreview()
+            end,
+            10)
+        _, y = CreateInfoText(customizationContent, L["DisplayFontDesc"], y, "GameFontDisableSmall")
 
         _, y = CreateSectionHeader(customizationContent, L["SectionBarColors"], y)
 
         AddColorEditor(L["ColorBar"],
             function() return iSTSettings.barColor end, refreshBarPreview)
 
-        _, y = CreateSettingsCheckbox(customizationContent, L["HighlightWrongSeal"],
+        local wrongSealCheckbox
+        wrongSealCheckbox, y = CreateSettingsCheckbox(customizationContent, L["HighlightWrongSeal"],
             L["HighlightWrongSealDesc"], y,
             function() return iSTSettings.highlightWrongSeal end,
             function(value)
                 iSTSettings.highlightWrongSeal = value
                 iST:UpdateWrathDisplay()
             end)
+        DependsOn(wrongSealCheckbox, WrathAvailable)
         AddColorEditor(L["ColorWrongSeal"],
             function() return iSTSettings.wrongSealColor end,
-            function() iST:UpdateWrathDisplay() end)
+            function() iST:UpdateWrathDisplay() end, nil,
+            function() return WrathAvailable() and iSTSettings.highlightWrongSeal end)
 
         AddColorEditor(L["ColorBorderNormal"],
             function() return iSTSettings.borderNormalColor end, refreshBarPreview)
@@ -1846,7 +2199,8 @@ function iST:CreateOptionsPanel()
                 iST:UpdateWrathDisplay()
                 refreshBarPreview()
             end)
-        _, y = CreateSettingsDropdown(customizationContent, L["PreviewSealColor"], y, 250,
+        local previewSealDropdown
+        previewSealDropdown, y = CreateSettingsDropdown(customizationContent, L["PreviewSealColor"], y, 250,
             function()
                 local options = {}
                 for _, seal in ipairs(iST.SealBarColorOrder) do
@@ -1856,6 +2210,7 @@ function iST:CreateOptionsPanel()
             end,
             function() return sealColorPreview end,
             function(value) sealColorPreview = value; refreshBarPreview() end)
+        DependsOn(previewSealDropdown, function() return iSTSettings.barColorBySeal end)
         for _, seal in ipairs(iST.SealBarColorOrder) do
             local selectedSeal = seal
             AddColorEditor(SealColorLabel(selectedSeal),
@@ -1863,7 +2218,7 @@ function iST:CreateOptionsPanel()
                 function()
                     iST:UpdateWrathDisplay()
                     refreshBarPreview()
-                end)
+                end, nil, function() return iSTSettings.barColorBySeal end)
         end
 
         _, y = CreateSectionHeader(customizationContent, L["SectionStackColors"], y)
@@ -1887,12 +2242,13 @@ function iST:CreateOptionsPanel()
                 iST:SetWrathColorScheme(value)
                 RefreshStageColors()
             end)
+        DependsOn(schemeDropdown, WrathAvailable)
         _, y = CreateInfoText(customizationContent, L["WrathStageColorsDesc"], y, "GameFontDisableSmall")
         y = y - 8
         for stage = 0, 3 do
             local selectedStage = stage
-            local refresh
-            y, refresh = CreateColorEditor(customizationContent,
+            local refresh, stageButton
+            y, refresh, stageButton = CreateColorEditor(customizationContent,
                 string.format(L["WrathStageColor"], selectedStage), y,
                 function()
                     local color = iST:GetWrathCueColor(selectedStage)
@@ -1916,25 +2272,40 @@ function iST:CreateOptionsPanel()
                     end
                 end)
             stageRefreshers[#stageRefreshers + 1] = refresh
+            DependsOn(stageButton, WrathAvailable)
         end
 
         _, y = CreateSectionHeader(customizationContent, L["SectionEchoAccentColors"], y)
-        AddColorEditor(L["ColorFloatingEcho"],
-            function() return iSTSettings.worldEchoCueColor end,
-            function() iST:UpdateWorldEchoCue() end)
+        AddColorEditor(L["ColorSwitchMessage"],
+            function() return iSTSettings.centerSwitchColor end,
+            function() iST:UpdateCenterSwitchText() end, nil,
+            function()
+                return WrathAvailable() and iSTSettings.showCenterSwitchText
+                    and iSTSettings.centerSwitchMode ~= "ATTACK"
+            end)
+        AddColorEditor(L["ColorAttackMessage"],
+            function() return iSTSettings.centerAttackColor end,
+            function() iST:UpdateCenterSwitchText() end, nil,
+            function()
+                return WrathAvailable() and iSTSettings.showCenterSwitchText
+                    and iSTSettings.centerSwitchMode ~= "SWITCH"
+            end)
         AddColorEditor(L["ColorNameplateEcho"],
             function() return iSTSettings.nameplateEchoColor end,
-            function() iST:UpdateNameplateEchoDisplay() end)
+            function() iST:UpdateNameplateEchoDisplay() end, nil,
+            function() return WrathAvailable() and iSTSettings.showNameplateEcho end)
         AddColorEditor(L["ColorEchoTimerText"],
             function() return iSTSettings.echoTimerTextColor end,
-            function() iST:UpdateEchoTimerDisplay() end)
+            function() iST:UpdateEchoTimerDisplay() end, nil,
+            function() return WrathAvailable() and iSTSettings.showEchoTimer end)
 
         _, y = CreateSettingsButton(customizationContent, L["DefaultColors"], 140, y - 4, function()
             local colorKeys = {
                 "barColor",
                 "wrongSealColor",
                 "borderNormalColor",
-                "worldEchoCueColor",
+                "centerSwitchColor",
+                "centerAttackColor",
                 "nameplateEchoColor",
                 "echoTimerTextColor",
             }
@@ -1963,7 +2334,7 @@ function iST:CreateOptionsPanel()
             if iST.InvalidateBarState then iST:InvalidateBarState() end
             iST:ApplyStackCounterColor()
             iST:UpdateWrathDisplay()
-            iST:UpdateWorldEchoCue()
+            iST:UpdateCenterSwitchText()
             iST:UpdateNameplateEchoDisplay()
             iST:UpdateEchoTimerDisplay()
             refreshBarPreview()
@@ -1971,7 +2342,8 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSectionHeader(customizationContent, L["SectionNameplateEcho"], y)
 
-        _, y = CreateSettingsDropdown(customizationContent, L["NameplateEchoStyle"], y, 250,
+        local nameplateStyleDropdown
+        nameplateStyleDropdown, y = CreateSettingsDropdown(customizationContent, L["NameplateEchoStyle"], y, 250,
             function() return {
                 { value = "DOTS", text = L["NameplateEchoDots"] },
                 { value = "SEAL_ICONS", text = L["NameplateEchoSealIcons"] },
@@ -1982,17 +2354,34 @@ function iST:CreateOptionsPanel()
                 iSTSettings.nameplateEchoStyle = value
                 iST:UpdateNameplateEchoDisplay()
             end)
-        _, y = CreateCustomSlider(customizationContent, L["NameplateEchoScale"], y, 0.5, 2, 0.05,
+        DependsOn(nameplateStyleDropdown, function()
+            return WrathAvailable() and iSTSettings.showNameplateEcho and not CombatLocked()
+        end)
+        local nameplateScaleSlider
+        nameplateScaleSlider, y = CreateCustomSlider(customizationContent, L["NameplateEchoScale"], y, 0.5, 2, 0.05,
             function() return iSTSettings.nameplateEchoScale end,
             function(v) iSTSettings.nameplateEchoScale = v; iST:UpdateNameplateEchoDisplay() end,
             function(v) return string.format("%.2fx", v) end)
-        _, y = CreateCustomSlider(customizationContent, L["NameplateEchoOffset"], y, -60, 30, 1,
+        DependsOn(nameplateScaleSlider, function() return WrathAvailable() and iSTSettings.showNameplateEcho end)
+        local nameplatePipSlider
+        nameplatePipSlider, y = CreateCustomSlider(customizationContent, L["NameplateEchoPipSize"], y, 10, 40, 1,
+            function() return iSTSettings.nameplateEchoPipSize or 18 end,
+            function(v) iSTSettings.nameplateEchoPipSize = v; iST:UpdateNameplateEchoDisplay() end,
+            function(v) return v .. "px" end)
+        DependsOn(nameplatePipSlider, function()
+            return WrathAvailable() and iSTSettings.showNameplateEcho and not CombatLocked()
+        end)
+        local nameplateOffsetSlider
+        nameplateOffsetSlider, y = CreateCustomSlider(customizationContent, L["NameplateEchoOffset"], y, -60, 30, 1,
             function() return iSTSettings.nameplateEchoOffsetY end,
             function(v) iSTSettings.nameplateEchoOffsetY = v; iST:UpdateNameplateEchoDisplay() end,
             function(v) return v .. "px" end)
-        _, y = CreateSettingsCheckbox(customizationContent, L["NameplateEchoGlow"], nil, y,
+        DependsOn(nameplateOffsetSlider, function() return WrathAvailable() and iSTSettings.showNameplateEcho end)
+        local nameplateGlowCheckbox
+        nameplateGlowCheckbox, y = CreateSettingsCheckbox(customizationContent, L["NameplateEchoGlow"], nil, y,
             function() return iSTSettings.nameplateEchoGlow end,
             function(v) iSTSettings.nameplateEchoGlow = v; iST:UpdateNameplateEchoDisplay() end)
+        DependsOn(nameplateGlowCheckbox, function() return WrathAvailable() and iSTSettings.showNameplateEcho end)
 
         _, y = CreateSectionHeader(customizationContent, L["SectionPosition"], y)
         settingsFrame.barLockCheckbox, y = CreateSettingsCheckbox(customizationContent, L["LockBar"], L["LockBarDesc"], y,
@@ -2009,10 +2398,15 @@ function iST:CreateOptionsPanel()
         y = y - 36
 
         _, y = CreateInfoText(customizationContent, L["IndependentDragDesc"], y, "GameFontDisableSmall")
-        CreateSettingsButtonAt(customizationContent, L["ResetSealPosition"], 170, 20, y,
-            function() iST:ResetSealIconPosition() end)
-        CreateSettingsButtonAt(customizationContent, L["ResetCounterPosition"], 170, 210, y,
-            function() iST:ResetStackCountPosition() end)
+        DependsOn(CreateSettingsButtonAt(customizationContent, L["ResetSealPosition"], 170, 20, y,
+            function() iST:ResetSealIconPosition() end),
+            function() return iSTSettings.showSealIcon end)
+        DependsOn(CreateSettingsButtonAt(customizationContent, L["ResetCounterPosition"], 170, 210, y,
+            function() iST:ResetStackCountPosition() end),
+            function() return WrathAvailable() and iSTSettings.showStackCounter end)
+        DependsOn(CreateSettingsButtonAt(customizationContent, L["ResetEchoTimerPosition"], 170, 400, y,
+            function() iST:ResetEchoTimerPosition() end),
+            function() return WrathAvailable() and iSTSettings.showEchoTimer end)
         y = y - 40
 
         _, y = CreateSectionHeader(customizationContent, L["SectionPreview"], y)
@@ -2085,9 +2479,9 @@ function iST:CreateOptionsPanel()
                 errorState and 0.22 or 0.48)
         end
 
-        local selectedProfile, deleteArmed
+        local selectedProfile, deleteArmed = iST:GetActiveProfileName(), nil
         local profileDropdown
-        CreateSettingsButtonAt(profilesContent, L["ProfileSave"], 145, 295, y, function()
+        DependsOn(CreateSettingsButtonAt(profilesContent, L["ProfileSave"], 145, 295, y, function()
             local ok, result = iST:SaveProfile(nameBox:GetText())
             SetStatus(ok and string.format(L["ProfileSaved"], result) or result, not ok)
             if ok then
@@ -2096,8 +2490,10 @@ function iST:CreateOptionsPanel()
                 profileDropdown:Refresh()
                 RefreshActiveProfile()
             end
-        end)
-        y = y - 44
+        end), function() return not CombatLocked() end)
+        _, y = CreateSettingDescription(profilesContent, L["ProfileNameDesc"],
+            20, y - 35, contentWidth - 40)
+        y = y - 4
         profileDropdown, y = CreateSettingsDropdown(profilesContent, L["ProfileChoose"], y, 325,
             function()
                 local options = {}
@@ -2113,11 +2509,11 @@ function iST:CreateOptionsPanel()
                 SetStatus("")
             end)
 
-        CreateSettingsButtonAt(profilesContent, L["ProfileLoad"], 145, 20, y, function()
+        DependsOn(CreateSettingsButtonAt(profilesContent, L["ProfileLoad"], 145, 20, y, function()
             local ok, err = iST:LoadProfile(selectedProfile)
             if ok then ReloadUI() else SetStatus(err, true) end
-        end)
-        CreateSettingsButtonAt(profilesContent, L["ProfileRename"], 145, 180, y, function()
+        end), function() return selectedProfile ~= nil and not CombatLocked() end)
+        DependsOn(CreateSettingsButtonAt(profilesContent, L["ProfileRename"], 145, 180, y, function()
             local ok, result = iST:RenameProfile(selectedProfile, nameBox:GetText())
             SetStatus(ok and string.format(L["ProfileRenamed"], result) or result, not ok)
             if ok then
@@ -2126,8 +2522,11 @@ function iST:CreateOptionsPanel()
                 profileDropdown:Refresh()
                 RefreshActiveProfile()
             end
+        end), function()
+            return selectedProfile ~= nil and selectedProfile ~= "Main"
+                and selectedProfile ~= "Previous setup" and not CombatLocked()
         end)
-        CreateSettingsButtonAt(profilesContent, L["ProfileDelete"], 145, 340, y, function()
+        DependsOn(CreateSettingsButtonAt(profilesContent, L["ProfileDelete"], 145, 340, y, function()
             if not selectedProfile then SetStatus("Select a saved profile.", true); return end
             if selectedProfile == "Main" or selectedProfile == iST:GetActiveProfileName() then
                 local _, err = iST:DeleteProfile(selectedProfile)
@@ -2142,9 +2541,12 @@ function iST:CreateOptionsPanel()
             local removed = selectedProfile
             local ok, err = iST:DeleteProfile(removed)
             if not ok then SetStatus(err, true); return end
-            selectedProfile, deleteArmed = nil, nil
+            selectedProfile, deleteArmed = iST:GetActiveProfileName(), nil
             profileDropdown:Refresh()
             SetStatus(string.format(L["ProfileDeleted"], removed))
+        end), function()
+            return selectedProfile ~= nil and selectedProfile ~= "Main"
+                and selectedProfile ~= iST:GetActiveProfileName() and not CombatLocked()
         end)
         y = y - 38
         status:SetPoint("TOPLEFT", profilesContent, "TOPLEFT", 20, y)
@@ -2153,12 +2555,12 @@ function iST:CreateOptionsPanel()
         _, y = CreateSectionHeader(profilesContent, L["SectionShareSetup"], y)
         _, y = CreateInfoText(profilesContent, L["ProfilesShareDesc"], y, "GameFontDisableSmall")
         y = y - 12
-        CreateSettingsButtonAt(profilesContent, L["ProfileExport"], 145, 20, y, function()
+        DependsOn(CreateSettingsButtonAt(profilesContent, L["ProfileExport"], 145, 20, y, function()
             iST:OpenProfileTransfer("EXPORT")
-        end)
-        CreateSettingsButtonAt(profilesContent, L["ProfileImport"], 145, 180, y, function()
+        end), function() return not CombatLocked() end)
+        DependsOn(CreateSettingsButtonAt(profilesContent, L["ProfileImport"], 145, 180, y, function()
             iST:OpenProfileTransfer("IMPORT")
-        end)
+        end), function() return not CombatLocked() end)
         y = y - 42
         scrollChildren[10]:SetHeight(math.abs(y) + 10)
         profilesContainer:HookScript("OnShow", function()
@@ -2328,12 +2730,13 @@ function iST:CreateOptionsPanel()
     end)
 
     ShowTab(1)
+    RefreshAvailability()
 
     settingsFrame:Hide()
     self.SettingsFrame = settingsFrame
 end
 
--- Update this version and its three highlights together for the next release
+-- Update this version and its highlights together for the next release
 -- that needs an automatic announcement. Older notes remain available in the changelog.
 local WHATS_NEW_VERSION = "0.9.1"
 
@@ -2446,7 +2849,7 @@ function iST:CreateWhatsNewPanel()
 
     local frame = CreateFrame("Frame", "iSTWhatsNewFrame", UIParent, BACKDROP_TEMPLATE)
     frame:Hide()
-    frame:SetSize(500, 278)
+    frame:SetSize(500, 325)
     frame:SetPoint("CENTER", UIParent, "CENTER")
     frame:SetFrameStrata("DIALOG")
     frame:SetMovable(true)
@@ -2477,7 +2880,7 @@ function iST:CreateWhatsNewPanel()
     divider:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -16, -65)
     divider:SetColorTexture(1, 0.59, 0.09, 0.5)
 
-    for index, key in ipairs({ "WhatsNewEchoTargets", "WhatsNewIndicators", "WhatsNewColorsSounds" }) do
+    for index, key in ipairs({ "WhatsNewEchoTargets", "WhatsNewIndicators", "WhatsNewColorsSounds", "WhatsNewProfiles" }) do
         local y = -78 - (index - 1) * 47
         local number = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
         number:SetPoint("TOPLEFT", frame, "TOPLEFT", 22, y)
@@ -2493,11 +2896,11 @@ function iST:CreateWhatsNewPanel()
         detail:SetText(L[key])
     end
 
-    CreateSettingsButtonAt(frame, L["WhatsNewSettings"], 150, 16, -236, function()
+    CreateSettingsButtonAt(frame, L["WhatsNewSettings"], 150, 16, -283, function()
         frame:Hide()
         iST:SettingsOpen()
     end)
-    CreateSettingsButtonAt(frame, L["WhatsNewDismiss"], 110, 374, -236, function()
+    CreateSettingsButtonAt(frame, L["WhatsNewDismiss"], 110, 374, -283, function()
         frame:Hide()
     end)
 
@@ -2634,6 +3037,7 @@ function iST:CreateQuickMacroPanel()
     Label(fromCard, L["SwitchAtStacks"], -96, true)
     Label(intoCard, L["SwitchAtStacks"], -96, true)
     local stackOptions = {
+        { value = 0, text = L["AnyEchoStack"] },
         { value = 1, text = L["OneStack"] },
         { value = 2, text = L["TwoStacks"] },
         { value = 3, text = L["ThreeStacks"] },

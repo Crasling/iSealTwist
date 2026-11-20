@@ -87,12 +87,20 @@ iST.WrathEchoSpells = {
 iST.WrathEchoSpellIDs = {}
 for _, spell in ipairs(iST.WrathEchoSpells) do iST.WrathEchoSpellIDs[spell.id] = spell.seal end
 local UNSEALED_WRATH_TALENT_ID = 1310735
+iST.UnsealedWrathTalentID = UNSEALED_WRATH_TALENT_ID
 
 iST.FONT_CHOICES = {
     { value = "FRIZQT",   label = "Friz Quadrata", path = "Fonts\\FRIZQT__.TTF" },
     { value = "ARIALN",   label = "Arial Narrow",   path = "Fonts\\ARIALN.TTF" },
     { value = "MORPHEUS", label = "Morpheus",       path = "Fonts\\MORPHEUS.TTF" },
     { value = "SKURRI",   label = "Skurri",         path = "Fonts\\SKURRI.TTF" },
+    { value = "2002",     label = "2002",           path = "Fonts\\2002.TTF" },
+    { value = "2002B",    label = "2002 Bold",      path = "Fonts\\2002B.TTF" },
+    { value = "ARKAI_T",  label = "Arkai",          path = "Fonts\\ARKai_T.TTF" },
+    { value = "BLEI00D",  label = "Blei",           path = "Fonts\\bLEI00D.TTF" },
+    { value = "FRIZ_CYR", label = "Friz Cyrillic",  path = "Fonts\\FRIZQT___CYR.TTF" },
+    { value = "K_PAGE",   label = "Page Text",      path = "Fonts\\K_PAGETEXT.TTF" },
+    { value = "K_DAMAGE", label = "Damage",         path = "Fonts\\K_Damage.TTF" },
 }
 
 -- Known seal ranks, used to recognize successful player casts.
@@ -278,6 +286,7 @@ iST.State = {
     SealGeneration = 0,
     SealStatusKnown = false,
     UnsealedWrathKnown = nil,
+    EchoSwitchBackSeal = nil,
 }
 iST.WrathTracker = iST:NewWrathTracker()
 
@@ -299,6 +308,7 @@ iST.SettingsDefault = {
     nameplateEchoGlow = true,
     nameplateEchoStyle = "DOTS",
     nameplateEchoScale = 1,
+    nameplateEchoPipSize = 18,
     nameplateEchoOffsetY = -5,
     showSealName = true,
     showWeaponSpeed = true,
@@ -312,25 +322,33 @@ iST.SettingsDefault = {
     stackCounterTextSize = 16,
     showCenterSwitchText = true,
     centerSwitchText = "Switch now",
+    centerSwitchCustomText = "Switch now",
     centerSwitchVisual = "TEXT",
     centerAttackText = "Attack now",
+    centerAttackCustomText = "Attack now",
+    centerSwitchMode = "BOTH",
+    centerSwitchColor = { r = 1, g = 0.78, b = 0.24, a = 1 },
+    centerAttackColor = { r = 1, g = 0.78, b = 0.24, a = 1 },
     centerSwitchPoint = { "CENTER", nil, "CENTER", 0, 0 },
     wrathCircleSize = 18,
+    playerPipSize = 18,
     sealTextSize      = 10,
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
     showStackCounter = true,
-    showStackCircles = false,
-    stackBubbleStyle = "CIRCLES",
+    showStackCircles = true,
+    stackBubbleStyle = "SEAL_ICONS",
     showStackBarColor = false,
     showStackSwordImages = false,
     showWorldEchoCue = false,
     worldEchoCueStyle = "WINGS",
+    worldEchoCuePhase = "SWITCH",
     worldEchoCueScale = 1,
     worldEchoCueColor = { r = 1, g = 0.76, b = 0.22, a = 1 },
     nameplateEchoColor = { r = 1, g = 0.72, b = 0.20, a = 1 },
-    echoTimerTextColor = { r = 1, g = 0.82, b = 0.35, a = 1 },
+    echoTimerTextColor = { r = 0.20, g = 0.72, b = 1, a = 1 },
     showPlayerWrathBubbles = false,
+    showPlayerPipFrame = true,
     wrathColorScheme = "GOLD",
     wrathColor0 = { r = 0.50, g = 0.45, b = 0.34, a = 1 },
     wrathColor1 = { r = 1, g = 0.52, b = 0.12, a = 1 },
@@ -390,6 +408,17 @@ function iST:InitializeSettings()
             end
         end
     end
+    -- Older setups could use a 100 px bar. Keep them loadable while applying
+    -- the new minimum before the bar and its controls are created.
+    iSTSettings.barWidth = math.max(150, math.min(500,
+        type(iSTSettings.barWidth) == "number" and iSTSettings.barWidth or self.SettingsDefault.barWidth))
+    -- The previous Echo timer default was gold. Update that untouched default
+    -- to blue while preserving colors the player chose deliberately.
+    local echoTextColor = iSTSettings.echoTimerTextColor
+    if type(echoTextColor) == "table" and echoTextColor.r == 1
+        and echoTextColor.g == 0.82 and echoTextColor.b == 0.35 then
+        echoTextColor.r, echoTextColor.g, echoTextColor.b = 0.20, 0.72, 1
+    end
     iSTSettings.barColorBySeal = iSTSettings.barColorBySeal == true
     if type(iSTSettings.sealBarColors) ~= "table" then iSTSettings.sealBarColors = {} end
     for seal, default in pairs(self.SealBarColorDefaults) do
@@ -419,16 +448,25 @@ function iST:InitializeSettings()
         iSTSettings.indicatorsMigrated = true
     end
     iSTSettings.wrathCue = nil
+    -- Sword Images are temporarily unavailable; keep the rendering code for
+    -- later without carrying an active saved choice into this version.
+    iSTSettings.showStackSwordImages = false
+    -- Floating Wings are paused for this release, including saved profiles.
+    iSTSettings.showWorldEchoCue = false
     iSTSettings.testThreeStackHighlight = nil
     -- Remove unfinished ready-message choices from saved settings.
     iSTSettings.showThreeStackReadyText = nil
     iSTSettings.wrathReadyText = nil
-    if iSTSettings.worldEchoCueStyle ~= "GLOW" and iSTSettings.worldEchoCueStyle ~= "WINGS"
-        and iSTSettings.worldEchoCueStyle ~= "SPARKS" and iSTSettings.worldEchoCueStyle ~= "FRAME" then
-        iSTSettings.worldEchoCueStyle = "WINGS"
+    iSTSettings.worldEchoCueStyle = "WINGS"
+    if iSTSettings.worldEchoCuePhase ~= "SWITCH" and iSTSettings.worldEchoCuePhase ~= "ATTACK" then
+        iSTSettings.worldEchoCuePhase = "SWITCH"
     end
     if iSTSettings.stackBubbleStyle ~= "CIRCLES" and iSTSettings.stackBubbleStyle ~= "SEAL_ICONS" then
-        iSTSettings.stackBubbleStyle = "CIRCLES"
+        iSTSettings.stackBubbleStyle = "SEAL_ICONS"
+    end
+    if iSTSettings.centerSwitchMode ~= "SWITCH" and iSTSettings.centerSwitchMode ~= "ATTACK"
+        and iSTSettings.centerSwitchMode ~= "BOTH" then
+        iSTSettings.centerSwitchMode = "BOTH"
     end
     if iSTSettings.nameplateEchoStyle ~= "DOTS" and iSTSettings.nameplateEchoStyle ~= "SEAL_ICONS" then
         iSTSettings.nameplateEchoStyle = "DOTS"
@@ -455,9 +493,19 @@ function iST:InitializeSettings()
     if iSTSettings.centerSwitchText == "3 stacks ready" then
         iSTSettings.centerSwitchText = "Echoes ready"
     end
-    if iSTSettings.centerSwitchVisual ~= "TEXT" and iSTSettings.centerSwitchVisual ~= "RADIANT" then
-        iSTSettings.centerSwitchVisual = "TEXT"
+    if iSTSettings.centerSwitchCustomText == "Switch now"
+        and iSTSettings.centerSwitchText ~= "Switch now"
+        and iSTSettings.centerSwitchText ~= "Unleash!"
+        and iSTSettings.centerSwitchText ~= "Echoes ready" then
+        iSTSettings.centerSwitchCustomText = iSTSettings.centerSwitchText
     end
+    if iSTSettings.centerAttackCustomText == "Attack now"
+        and iSTSettings.centerAttackText ~= "Attack now"
+        and iSTSettings.centerAttackText ~= "Unleash now"
+        and iSTSettings.centerAttackText ~= "Strike now" then
+        iSTSettings.centerAttackCustomText = iSTSettings.centerAttackText
+    end
+    iSTSettings.centerSwitchVisual = "TEXT"
     if iSTSettings.barVisibility ~= "ALWAYS" and iSTSettings.barVisibility ~= "COMBAT"
         and iSTSettings.barVisibility ~= "COMBAT_OR_AURA" then
         iSTSettings.barVisibility = "COMBAT_OR_AURA"
@@ -465,7 +513,7 @@ function iST:InitializeSettings()
     iSTSettings.onlyInCombat = nil
     for _, key in ipairs({ "twistFromStacks", "twistIntoStacks" }) do
         local value = iSTSettings[key]
-        if type(value) ~= "number" or value ~= math.floor(value) or value < 1 or value > 3 then
+        if type(value) ~= "number" or value ~= math.floor(value) or value < 0 or value > 3 then
             iSTSettings[key] = 3
         end
     end
@@ -475,20 +523,29 @@ function iST:InitializeSettings()
     iSTSettings.twistWarningColor = nil
 end
 
-function iST:GetTwistStackTarget(seal)
-    if seal == iSTSettings.twistFromSeal then return iSTSettings.twistFromStacks or 3 end
-    if seal == iSTSettings.twistIntoSeal then return iSTSettings.twistIntoStacks or 3 end
+function iST:GetTwistStackSelection(seal)
+    if seal == iSTSettings.twistFromSeal then return iSTSettings.twistFromStacks end
+    if seal == iSTSettings.twistIntoSeal then return iSTSettings.twistIntoStacks end
     return 3
+end
+
+function iST:GetTwistStackTarget(seal)
+    return math.max(1, self:GetTwistStackSelection(seal) or 3)
+end
+
+function iST:GetTwistStackTargetLabel(seal)
+    return self:GetTwistStackSelection(seal) == 0 and ">0" or tostring(self:GetTwistStackTarget(seal))
 end
 
 function iST:SetTwistStackTarget(side, target)
     if side ~= "From" and side ~= "Into" then return false end
-    if type(target) ~= "number" or target ~= math.floor(target) or target < 1 or target > 3 then return false end
+    if type(target) ~= "number" or target ~= math.floor(target) or target < 0 or target > 3 then return false end
     if InCombatLockdown and InCombatLockdown() then
         self:PrintToChat(self.L["StackTargetCombatBlocked"])
         return false
     end
     iSTSettings["twist" .. side .. "Stacks"] = target
+    self.State.EchoSwitchBackSeal = nil
     self:ApplyStackStageFormatter()
     self:UpdateCenterSwitchText()
     self:CreateStackManagedDisplay()
@@ -505,6 +562,7 @@ function iST:SetTwistSeal(side, seal)
     local key = "twist" .. side .. "Seal"
     local other = side == "From" and iSTSettings.twistIntoSeal or iSTSettings.twistFromSeal
     if seal == other then return false end
+    self.State.EchoSwitchBackSeal = nil
     iSTSettings[key] = seal
     self:ApplyStackStageFormatter()
     self:UpdateCenterSwitchText()
@@ -513,14 +571,55 @@ function iST:SetTwistSeal(side, seal)
     return true
 end
 
+function iST:IsDisplayFontAvailable(path)
+    if type(path) ~= "string" or path == "" then return false end
+    self.FontPathAvailability = self.FontPathAvailability or {}
+    if self.FontPathAvailability[path] == nil then
+        local probe = self.FontProbe
+        if not probe then
+            probe = UIParent:CreateFontString(nil, "OVERLAY")
+            self.FontProbe = probe
+        end
+        local ok, loaded = pcall(probe.SetFont, probe, path, 12, "OUTLINE")
+        self.FontPathAvailability[path] = ok and loaded ~= false
+    end
+    return self.FontPathAvailability[path]
+end
+
 function iST:GetBarFontPath()
     local selected = iSTSettings and iSTSettings.barFont or self.SettingsDefault.barFont
     for _, font in ipairs(self.FONT_CHOICES) do
-        if font.value == selected then
+        if font.value == selected and self:IsDisplayFontAvailable(font.path) then
             return font.path
         end
     end
+    if type(selected) == "string" and selected:sub(1, 4) == "LSM:" and LibStub then
+        local shared = LibStub("LibSharedMedia-3.0", true)
+        local path = shared and shared:Fetch("font", selected:sub(5), true)
+        if self:IsDisplayFontAvailable(path) then return path end
+    end
     return self.FONT_CHOICES[1].path
+end
+
+function iST:GetAvailableFontChoices()
+    local choices = {}
+    local function add(value, label, path)
+        if self:IsDisplayFontAvailable(path) then
+            choices[#choices + 1] = { value = value, label = label, path = path }
+        end
+    end
+    for _, font in ipairs(self.FONT_CHOICES) do
+        add(font.value, font.label, font.path)
+    end
+    local shared = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if shared then
+        local names = shared:List("font") or {}
+        table.sort(names)
+        for _, name in ipairs(names) do
+            add("LSM:" .. name, "Shared: " .. name, shared:Fetch("font", name, true))
+        end
+    end
+    return choices
 end
 
 function iST:ApplyBarTypography()
@@ -570,6 +669,7 @@ function iST:ApplyBarTypography()
     local iconSize = math.max(16, iSTSettings.sealIconSize or iSTSettings.barHeight or 25)
     local sealTimerSize = math.floor(iconSize * 0.46 + 0.5)
     ApplyFont(bar.sealTimerText, sealTimerSize, "THICKOUTLINE")
+    ApplyFont(bar.sealTimerLabel, math.max(8, math.floor(iconSize * 0.23 + 0.5)), "OUTLINE")
     if bar.sealTimerOverlay then
         -- Center the visible digits, allowing for the font's side bearing and
         -- baseline padding. A fixed pixel nudge stops fitting as the icon grows.
@@ -626,6 +726,261 @@ function iST:ApplyBarStyle(bar)
 end
 
 -- Swing bar and its labels
+local MOVE_SNAP_DISTANCE = 12
+
+local function CreateMoveOutline(target)
+    -- Keep the outline outside the movable frame. Native aura children can
+    -- become protected in combat, while this UIParent overlay stays ours.
+    local outline = CreateFrame("Frame", nil, UIParent)
+    outline:SetPoint("TOPLEFT", target, "TOPLEFT", -2, 2)
+    outline:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", 2, -2)
+    outline:SetFrameStrata("MEDIUM")
+    outline:SetFrameLevel(100)
+    outline:EnableMouse(false)
+    local function edge()
+        local texture = outline:CreateTexture(nil, "OVERLAY")
+        texture:SetColorTexture(1, 0.68, 0.18, 0.88)
+        return texture
+    end
+    local top = edge()
+    top:SetHeight(1)
+    top:SetPoint("TOPLEFT", outline)
+    top:SetPoint("TOPRIGHT", outline)
+    local bottom = edge()
+    bottom:SetHeight(1)
+    bottom:SetPoint("BOTTOMLEFT", outline)
+    bottom:SetPoint("BOTTOMRIGHT", outline)
+    local left = edge()
+    left:SetWidth(1)
+    left:SetPoint("TOPLEFT", outline)
+    left:SetPoint("BOTTOMLEFT", outline)
+    local right = edge()
+    right:SetWidth(1)
+    right:SetPoint("TOPRIGHT", outline)
+    right:SetPoint("BOTTOMRIGHT", outline)
+    outline:Hide()
+    return outline
+end
+
+function iST:UpdateMoveOutlines()
+    local editing = self.State.EditMode and not iSTSettings.barLocked
+        and not (InCombatLockdown and InCombatLockdown())
+    if not editing and not self.MoveOutlines then return end
+    local wanted = {}
+    if editing and self.BarFrame then
+        local bar = self.BarFrame
+        wanted[bar] = true
+        if iSTSettings.showSealIcon and bar.sealIconFrame then
+            wanted[bar.sealIconFrame] = true
+        end
+        if iSTSettings.showEchoTimer and bar.echoTimerFrame then
+            wanted[bar.echoTimerFrame] = true
+        end
+        if iSTSettings.showStackCounter and bar.stackCountFrame then
+            wanted[bar.stackCountFrame] = true
+        end
+        if iSTSettings.showWorldEchoCue and self.WorldEchoCueFrame then
+            wanted[self.WorldEchoCueFrame] = true
+        end
+        if iSTSettings.showCenterSwitchText and self.CenterSwitchFrame then
+            wanted[self.CenterSwitchFrame] = true
+        end
+        for kind, frame in pairs(self.ReminderFrames or {}) do
+            if iSTSettings.reminders[kind].enabled then wanted[frame] = true end
+        end
+    end
+    self.MoveOutlines = self.MoveOutlines or {}
+    for target, outline in pairs(self.MoveOutlines) do
+        local shouldShow = wanted[target] == true
+        if shouldShow then
+            local ok, shown = pcall(target.IsShown, target)
+            shouldShow = ok and shown == true
+        end
+        outline:SetShown(shouldShow)
+        wanted[target] = nil
+    end
+    for target in pairs(wanted) do
+        local ok, shown = pcall(target.IsShown, target)
+        if ok and shown == true then
+            local outline = CreateMoveOutline(target)
+            self.MoveOutlines[target] = outline
+            outline:Show()
+        end
+    end
+end
+
+local function MoveGuideLine(parent, vertical, alpha)
+    local line = parent:CreateTexture(nil, "OVERLAY")
+    line:SetColorTexture(1, 0.72, 0.22, alpha)
+    if vertical then line:SetWidth(1) else line:SetHeight(1) end
+    return line
+end
+
+local function PositionMoveGuide(line, vertical, position)
+    line:ClearAllPoints()
+    if vertical then
+        line:SetPoint("TOP", UIParent, "TOPLEFT", position, 0)
+        line:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", position, 0)
+    else
+        line:SetPoint("LEFT", UIParent, "BOTTOMLEFT", 0, position)
+        line:SetPoint("RIGHT", UIParent, "BOTTOMRIGHT", 0, position)
+    end
+end
+
+local function MoveGuideCandidates(frame)
+    local left, right = UIParent:GetLeft(), UIParent:GetRight()
+    local bottom, top = UIParent:GetBottom(), UIParent:GetTop()
+    if not left or not right or not bottom or not top then return end
+    local width, height = right - left, top - bottom
+    local xs = {
+        { value = left + 24, offset = -1 },
+        { value = left + width * 0.25, offset = 0 },
+        { value = left + width * 0.5, offset = 0 },
+        { value = left + width * 0.75, offset = 0 },
+        { value = right - 24, offset = 1 },
+    }
+    local ys = {
+        { value = bottom + 24, offset = -1 },
+        { value = bottom + height * 0.25, offset = 0 },
+        { value = bottom + height * 0.5, offset = 0 },
+        { value = bottom + height * 0.75, offset = 0 },
+        { value = top - 24, offset = 1 },
+    }
+    for target, outline in pairs(iST.MoveOutlines or {}) do
+        local followsBar = frame == iST.BarFrame and (
+            target == frame.sealIconFrame and not iSTSettings.sealIconPoint
+            or target == frame.echoTimerFrame and not iSTSettings.echoTimerPoint
+            or target == frame.stackCountFrame and not iSTSettings.stackCountPoint)
+        if target ~= frame and not followsBar and outline:IsShown() then
+            local ok, centerX, centerY = pcall(target.GetCenter, target)
+            if ok then
+                local scale = target:GetEffectiveScale() / UIParent:GetEffectiveScale()
+                if type(centerX) == "number" then xs[#xs + 1] = { value = centerX * scale, offset = 0 } end
+                if type(centerY) == "number" then ys[#ys + 1] = { value = centerY * scale, offset = 0 } end
+            end
+        end
+    end
+    return xs, ys, left, bottom, width, height
+end
+
+local function FindMoveSnap(center, halfSize, candidates)
+    local snapped, guide, closest = nil, nil, MOVE_SNAP_DISTANCE
+    for _, candidate in ipairs(candidates) do
+        local offset = (candidate.offset or 0) * halfSize
+        local gap = math.abs(center + offset - candidate.value)
+        if gap <= closest then
+            snapped, guide, closest = candidate.value - offset, candidate.value, gap
+        end
+    end
+    return snapped, guide
+end
+
+local function UpdateMovingFrame(guides)
+    local frame = guides.movingFrame
+    if not frame or not GetCursorPosition then return end
+    if InCombatLockdown and InCombatLockdown() then
+        guides.movingFrame = nil
+        guides:Hide()
+        return
+    end
+    local cursorX, cursorY = GetCursorPosition()
+    local scale = UIParent:GetEffectiveScale()
+    local screenX, screenY = UIParent:GetCenter()
+    if not cursorX or not cursorY or not scale or scale == 0
+        or not screenX or not screenY then return end
+    local x = cursorX / scale + guides.cursorOffsetX
+    local y = cursorY / scale + guides.cursorOffsetY
+    local frameScale = frame:GetEffectiveScale() / scale
+    if frameScale == 0 then return end
+    local xs, ys = MoveGuideCandidates(frame)
+    if not xs or not ys then return end
+    local shift = IsShiftKeyDown and IsShiftKeyDown()
+    local guideX, guideY
+    if not shift then
+        local width, height = frame:GetWidth(), frame:GetHeight()
+        local snappedX, snappedY
+        snappedX, guideX = FindMoveSnap(x, width * frameScale * 0.5, xs)
+        snappedY, guideY = FindMoveSnap(y, height * frameScale * 0.5, ys)
+        x, y = snappedX or x, snappedY or y
+    end
+    if guides.lastX ~= x or guides.lastY ~= y then
+        frame:ClearAllPoints()
+        frame:SetPoint("CENTER", UIParent, "CENTER",
+            (x - screenX) / frameScale, (y - screenY) / frameScale)
+        guides.lastX, guides.lastY = x, y
+    end
+    guides.activeVertical:SetShown(guideX ~= nil)
+    guides.activeHorizontal:SetShown(guideY ~= nil)
+    if guideX then PositionMoveGuide(guides.activeVertical, true, guideX) end
+    if guideY then PositionMoveGuide(guides.activeHorizontal, false, guideY) end
+    for _, line in ipairs(guides.gridVertical) do line:SetAlpha(shift and 0 or 0.14) end
+    for _, line in ipairs(guides.gridHorizontal) do line:SetAlpha(shift and 0 or 0.14) end
+end
+
+function iST:BeginMoveGuides(movingFrame)
+    local cursorX, cursorY = GetCursorPosition()
+    local scale = UIParent:GetEffectiveScale()
+    local frameX, frameY = movingFrame:GetCenter()
+    if not cursorX or not cursorY or not scale or scale == 0
+        or not frameX or not frameY then return end
+    local frameScale = movingFrame:GetEffectiveScale() / scale
+    if frameScale == 0 then return end
+    frameX, frameY = frameX * frameScale, frameY * frameScale
+    local guides = self.MoveGuides
+    if not guides then
+        guides = CreateFrame("Frame", nil, UIParent)
+        guides:SetAllPoints(UIParent)
+        guides:SetFrameStrata("TOOLTIP")
+        guides:EnableMouse(false)
+        guides.gridVertical, guides.gridHorizontal = {}, {}
+        for index = 1, 3 do
+            guides.gridVertical[index] = MoveGuideLine(guides, true, 0.14)
+            guides.gridHorizontal[index] = MoveGuideLine(guides, false, 0.14)
+        end
+        guides.activeVertical = MoveGuideLine(guides, true, 0.95)
+        guides.activeHorizontal = MoveGuideLine(guides, false, 0.95)
+        guides:SetScript("OnUpdate", UpdateMovingFrame)
+        guides:Hide()
+        self.MoveGuides = guides
+    end
+    local left, right = UIParent:GetLeft(), UIParent:GetRight()
+    local bottom, top = UIParent:GetBottom(), UIParent:GetTop()
+    if left and right and bottom and top then
+        for index = 1, 3 do
+            PositionMoveGuide(guides.gridVertical[index], true,
+                left + (right - left) * index * 0.25)
+            PositionMoveGuide(guides.gridHorizontal[index], false,
+                bottom + (top - bottom) * index * 0.25)
+        end
+    end
+    guides.cursorOffsetX = frameX - cursorX / scale
+    guides.cursorOffsetY = frameY - cursorY / scale
+    guides.lastX, guides.lastY = nil, nil
+    guides.movingFrame = movingFrame
+    guides:Show()
+    UpdateMovingFrame(guides)
+end
+
+function iST:EndMoveGuides(movingFrame)
+    local guides = self.MoveGuides
+    if not guides then return end
+    if guides.movingFrame == movingFrame then UpdateMovingFrame(guides) end
+    guides.movingFrame = nil
+    guides:Hide()
+end
+
+function iST:CanResetMovePosition(frame)
+    if not self.State or not self.State.EditMode or iSTSettings.barLocked then return false end
+    local inCombat = self.State.InCombat
+    if IsSecret(inCombat) or inCombat == true or (frame and frame.isDragging) then return false end
+    if self.MoveGuides and self.MoveGuides.movingFrame == frame then return false end
+    if type(InCombatLockdown) == "function" then
+        local locked = InCombatLockdown()
+        if IsSecret(locked) or locked then return false end
+    end
+    return true
+end
+
 function iST:CreateSwingBar()
     if self.BarFrame then return end
 
@@ -660,19 +1015,24 @@ function iST:CreateSwingBar()
     gloss:SetVertexColor(1, 1, 1, 0.055)
     bar.gloss = gloss
 
-    -- Save the final anchor when the player releases the unlocked bar.
-    bar:SetScript("OnMouseDown", function(self, button)
-        if button == "LeftButton" and not iSTSettings.barLocked
-            and not (InCombatLockdown and InCombatLockdown()) then
+    -- Use drag start/stop so releasing outside the bar still saves its position.
+    bar:RegisterForDrag("LeftButton")
+    bar:SetScript("OnDragStart", function(self)
+        if not iSTSettings.barLocked and not (InCombatLockdown and InCombatLockdown()) then
             self.isDragging = true
-            self:StartMoving()
+            iST:BeginMoveGuides(self)
         end
     end)
-    bar:SetScript("OnMouseUp", function(self)
+    bar:SetScript("OnDragStop", function(self)
         if not self.isDragging then return end
-        self:StopMovingOrSizing()
+        iST:EndMoveGuides(self)
         self.isDragging = nil
         iST:SaveBarPosition()
+    end)
+    bar:SetScript("OnMouseUp", function(self, button)
+        if button == "RightButton" and iST:CanResetMovePosition(self) then
+            iST:ResetBarPosition()
+        end
     end)
 
     -- The fill stays inside the border as the bar changes size.
@@ -713,12 +1073,12 @@ function iST:CreateSwingBar()
     sealIconFrame:SetScript("OnDragStart", function(self)
         if not iSTSettings.barLocked and not (InCombatLockdown and InCombatLockdown()) then
             self.isDragging = true
-            self:StartMoving()
+            iST:BeginMoveGuides(self)
         end
     end)
     sealIconFrame:SetScript("OnDragStop", function(self)
         if not self.isDragging then return end
-        self:StopMovingOrSizing()
+        iST:EndMoveGuides(self)
         self.isDragging = nil
         local x, y = self:GetCenter()
         local rootX, rootY = UIParent:GetCenter()
@@ -727,6 +1087,11 @@ function iST:CreateSwingBar()
             self:ClearAllPoints()
             self:SetPoint("CENTER", UIParent, "CENTER", iSTSettings.sealIconPoint[1],
                 iSTSettings.sealIconPoint[2])
+        end
+    end)
+    sealIconFrame:SetScript("OnMouseUp", function(self, button)
+        if button == "RightButton" and iST:CanResetMovePosition(self) then
+            iST:ResetSealIconPosition()
         end
     end)
     sealIconFrame:Hide()
@@ -813,6 +1178,12 @@ function iST:CreateSwingBar()
     sealTimerText:SetShadowColor(0, 0, 0, 0)
     sealTimerText:Hide()
     bar.sealTimerText = sealTimerText
+    local sealTimerLabel = sealTimerOverlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    sealTimerLabel:SetPoint("BOTTOM", sealIconFrame, "TOP", 0, 1)
+    sealTimerLabel:SetText(L["SealTimerLabel"])
+    sealTimerLabel:SetTextColor(0.35, 0.82, 1, 1)
+    sealTimerLabel:Hide()
+    bar.sealTimerLabel = sealTimerLabel
 
     -- Time remaining text (right side)
     local timeText = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -871,6 +1242,14 @@ function iST:SaveBarPosition()
     self:AnchorAttachedIndicators()
 end
 
+function iST:GetAttachedStackCounterOffset()
+    if iSTSettings.showStackCircles then
+        local pipSize = math.max(10, math.min(50, tonumber(iSTSettings.wrathCircleSize) or 18))
+        return math.max(35, pipSize + 15)
+    end
+    return 7
+end
+
 function iST:AnchorAttachedIndicators()
     local bar = self.BarFrame
     if not bar then return end
@@ -878,9 +1257,14 @@ function iST:AnchorAttachedIndicators()
         bar.sealIconFrame:ClearAllPoints()
         bar.sealIconFrame:SetPoint("RIGHT", bar, "LEFT", bar.wrathIconOffset or -7, 0)
     end
+    if bar.echoTimerFrame and not iSTSettings.echoTimerPoint then
+        bar.echoTimerFrame:ClearAllPoints()
+        bar.echoTimerFrame:SetPoint("LEFT", bar, "RIGHT", 7, 0)
+    end
     if bar.stackCountFrame and not iSTSettings.stackCountPoint then
         bar.stackCountFrame:ClearAllPoints()
-        bar.stackCountFrame:SetPoint("BOTTOM", bar, "TOP", 0, 9)
+        bar.stackCountFrame:SetPoint("BOTTOM", bar, "TOP", 0,
+            self:GetAttachedStackCounterOffset())
     end
 end
 
@@ -902,6 +1286,11 @@ end
 
 function iST:ResetSealIconPosition()
     iSTSettings.sealIconPoint = nil
+    self:AnchorAttachedIndicators()
+end
+
+function iST:ResetEchoTimerPosition()
+    iSTSettings.echoTimerPoint = nil
     self:AnchorAttachedIndicators()
 end
 
@@ -937,7 +1326,9 @@ function iST:OnBarUpdate(elapsed)
     local state, now = self.State, GetTime()
     self:UpdateSealTimer(now)
     if state.TestMode and now >= state.NextSwingTime then
-        state.PreviewStacks = state.StackTestMode and (state.PreviewStacks + 1) % 4 or 0
+        if not state.EditMode then
+            state.PreviewStacks = state.StackTestMode and (state.PreviewStacks + 1) % 4 or 0
+        end
         self:ResetSwingTimer(3.6, false, nil, "PREVIEW")
     end
 
@@ -1371,6 +1762,7 @@ function iST:RefreshUnsealedWrathState()
         self.State.WrathUnleashedUntil = nil
         self.State.WrathAuraInstanceID = nil
         self.State.WrathEchoSeal = nil
+        self.State.EchoSwitchBackSeal = nil
         self.State.WrathLastSealCastName = nil
         self.State.WrathLastSwitchFrom = nil
         self.State.WrathAuraSnapshot = nil
@@ -1470,7 +1862,10 @@ function iST:ApplyWrathAura(aura, source, refreshed)
             end
         end
     end
-    if echoSeal then state.WrathEchoSeal = echoSeal end
+    if echoSeal then
+        state.WrathEchoSeal = echoSeal
+        state.EchoSwitchBackSeal = nil
+    end
     if not IsSecret(spellID) and type(spellID) == "number" and spellID > 0 then
         state.WrathAuraSpellID = spellID
     end
@@ -1557,8 +1952,34 @@ function iST:ObserveWrathAura(updateInfo, delayed)
             end
         end
     end
+    if not removedCurrent and state.WrathAuraInstanceID and type(reader) == "function" then
+        local ok, aura = pcall(reader, "player", state.WrathAuraInstanceID)
+        if ok and not IsSecret(aura) then
+            if aura == nil then
+                removedCurrent = not state.InCombat
+                    and not (InCombatLockdown and InCombatLockdown())
+            else
+                local handled, changed = self:ApplyWrathAura(aura, "cached aura instance")
+                if handled then return true, changed end
+            end
+        end
+    end
+    if not removedCurrent then
+        local aura, absenceKnown = self:FindWrathEchoAura()
+        if aura then
+            local handled, changed = self:ApplyWrathAura(aura, "Echo buff lookup")
+            if handled then return true, changed end
+        elseif absenceKnown and state.WrathEchoSeal and not state.InCombat
+            and not (InCombatLockdown and InCombatLockdown()) then
+            removedCurrent = true
+        end
+    end
     if removedCurrent then
         local removedID = state.WrathAuraInstanceID
+        local removedSeal = state.WrathEchoSeal or tracker.seal
+        state.EchoSwitchBackSeal = removedSeal and self:GetTwistStackSelection(removedSeal) == 0
+            and (state.CurrentSealName == nil or state.CurrentSealName == removedSeal)
+            and removedSeal or nil
         tracker:Reset()
         state.WrathAuraRevision = (state.WrathAuraRevision or 0) + 1
         state.WrathAuraInstanceID = nil
@@ -1569,19 +1990,6 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         self:UpdateThreeStackSound(0, self:IsWrathTrackingEnabled(), GetTime(), true)
         self:UpdateWrathDisplay()
         return true, true
-    else
-        if state.WrathAuraInstanceID and type(reader) == "function" then
-            local ok, aura = pcall(reader, "player", state.WrathAuraInstanceID)
-            if ok then
-                local handled, changed = self:ApplyWrathAura(aura, "cached aura instance")
-                if handled then return true, changed end
-            end
-        end
-        local aura = self:FindWrathEchoAura()
-        if aura then
-            local handled, changed = self:ApplyWrathAura(aura, "Echo buff lookup")
-            if handled then return true, changed end
-        end
     end
     if not delayed then self:ScheduleWrathAuraCheck() end
 end
@@ -1596,6 +2004,9 @@ function iST:SetCurrentSeal(spellID, observedExpirationTime, sourceEvent)
     self.State.CurrentSealID = spellID
     local previousSeal = self.State.CurrentSealName
     self.State.CurrentSealName = name
+    if self.State.EchoSwitchBackSeal and self.State.EchoSwitchBackSeal ~= name then
+        self.State.EchoSwitchBackSeal = nil
+    end
     if sourceEvent == "UNIT_SPELLCAST_SUCCEEDED" then
         if previousSeal and previousSeal ~= name then
             self.State.WrathLastSwitchFrom = previousSeal
@@ -1675,15 +2086,20 @@ function iST:UpdateSealTimer(now)
     if not bar or not bar.sealTimerText then return end
 
     now = now or GetTime()
-    local expiresAt = self.State.SealExpiresAt or 0
+    if self.State.EditMode and (self.State.EditSealExpiresAt or 0) <= now then
+        self.State.EditSealExpiresAt = now + 25
+    end
+    local expiresAt = self.State.EditMode and self.State.EditSealExpiresAt
+        or self.State.SealExpiresAt or 0
     local remaining = expiresAt - now
     local showTimer = iSTSettings.showSealTimer
         and iSTSettings.showSealIcon
-        and self.State.CurrentSealIcon
+        and (self.State.CurrentSealIcon or self.State.EditMode)
         and remaining > 0
 
     local urgent = remaining < 5
     self:UpdateSealRing(expiresAt, showTimer, urgent)
+    if bar.sealTimerLabel then bar.sealTimerLabel:Hide() end
     if showTimer then
         local displayedSeconds = math.ceil(remaining)
         bar.sealTimerText:SetText(tostring(displayedSeconds))
@@ -1711,12 +2127,15 @@ function iST:UpdateSealRing(expiresAt, showTimer, urgent)
         return
     end
 
-    if bar.sealRingExpiresAt ~= expiresAt then
+    local expiryChanged = bar.sealRingExpiresAt ~= expiresAt
+    if expiryChanged then
         -- A seal recovered after login may already be partly expired. Keep its
         -- full thirty-second scale instead of drawing a fresh ring on recovery.
         local duration = self.CONSTANTS.SEAL_DURATION
         countdown:SetCooldown(expiresAt - duration, duration)
         bar.sealRingExpiresAt = expiresAt
+    end
+    if expiryChanged then
         bar.sealIconRing:SetVertexColor(0.28, 0.28, 0.28, 0.95)
     end
     if bar.sealRingUrgent ~= urgent then
@@ -1731,8 +2150,12 @@ function iST:UpdateSealDisplay()
     if not self.BarFrame then return end
     local bar = self.BarFrame
 
-    if self.State.CurrentSealIcon and iSTSettings.showSealIcon then
-        bar.sealIcon:SetTexture(self.State.CurrentSealIcon)
+    local previewSeal = self.State.EditMode and iSTSettings.twistFromSeal or nil
+    local previewIcon = previewSeal and self.SEAL_SPELL_IDS[previewSeal]
+        and C_Spell.GetSpellTexture(self.SEAL_SPELL_IDS[previewSeal])
+    local icon = self.State.EditMode and previewIcon or self.State.CurrentSealIcon
+    if icon and iSTSettings.showSealIcon then
+        bar.sealIcon:SetTexture(icon)
         bar.sealIcon:Show()
         if bar.sealIconFrame then bar.sealIconFrame:Show() end
     else
@@ -1742,8 +2165,8 @@ function iST:UpdateSealDisplay()
 
     self:UpdateSealTimer()
 
-    if iSTSettings.showSealName and self.State.CurrentSealName then
-        bar.sealText:SetText(self.State.CurrentSealName)
+    if iSTSettings.showSealName and (previewSeal or self.State.CurrentSealName) then
+        bar.sealText:SetText(previewSeal or self.State.CurrentSealName)
     else
         bar.sealText:SetText("")
     end
@@ -1762,6 +2185,12 @@ end
 -- Minimap and addon compartment button
 function iST:SetBarLocked(locked, announce)
     iSTSettings.barLocked = locked == true
+    if iSTSettings.barLocked and self.State.EditMode then
+        self:StopTestMode()
+    elseif not iSTSettings.barLocked and not self.State.EditMode
+        and not (InCombatLockdown and InCombatLockdown()) then
+        self:StartEditMode()
+    end
     if self.BarFrame then
         self.BarFrame:EnableMouse(not iSTSettings.barLocked
             and self.BarFrame:IsShown() and (self.BarFrame.fadeTarget or 1) > 0)
@@ -1769,11 +2198,23 @@ function iST:SetBarLocked(locked, announce)
     if self.BarFrame and self.BarFrame.sealIconFrame then
         self.BarFrame.sealIconFrame:EnableMouse(not iSTSettings.barLocked)
     end
+    if self.BarFrame and self.BarFrame.echoTimerFrame then
+        self.BarFrame.echoTimerFrame:EnableMouse(not iSTSettings.barLocked)
+    end
     if self.BarFrame and self.BarFrame.stackCountFrame then
         self.BarFrame.stackCountFrame:EnableMouse(not iSTSettings.barLocked)
     end
+    self:UpdateReminders()
+    self:UpdateMoveOutlines()
     local checkbox = self.SettingsFrame and self.SettingsFrame.barLockCheckbox
     if checkbox then checkbox:SetChecked(iSTSettings.barLocked) end
+    if self.SettingsFrame then
+        local panel = self.SettingsFrame
+        if panel.centerMoveButton then
+            panel.centerMoveButton:SetText(self.CenterSwitchFrame and self.CenterSwitchFrame.moving
+                and L["DoneMovingCenterSwitchText"] or L["MoveCenterSwitchText"])
+        end
+    end
     if announce then print(L[iSTSettings.barLocked and "BarLocked" or "BarUnlocked"]) end
 end
 
@@ -1813,11 +2254,15 @@ function iST:CreateMinimapButton()
             tooltip:SetText(Colors.iST .. "iSealTwist" .. Colors.Green .. " v" .. iST.Version, 1, 1, 1)
             tooltip:AddLine(" ", 1, 1, 1)
             tooltip:AddLine(L["MinimapLeftClick"], 1, 1, 1)
-            tooltip:AddLine(L["MinimapShiftLeftClick"], 1, 1, 1)
             tooltip:AddLine(L["MinimapRightClick"], 1, 1, 1)
-            tooltip:AddLine(L["MinimapShiftRightClick"], 1, 1, 1)
+            tooltip:AddLine(L["MinimapShiftLeftClick"], 1, 1, 1)
+            tooltip:AddLine(L[iSTSettings.barLocked and "MinimapShiftRightClickUnlock"
+                or "MinimapShiftRightClickLock"], 1, 1, 1)
             tooltip:AddLine(" ", 1, 1, 1)
             tooltip:AddLine(L["TooltipStatus"] .. (iSTSettings.enabled and L["StatusEnabled"] or L["StatusDisabled"]), 1, 1, 1)
+            tooltip:AddLine(L["TooltipPositionLock"] .. (iSTSettings.barLocked
+                and L["StatusPositionsLocked"] or L["StatusPositionsUnlocked"]), 1, 1, 1)
+            if not iSTSettings.barLocked then tooltip:AddLine(L["MinimapMoveResetHint"], 1, 1, 1) end
             tooltip:Show()
         end,
     })
@@ -2020,6 +2465,16 @@ end
 function iST:StopTestMode()
     local state = self.State
     if not state.TestMode then return end
+    if state.EditMode then
+        state.EditMode = nil
+        state.EditSealExpiresAt = nil
+        if self.WorldEchoCueFrame and self.WorldEchoCueFrame.moving then
+            pcall(self.SetWorldEchoCueMoveMode, self, false)
+        end
+        if self.CenterSwitchFrame and self.CenterSwitchFrame.moving then
+            pcall(self.SetCenterSwitchMoveMode, self, false)
+        end
+    end
     self:ClearParryAnimation()
     state.TestMode, state.StackTestMode, state.PreviewStacks = false, false, 0
     state.TestModeGeneration = state.TestModeGeneration + 1
@@ -2030,12 +2485,15 @@ function iST:StopTestMode()
         state.TestSwingSnapshot = nil
     end
     self:InvalidateBarState()
+    self:UpdateSealDisplay()
     self:UpdateWrathDisplay()
     self:UpdateBarVisibility()
+    self:UpdateMoveOutlines()
 end
 
 local function StartBarTest(stackPreview)
     local state = iST.State
+    if state.EditMode then iST:StopTestMode() end
     iST:ClearParryAnimation()
     if not state.TestMode then
         state.TestSwingSnapshot = { state.WeaponSpeed, state.LastSwingTime, state.NextSwingTime }
@@ -2058,6 +2516,29 @@ local function StartBarTest(stackPreview)
             iST:StopTestMode()
         end
     end)
+end
+
+function iST:StartEditMode()
+    if not iSTSettings.enabled or not self.BarFrame or self.State.InCombat then return end
+    local state = self.State
+    if state.EditMode then return end
+    if not state.TestMode then
+        state.TestSwingSnapshot = { state.WeaponSpeed, state.LastSwingTime, state.NextSwingTime }
+    end
+    state.TestModeGeneration = (state.TestModeGeneration or 0) + 1
+    state.TestMode, state.StackTestMode, state.EditMode = true, true, true
+    state.PreviewStacks = 2
+    state.EditSealExpiresAt = GetTime() + 25
+    state.WeaponSpeed = 3.6
+    state.LastSwingTime = GetTime()
+    state.NextSwingTime = GetTime() + 3.6
+    self:ShowBar()
+    self:UpdateSealDisplay()
+    self:UpdateWrathDisplay()
+    if iSTSettings.showWorldEchoCue then self:SetWorldEchoCueMoveMode(true) end
+    if iSTSettings.showCenterSwitchText then self:SetCenterSwitchMoveMode(true) end
+    self:UpdateReminders()
+    self:UpdateMoveOutlines()
 end
 
 function iST:StartTestMode()
@@ -2089,6 +2570,8 @@ function iST:RegisterSlashCommands()
 
         if cmd == "hitdebug" then
             iST:HandleHitDebugCommand(argument)
+        elseif cmd == "soundcheck" then
+            iST:CheckCueSound(argument)
         elseif cmd == "settings" or cmd == "options" or cmd == "config" then
             iST:SettingsToggle()
         elseif cmd == "lock" then
@@ -2258,6 +2741,7 @@ local function OnEvent(self, event, ...)
         iST.State.WrathUnleashedUntil = nil
         iST.State.WrathAuraInstanceID = nil
         iST.State.WrathEchoSeal = nil
+        iST.State.EchoSwitchBackSeal = nil
         iST.State.WrathLastSealCastName = nil
         iST.State.WrathLastSwitchFrom = nil
         iST.State.WrathAuraSnapshot = nil

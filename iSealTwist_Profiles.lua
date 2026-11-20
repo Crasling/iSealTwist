@@ -10,6 +10,7 @@ local MAIN_NAME = "Main"
 local PREVIOUS_NAME = "Previous setup"
 local POSITION_TEMPLATES = {
     sealIconPoint = { 0, 0 },
+    echoTimerPoint = { 0, 0 },
     stackCountPoint = { 0, 0 },
     worldEchoCuePoint = { 0, 0 },
 }
@@ -17,11 +18,13 @@ local ANCHORS = { CENTER = true, TOP = true, BOTTOM = true, LEFT = true, RIGHT =
     TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
 local NUMBER_LIMITS = {
     barWidth = { 100, 500 }, barHeight = { 15, 50 }, sealIconSize = { 16, 64 },
-    swingTextSize = { 8, 28 }, stackCounterTextSize = { 8, 40 },
-    wrathCircleSize = { 10, 40 }, sealTextSize = { 8, 24 }, latencyTextSize = { 8, 20 },
+    swingTextSize = { 8, 28 }, stackCounterTextSize = { 10, 50 },
+    wrathCircleSize = { 10, 50 }, playerPipSize = { 10, 50 },
+    sealTextSize = { 8, 24 }, latencyTextSize = { 8, 20 },
     worldEchoCueScale = { 0.5, 2.5 }, nameplateEchoScale = { 0.5, 2 },
-    nameplateEchoOffsetY = { -60, 30 }, twistFromStacks = { 1, 3 },
-    twistIntoStacks = { 1, 3 }, ["MinimapButton.minimapPos"] = { 0, 360 },
+    nameplateEchoPipSize = { 10, 40 },
+    nameplateEchoOffsetY = { -60, 30 }, twistFromStacks = { 0, 3 },
+    twistIntoStacks = { 0, 3 }, ["MinimapButton.minimapPos"] = { 0, 360 },
 }
 
 local function Schema()
@@ -91,6 +94,8 @@ local function CleanSnapshot(data, requireValues)
             SetPath(clean, path, value)
         end
     end
+    -- Keep older shared profiles loadable while the Wings indicator is paused.
+    clean.showWorldEchoCue = false
     for key in pairs(POSITION_TEMPLATES) do
         local point = clean[key]
         if point and (type(point[1]) ~= "number" or type(point[2]) ~= "number") then
@@ -108,6 +113,8 @@ local function CleanSnapshot(data, requireValues)
             return nil, "Invalid reminder position: " .. kind
         end
     end
+    -- Accept older share codes with narrower bars, then use the current range.
+    clean.barWidth = math.max(150, clean.barWidth)
     if not iST.SEAL_SPELL_IDS[clean.twistFromSeal]
         or not iST.SEAL_SPELL_IDS[clean.twistIntoSeal]
         or clean.twistFromSeal == clean.twistIntoSeal then

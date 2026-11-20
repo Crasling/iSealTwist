@@ -319,12 +319,23 @@ function iST:InitializeReminders()
             text:SetShadowOffset(1, -1)
         end
         frame:SetScript("OnDragStart", function(self)
-            if not iSTSettings.reminders[reminderKind].locked or previewUntil[reminderKind] then self:StartMoving() end
+            if not iSTSettings.barLocked and iSTSettings.reminders[reminderKind].enabled
+                and not (InCombatLockdown and InCombatLockdown()) then
+                self.isDragging = true
+                iST:BeginMoveGuides(self)
+            end
         end)
         frame:SetScript("OnDragStop", function(self)
-            self:StopMovingOrSizing()
+            if not self.isDragging then return end
+            iST:EndMoveGuides(self)
+            self.isDragging = nil
             local point, _, relativePoint, x, y = self:GetPoint()
             iSTSettings.reminders[reminderKind].point = { point, relativePoint, x, y }
+        end)
+        frame:SetScript("OnMouseUp", function(self, button)
+            if button == "RightButton" and iST:CanResetMovePosition(self) then
+                iST:ResetReminderPosition(reminderKind)
+            end
         end)
         frame:Hide()
         self.ReminderFrames[kind] = frame
@@ -380,7 +391,7 @@ function iST:UpdateReminders()
     for kind, frame in pairs(self.ReminderFrames) do
         local settings = iSTSettings.reminders[kind]
         if previewUntil[kind] and now >= previewUntil[kind] then previewUntil[kind] = nil end
-        local preview = previewUntil[kind] ~= nil
+        local preview = previewUntil[kind] ~= nil or state.EditMode and settings.enabled
         local known, active, expires, icon, title
         if kind == "FURY" then
             known, active, expires = state.FuryKnown, state.FuryPresent, state.FuryExpiresAt
@@ -422,7 +433,7 @@ function iST:UpdateReminders()
         self:UpdateReminderSound(kind, settings, inCombat, eligible, visible, preview, known, soundActive, warning)
         frame:SetShown(show == true)
         frame:SetFrameStrata(preview and "DIALOG" or "MEDIUM")
-        frame:EnableMouse(not settings.locked or preview)
+        frame:EnableMouse(not iSTSettings.barLocked and settings.enabled and not inCombat)
         if show then
             if preview then
                 title = kind == "FURY" and L["ReminderFury"] or L["ReminderSeal"]
@@ -449,7 +460,12 @@ function iST:UpdateReminders()
             frame:SetWidth(left + math.max(frame.title:GetStringWidth(), frame.timer:GetStringWidth()) + 4)
         end
     end
-    if iSTSettings.enabled and (enabled() or next(previewUntil)) then worker:Show() else worker:Hide() end
+    if iSTSettings.enabled and (enabled() or next(previewUntil) or state.EditMode) then
+        worker:Show()
+    else
+        worker:Hide()
+    end
+    if state.EditMode then self:UpdateMoveOutlines() end
 end
 
 worker:SetScript("OnUpdate", function(_, delta)
