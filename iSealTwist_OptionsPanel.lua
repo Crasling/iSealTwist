@@ -931,7 +931,9 @@ function iST:CreateOptionsPanel()
         RefreshAvailability()
     end)
     local function WrathAvailable()
-        return iST:IsWrathTrackingEnabled() == true
+        -- Configure and preview Echo options even without Unsealed Wrath learned
+        -- or talent data available. Live Echo displays still require the talent.
+        return not CombatLocked()
     end
 
     local shadow = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
@@ -1388,7 +1390,7 @@ function iST:CreateOptionsPanel()
                 iSTSettings.showSealTimer = v
                 iST:UpdateSealTimer()
                 if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
-            end
+            end, 20
         )
         DependsOn(sealTimerCheckbox, function() return iSTSettings.showSealIcon end)
 

@@ -2,6 +2,10 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.9.3 - Settings Fix
+--------------------------------------------------------------------------------
+[FIXED] Unsealed Wrath options can be changed outside combat without learning the talent.
+
 v0.9.2 - Hotfix
 --------------------------------------------------------------------------------
 [FIXED] Indicators, reminders, and Switch/Attack text no longer block mouse clicks or camera movement while positions are locked.
