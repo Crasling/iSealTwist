@@ -1592,26 +1592,28 @@ function iST:CreateOptionsPanel()
             iST:RenderStackSealIcons(previewIcons, 2, texture, target)
             local circleShift = (3 - previewCircles.visiblePips) * (pipSize + previewCircles.pipGap) / 2
             previewCircles:ClearAllPoints()
-            previewCircles:SetPoint("BOTTOM", previewBar, "TOP", circleShift, 6)
+            previewCircles:SetPoint("BOTTOM", previewBar, "TOP", circleShift, iST:GetStackPipYOffset())
             local iconShift = (3 - previewIcons.visiblePips) * (pipSize + previewIcons.pipGap) / 2
             previewIcons:ClearAllPoints()
-            previewIcons:SetPoint("BOTTOM", previewBar, "TOP", iconShift, 6)
+            previewIcons:SetPoint("BOTTOM", previewBar, "TOP", iconShift, iST:GetStackPipYOffset())
             previewCircles:SetShown(iSTSettings.showStackCircles
                 and iSTSettings.stackBubbleStyle == "CIRCLES")
             previewIcons:SetShown(iSTSettings.showStackCircles
                 and iSTSettings.stackBubbleStyle == "SEAL_ICONS" and texture ~= nil)
-            iST:UpdateSwordImageCue(previewBar, 2, iSTSettings.showStackSwordImages, stageColor)
+            iST:UpdateSwordImageCue(previewBar, 2, iSTSettings.showStackSwordImages, stageColor, target)
             sealRing:ClearAllPoints()
             sealRing:SetPoint("RIGHT", previewBar, "LEFT",
                 iSTSettings.showStackSwordImages and -(previewBar.wrathSwordImages.leftOverhang + 7) or -7, 0)
-            if showCounter and iSTSettings.showStackCircles then
-                counter:ClearAllPoints()
-                counter:SetPoint("BOTTOM", previewBar, "TOP", 0,
-                    math.max(35, pipSize + 15))
-            else
-                counter:ClearAllPoints()
-                counter:SetPoint("BOTTOM", previewBar, "TOP", 0, 7)
-            end
+            echoRing:ClearAllPoints()
+            echoRing:SetPoint("LEFT", previewBar, "RIGHT",
+                iSTSettings.showStackSwordImages and (previewBar.wrathSwordImages.rightOverhang + 7) or 7, 0)
+            local textOffset = iST:GetSwordImageTextOffset(previewBar, iSTSettings.showStackSwordImages)
+            sealName:ClearAllPoints()
+            sealName:SetPoint("TOP", previewBar, "BOTTOM", 0, -textOffset)
+            latency:ClearAllPoints()
+            latency:SetPoint("TOPRIGHT", previewBar, "BOTTOMRIGHT", -2, -textOffset)
+            counter:ClearAllPoints()
+            counter:SetPoint("BOTTOM", previewBar, "TOP", 0, iST:GetAttachedStackCounterOffset())
         end
         settingsFrame.RefreshEchoPreview = RefreshEchoPreview
         local previewToggle = CreateFrame("Button", nil, echoPreview, BACKDROP_TEMPLATE)
@@ -1624,7 +1626,9 @@ function iST:CreateOptionsPanel()
             echoPreview:SetShown(visible)
             local expandedHeight = math.max(206, 135
                 + (iSTSettings.showStackCounter and (iSTSettings.stackCounterTextSize or 16) or 0)
-                + (iSTSettings.showStackCircles and (iSTSettings.wrathCircleSize or 18) or 0))
+                + (iSTSettings.showStackCircles and (iSTSettings.wrathCircleSize or 18) or 0),
+                130 + (iSTSettings.barHeight or 25)
+                + 2 * iST:GetSwordImageTextOffset(previewBar, iSTSettings.showStackSwordImages))
             echoPreview:SetHeight(previewCollapsed and 34 or expandedHeight)
             previewBody:SetShown(not previewCollapsed)
             previewToggle:SetText(previewCollapsed and L["ShowPreview"] or L["HidePreview"])
@@ -1662,6 +1666,7 @@ function iST:CreateOptionsPanel()
         AddIndicator("showStackCounter", L["WrathCueCounter"])
         AddIndicator("showStackCircles", L["WrathCueCircles"])
         AddIndicator("showStackBarColor", L["WrathCueBarColor"])
+        AddIndicator("showStackSwordImages", L["WrathCueSwordImages"], L["WrathCueSwordImagesDesc"])
         AddIndicator("showPlayerWrathBubbles", L["ShowPlayerWrathBubbles"], L["ShowPlayerWrathBubblesDesc"])
         playerFrameCheckbox, y = CreateSettingsCheckbox(indicatorsContent,
             L["ShowPlayerPipFrame"], L["ShowPlayerPipFrameDesc"], y,

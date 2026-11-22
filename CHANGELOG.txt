@@ -2,6 +2,11 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.9.4 - Sword Images
+--------------------------------------------------------------------------------
+[ADDED] Sword Images can be used alongside other Echo indicators and fill according to each Seal's chosen stack target.
+[IMPROVED] Sword layout keeps the Seal and Echo icons, labels, stack counter, and pips clear of the artwork.
+
 v0.9.3 - Settings Fix
 --------------------------------------------------------------------------------
 [FIXED] Unsealed Wrath options can be changed outside combat without learning the talent.

@@ -448,9 +448,6 @@ function iST:InitializeSettings()
         iSTSettings.indicatorsMigrated = true
     end
     iSTSettings.wrathCue = nil
-    -- Sword Images are temporarily unavailable; keep the rendering code for
-    -- later without carrying an active saved choice into this version.
-    iSTSettings.showStackSwordImages = false
     -- Floating Wings are paused for this release, including saved profiles.
     iSTSettings.showWorldEchoCue = false
     iSTSettings.testThreeStackHighlight = nil
@@ -1245,11 +1242,16 @@ function iST:SaveBarPosition()
 end
 
 function iST:GetAttachedStackCounterOffset()
+    local swordLift = iSTSettings.showStackSwordImages and 8 or 0
     if iSTSettings.showStackCircles then
         local pipSize = math.max(10, math.min(50, tonumber(iSTSettings.wrathCircleSize) or 18))
-        return math.max(35, pipSize + 15)
+        return math.max(35, pipSize + 15) + swordLift
     end
-    return 7
+    return 7 + swordLift
+end
+
+function iST:GetStackPipYOffset()
+    return iSTSettings.showStackSwordImages and 14 or 6
 end
 
 function iST:AnchorAttachedIndicators()
@@ -1261,7 +1263,7 @@ function iST:AnchorAttachedIndicators()
     end
     if bar.echoTimerFrame and not iSTSettings.echoTimerPoint then
         bar.echoTimerFrame:ClearAllPoints()
-        bar.echoTimerFrame:SetPoint("LEFT", bar, "RIGHT", 7, 0)
+        bar.echoTimerFrame:SetPoint("LEFT", bar, "RIGHT", bar.wrathEchoOffset or 7, 0)
     end
     if bar.stackCountFrame and not iSTSettings.stackCountPoint then
         bar.stackCountFrame:ClearAllPoints()

@@ -210,10 +210,10 @@ function iST:CreateWrathCue(bar)
     bar.wrathCueText = text
     self:CreateSwordImageCue(bar)
     bar.wrathCircles = self:CreateStackBubbles(bar, nil, 18, 9)
-    bar.wrathCircles:SetPoint("BOTTOM", bar, "TOP", 0, 6)
+    bar.wrathCircles:SetPoint("BOTTOM", bar, "TOP", 0, self:GetStackPipYOffset())
     bar.wrathCircles:SetFrameLevel(bar:GetFrameLevel() + 4)
     bar.stackSealIconStrip = self:CreateStackSealIcons(bar, 20, 5)
-    bar.stackSealIconStrip:SetPoint("BOTTOM", bar, "TOP", 0, 6)
+    bar.stackSealIconStrip:SetPoint("BOTTOM", bar, "TOP", 0, self:GetStackPipYOffset())
     bar.stackSealIconStrip:SetFrameLevel(bar:GetFrameLevel() + 5)
     bar.stackSealIconStrip:Hide()
     self:CreatePlayerWrathFrame()
@@ -232,7 +232,7 @@ function iST:LayoutStackPips()
     if not bar or CombatLocked() then return end
     -- Match the settings preview: pips sit just above the bar, with the
     -- attached counter above them. A separately moved counter keeps its spot.
-    local offset = 6
+    local offset = self:GetStackPipYOffset()
     local counterOffset = self:GetAttachedStackCounterOffset()
     if bar.stackPipCounterOffset ~= counterOffset then
         self:AnchorAttachedIndicators()
@@ -376,7 +376,7 @@ function iST:UpdateEchoTimerDisplay()
                 local point = iSTSettings.echoTimerPoint
                 frame:SetPoint("CENTER", UIParent, "CENTER", point[1], point[2])
             else
-                frame:SetPoint("LEFT", bar, "RIGHT", 7, 0)
+                frame:SetPoint("LEFT", bar, "RIGHT", bar.wrathEchoOffset or 7, 0)
             end
             frame:SetFrameLevel(bar:GetFrameLevel() + 6)
             frame:SetMovable(true)
@@ -1722,7 +1722,7 @@ local function BuildSealIconContainer(parent, bar, player)
         local strip = iST:CreateStackSealIcons(clip, size, 5, texture)
         iST:RenderStackSealIcons(strip, stage, texture, iST:GetTwistStackTarget(seal))
         if player then strip:SetPoint("CENTER", parent, "CENTER")
-        else strip:SetPoint("BOTTOM", bar, "TOP", 0, 6) end
+        else strip:SetPoint("BOTTOM", bar, "TOP", 0, iST:GetStackPipYOffset()) end
         return { strip = strip }
     end)
     frame:SetFrameLevel(parent:GetFrameLevel() + 12)
@@ -1798,10 +1798,10 @@ function iST:UpdateNativeStageVisuals()
             local overlay = clip:CreateTexture(nil, "ARTWORK")
             overlay:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
             overlay:SetAllPoints(bar.fill)
-            local sword = self:CreateNativeSwordStage(bar, clip, stage)
+            local sword = self:CreateNativeSwordStage(bar, clip)
             local circles = self:CreateStackBubbles(clip, nil,
                 math.max(10, math.min(50, tonumber(iSTSettings.wrathCircleSize) or 18)), 9)
-            circles:SetPoint("BOTTOM", bar, "TOP", 0, 6)
+            circles:SetPoint("BOTTOM", bar, "TOP", 0, self:GetStackPipYOffset())
             return { overlay = overlay, sword = sword, circles = circles }
         end)
         if ok then
@@ -1887,7 +1887,8 @@ function iST:UpdateNativeStageVisuals()
             local color = self:GetWrathCueColor(stage)
             row.overlay:SetVertexColor(color.r, color.g, color.b, color.a or 1)
             row.overlay:SetShown(stackBarColor)
-            self:UpdateNativeSwordStage(bar, row.sword, color)
+            self:UpdateNativeSwordStage(bar, row.sword, color,
+                self:GetSwordImageGlowStage(stage, self:GetTwistStackTarget(row.seal)))
             row.sword:SetShown(iSTSettings.showStackSwordImages)
             self:RenderStackBubbles(row.circles, stage, color,
                 self:GetTwistStackTarget(row.seal))
@@ -2220,13 +2221,28 @@ function iST:UpdateWrathDisplay(now)
     local imagesVisible = active and iSTSettings.showStackSwordImages
         and (nativeMain or self.State.TestMode)
     self:UpdateSwordImageCue(bar, self.State.TestMode and count or 0, imagesVisible,
-        self.State.TestMode and color or self:GetWrathCueColor(0))
+        self.State.TestMode and color or self:GetWrathCueColor(0),
+        self:GetTwistStackTarget(iSTSettings.twistFromSeal))
     -- Leave room for the image sword's hilt, then restore the usual icon gap.
     local iconOffset = imagesVisible and -(bar.wrathSwordImages.leftOverhang + 7) or -7
     if bar.sealIconFrame and not iSTSettings.sealIconPoint and bar.wrathIconOffset ~= iconOffset then
         bar.sealIconFrame:ClearAllPoints()
         bar.sealIconFrame:SetPoint("RIGHT", bar, "LEFT", iconOffset, 0)
         bar.wrathIconOffset = iconOffset
+    end
+    local echoOffset = imagesVisible and (bar.wrathSwordImages.rightOverhang + 7) or 7
+    if bar.echoTimerFrame and not iSTSettings.echoTimerPoint and bar.wrathEchoOffset ~= echoOffset then
+        bar.echoTimerFrame:ClearAllPoints()
+        bar.echoTimerFrame:SetPoint("LEFT", bar, "RIGHT", echoOffset, 0)
+        bar.wrathEchoOffset = echoOffset
+    end
+    local textOffset = self:GetSwordImageTextOffset(bar, imagesVisible)
+    if bar.wrathTextOffset ~= textOffset then
+        bar.sealText:ClearAllPoints()
+        bar.sealText:SetPoint("TOP", bar, "BOTTOM", 0, -textOffset)
+        bar.latencyText:ClearAllPoints()
+        bar.latencyText:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", -2, -textOffset)
+        bar.wrathTextOffset = textOffset
     end
 
     local ready = iSTSettings.wrathReadyText or "Switch now"

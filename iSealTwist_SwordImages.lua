@@ -6,6 +6,19 @@ local OPEN_LEFT, OPEN_RIGHT = 246, 890
 local OPEN_TOP, OPEN_BOTTOM = 475, 545
 local Tint
 
+-- Fill the three sword sections by the selected number of Echo stacks.
+-- A >0 selection uses the same first-stack cue as a target of one.
+function iST:GetSwordImageGlowStage(count, target)
+    if count <= 0 then return 0 end
+    if target <= 1 then return 3 end
+    if target == 2 and count >= 2 then return 3 end
+    return math.min(3, count)
+end
+
+function iST:GetSwordImageTextOffset(bar, visible)
+    return visible and (math.ceil(bar:GetHeight() * 0.65) + 3) or 2
+end
+
 local function AddRegion(frame, asset, x1, y1, x2, y2)
     local texture = frame:CreateTexture(nil, "BORDER")
     texture:SetTexture(ASSET_PATH .. asset .. ".blp")
@@ -24,6 +37,7 @@ local function LayoutImages(bar, frame)
     local scaleX = width / (OPEN_RIGHT - OPEN_LEFT)
     local scaleY = height / (OPEN_BOTTOM - OPEN_TOP)
     frame.leftOverhang = OPEN_LEFT * scaleX
+    frame.rightOverhang = (SOURCE_SIZE - OPEN_RIGHT) * scaleX
     for _, region in ipairs(frame.regions) do
         region.texture:ClearAllPoints()
         region.texture:SetPoint("TOPLEFT", bar, "TOPLEFT",
@@ -32,7 +46,7 @@ local function LayoutImages(bar, frame)
     end
 end
 
-function iST:CreateNativeSwordStage(bar, parent, stage)
+function iST:CreateNativeSwordStage(bar, parent)
     local frame = CreateFrame("Frame", nil, parent)
     frame:SetAllPoints(bar)
     frame:EnableMouse(false)
@@ -44,7 +58,7 @@ function iST:CreateNativeSwordStage(bar, parent, stage)
         texture = glowMask, x1 = 0, y1 = 0, x2 = SOURCE_SIZE, y2 = SOURCE_SIZE,
     }
     frame.pieces = {}
-    for index = 1, stage do
+    for index = 1, 3 do
         local x1 = OPEN_LEFT + (OPEN_RIGHT - OPEN_LEFT) * (index - 1) / 3
         local x2 = OPEN_LEFT + (OPEN_RIGHT - OPEN_LEFT) * index / 3
         local pieces = {
@@ -63,11 +77,14 @@ function iST:CreateNativeSwordStage(bar, parent, stage)
     return frame
 end
 
-function iST:UpdateNativeSwordStage(bar, frame, color)
+function iST:UpdateNativeSwordStage(bar, frame, color, litStage)
     LayoutImages(bar, frame)
     local nativeGold = iSTSettings.wrathColorScheme == "GOLD"
-    for _, pieces in ipairs(frame.pieces) do
-        for _, texture in ipairs(pieces) do Tint(texture, color, nativeGold, 1) end
+    for index, pieces in ipairs(frame.pieces) do
+        for _, texture in ipairs(pieces) do
+            texture:SetShown(index <= litStage)
+            if index <= litStage then Tint(texture, color, nativeGold, 1) end
+        end
     end
 end
 
@@ -118,7 +135,7 @@ Tint = function(texture, color, nativeGold, opacity)
     else texture:SetVertexColor(color.r, color.g, color.b, (color.a or 1) * opacity) end
 end
 
-function iST:UpdateSwordImageCue(bar, count, visible, color)
+function iST:UpdateSwordImageCue(bar, count, visible, color, target)
     local frame = bar.wrathSwordImages
     if not frame then return end
     if not visible then frame:Hide() return end
@@ -127,10 +144,11 @@ function iST:UpdateSwordImageCue(bar, count, visible, color)
     -- Keep the unlit outline visible while each stack adds another glowing third.
     Tint(frame.base, self:GetWrathCueColor(0), nativeGold, 0.45)
     frame.base:Show()
+    local litStage = self:GetSwordImageGlowStage(count, target or 3)
     for stage, piece in ipairs(frame.pieces) do
         for _, texture in ipairs(piece) do
-            texture:SetShown(stage <= count)
-            if stage <= count then Tint(texture, color, nativeGold, 1) end
+            texture:SetShown(stage <= litStage)
+            if stage <= litStage then Tint(texture, color, nativeGold, 1) end
         end
     end
     frame:Show()
