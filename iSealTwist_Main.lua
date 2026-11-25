@@ -401,6 +401,7 @@ function iST:InitializeSettings()
     iSTSettings.twistTextSize = nil
     iSTSettings.twistSuccessColor = nil
     iSTSettings.stackCounterColor = nil
+    local migrateIndicators = iSTSettings.indicatorsMigrated ~= true
     local legacyWrathColor = iSTSettings.wrathColorScheme == nil and iSTSettings.wrathCueColor or nil
     for key, value in pairs(self.SettingsDefault) do
         if iSTSettings[key] == nil then
@@ -428,7 +429,7 @@ function iST:InitializeSettings()
     -- The previous Echo timer default was gold. Update that untouched default
     -- to blue while preserving colors the player chose deliberately.
     local echoTextColor = iSTSettings.echoTimerTextColor
-    if type(echoTextColor) == "table" and echoTextColor.r == 1
+    if migrateIndicators and type(echoTextColor) == "table" and echoTextColor.r == 1
         and echoTextColor.g == 0.82 and echoTextColor.b == 0.35 then
         echoTextColor.r, echoTextColor.g, echoTextColor.b = 0.20, 0.72, 1
     end
@@ -447,8 +448,8 @@ function iST:InitializeSettings()
     if not self:IsSoundChoiceValid(iSTSettings.soundThreeStacksChoice) then
         iSTSettings.soundThreeStacksChoice = self.SettingsDefault.soundThreeStacksChoice
     end
-    -- Import the single old indicator once; afterwards each indicator is independent.
-    if iSTSettings.indicatorsMigrated ~= true then
+    -- Migrate the old indicator and cue defaults once, before saving current choices.
+    if migrateIndicators then
         local cue = iSTSettings.wrathCue
         if cue == "TEXT" then cue = "COUNTER" end
         if cue == "SWORD" then cue = "BAR_COLOR" end
@@ -457,6 +458,21 @@ function iST:InitializeSettings()
             iSTSettings.showStackCircles = cue == "CIRCLES"
             iSTSettings.showStackBarColor = cue == "BAR_COLOR"
             iSTSettings.showStackSwordImages = cue == "SWORD_IMAGES"
+        end
+        if iSTSettings.centerSwitchText == "3 stacks ready" then
+            iSTSettings.centerSwitchText = "Echoes ready"
+        end
+        if iSTSettings.centerSwitchCustomText == "Switch now"
+            and iSTSettings.centerSwitchText ~= "Switch now"
+            and iSTSettings.centerSwitchText ~= "Unleash!"
+            and iSTSettings.centerSwitchText ~= "Echoes ready" then
+            iSTSettings.centerSwitchCustomText = iSTSettings.centerSwitchText
+        end
+        if iSTSettings.centerAttackCustomText == "Attack now"
+            and iSTSettings.centerAttackText ~= "Attack now"
+            and iSTSettings.centerAttackText ~= "Unleash now"
+            and iSTSettings.centerAttackText ~= "Strike now" then
+            iSTSettings.centerAttackCustomText = iSTSettings.centerAttackText
         end
         iSTSettings.indicatorsMigrated = true
     end
@@ -505,21 +521,6 @@ function iST:InitializeSettings()
     -- The old fixed-From guidance could hide the real Echo count after a
     -- different opening seal. Keep existing characters on the normal display.
     iSTSettings.sealStackMode = nil
-    if iSTSettings.centerSwitchText == "3 stacks ready" then
-        iSTSettings.centerSwitchText = "Echoes ready"
-    end
-    if iSTSettings.centerSwitchCustomText == "Switch now"
-        and iSTSettings.centerSwitchText ~= "Switch now"
-        and iSTSettings.centerSwitchText ~= "Unleash!"
-        and iSTSettings.centerSwitchText ~= "Echoes ready" then
-        iSTSettings.centerSwitchCustomText = iSTSettings.centerSwitchText
-    end
-    if iSTSettings.centerAttackCustomText == "Attack now"
-        and iSTSettings.centerAttackText ~= "Attack now"
-        and iSTSettings.centerAttackText ~= "Unleash now"
-        and iSTSettings.centerAttackText ~= "Strike now" then
-        iSTSettings.centerAttackCustomText = iSTSettings.centerAttackText
-    end
     iSTSettings.centerSwitchVisual = "TEXT"
     for _, key in ipairs({ "barVisibility", "verticalSwordVisibility" }) do
         local mode = iSTSettings[key]
@@ -695,7 +696,6 @@ function iST:ApplyBarTypography()
         bar.sealTimerText:SetSize(iconSize, iconSize)
         bar.sealTimerText:SetPoint("CENTER", bar.sealTimerOverlay, "CENTER", opticalOffset - 1, -opticalOffset)
     end
-    ApplyFont(bar.wrathCueText, iSTSettings.stackCounterTextSize or 16, "THICKOUTLINE")
     bar.latencyText:SetScale(1)
 end
 
@@ -855,17 +855,18 @@ local function MoveGuideCandidates(frame)
     local bottom, top = UIParent:GetBottom(), UIParent:GetTop()
     if not left or not right or not bottom or not top then return end
     local width, height = right - left, top - bottom
+    local screenX, screenY = left + width * 0.5, bottom + height * 0.5
     local xs = {
         { value = left + 24, offset = -1 },
         { value = left + width * 0.25, offset = 0 },
-        { value = left + width * 0.5, offset = 0 },
+        { value = screenX, offset = 0 },
         { value = left + width * 0.75, offset = 0 },
         { value = right - 24, offset = 1 },
     }
     local ys = {
         { value = bottom + 24, offset = -1 },
         { value = bottom + height * 0.25, offset = 0 },
-        { value = bottom + height * 0.5, offset = 0 },
+        { value = screenY, offset = 0 },
         { value = bottom + height * 0.75, offset = 0 },
         { value = top - 24, offset = 1 },
     }
@@ -878,8 +879,15 @@ local function MoveGuideCandidates(frame)
             local ok, centerX, centerY = pcall(target.GetCenter, target)
             if ok then
                 local scale = target:GetEffectiveScale() / UIParent:GetEffectiveScale()
-                if type(centerX) == "number" then xs[#xs + 1] = { value = centerX * scale, offset = 0 } end
-                if type(centerY) == "number" then ys[#ys + 1] = { value = centerY * scale, offset = 0 } end
+                -- Nearby displays share the exact screen center as a snap target.
+                if not IsSecret(centerX) and type(centerX) == "number" then
+                    local x = centerX * scale
+                    if math.abs(x - screenX) > MOVE_SNAP_DISTANCE then xs[#xs + 1] = { value = x, offset = 0 } end
+                end
+                if not IsSecret(centerY) and type(centerY) == "number" then
+                    local y = centerY * scale
+                    if math.abs(y - screenY) > MOVE_SNAP_DISTANCE then ys[#ys + 1] = { value = y, offset = 0 } end
+                end
             end
         end
     end
@@ -915,7 +923,7 @@ local function UpdateMovingFrame(guides)
     local y = cursorY / scale + guides.cursorOffsetY
     local frameScale = frame:GetEffectiveScale() / scale
     if frameScale == 0 then return end
-    local xs, ys = MoveGuideCandidates(frame)
+    local xs, ys, left, bottom, screenWidth, screenHeight = MoveGuideCandidates(frame)
     if not xs or not ys then return end
     local shift = IsShiftKeyDown and IsShiftKeyDown()
     local guideX, guideY
@@ -934,10 +942,15 @@ local function UpdateMovingFrame(guides)
     end
     guides.activeVertical:SetShown(guideX ~= nil)
     guides.activeHorizontal:SetShown(guideY ~= nil)
-    if guideX then PositionMoveGuide(guides.activeVertical, true, guideX) end
-    if guideY then PositionMoveGuide(guides.activeHorizontal, false, guideY) end
-    for _, line in ipairs(guides.gridVertical) do line:SetAlpha(shift and 0 or 0.14) end
-    for _, line in ipairs(guides.gridHorizontal) do line:SetAlpha(shift and 0 or 0.14) end
+    if guideX then PositionMoveGuide(guides.activeVertical, true, guideX - left) end
+    if guideY then PositionMoveGuide(guides.activeHorizontal, false, guideY - bottom) end
+    -- The bright snap guide replaces the faint grid line at the same position.
+    for index, line in ipairs(guides.gridVertical) do
+        line:SetAlpha((shift or guideX == left + screenWidth * index * 0.25) and 0 or 0.14)
+    end
+    for index, line in ipairs(guides.gridHorizontal) do
+        line:SetAlpha((shift or guideY == bottom + screenHeight * index * 0.25) and 0 or 0.14)
+    end
 end
 
 function iST:BeginMoveGuides(movingFrame)
@@ -971,9 +984,9 @@ function iST:BeginMoveGuides(movingFrame)
     if left and right and bottom and top then
         for index = 1, 3 do
             PositionMoveGuide(guides.gridVertical[index], true,
-                left + (right - left) * index * 0.25)
+                (right - left) * index * 0.25)
             PositionMoveGuide(guides.gridHorizontal[index], false,
-                bottom + (top - bottom) * index * 0.25)
+                (top - bottom) * index * 0.25)
         end
     end
     guides.cursorOffsetX = frameX - cursorX / scale
@@ -1698,11 +1711,7 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
                 if pending then
                     local grouped = IsInGroup and IsInGroup()
                     pending.grouped = IsSecret(grouped) or grouped == true
-                    local spent = self.WrathTracker:Attack(self.State.CurrentSealName, now)
-                    if spent > 0 then
-                        pending.release = { at = now, auraID = self.State.WrathAuraInstanceID }
-                        self.State.PendingWrathRelease = pending.release
-                    end
+                    self.WrathTracker:Attack(self.State.CurrentSealName, now)
                     pending.provisional = { count = self.WrathTracker.count, seal = self.WrathTracker.seal,
                         expiresAt = self.WrathTracker.expiresAt }
                     self:UpdateWrathDisplay(now)
@@ -1852,8 +1861,6 @@ function iST:RefreshUnsealedWrathState()
         self:CancelPendingWrathHits()
         self.WrathTracker:Reset()
         self.State.ThreeStackSoundReady = true
-        self.State.PendingWrathRelease = nil
-        self.State.WrathUnleashedUntil = nil
         self.State.WrathAuraInstanceID = nil
         self.State.WrathEchoSeal = nil
         self.State.EchoSwitchBackSeal = nil
@@ -1875,15 +1882,7 @@ function iST:GetWrathDisplayState(now)
     end
     -- Native aura buttons compare live counts without exposing protected
     -- numbers to addon code.
-    return 0, self:IsWrathTrackingEnabled(), false
-end
-
-function iST:ConfirmWrathRelease()
-    local pending = self.State.PendingWrathRelease
-    self.State.PendingWrathRelease = nil
-    local now = GetTime()
-    if not pending or now - pending.at > 2 or self.WrathTracker:GetCount(now) ~= 0 then return end
-    self.State.WrathUnleashedUntil = now + 1.25
+    return 0, self:IsWrathTrackingEnabled()
 end
 
 function iST:CancelWrathAuraChecks()
@@ -2080,7 +2079,6 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         end
     end
     if removedCurrent then
-        local removedID = state.WrathAuraInstanceID
         local removedSeal = state.WrathEchoSeal or tracker.seal
         state.EchoSwitchBackSeal = removedSeal and self:GetTwistStackSelection(removedSeal) == 0
             and (state.CurrentSealName == nil or state.CurrentSealName == removedSeal)
@@ -2090,8 +2088,6 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         state.WrathAuraInstanceID = nil
         state.WrathEchoSeal = nil
         state.WrathAuraSnapshot = nil
-        local pending = state.PendingWrathRelease
-        if pending and pending.auraID == removedID then self:ConfirmWrathRelease() end
         self:UpdateThreeStackSound(0, self:IsWrathTrackingEnabled(), GetTime(), true)
         self:UpdateBarVisibility()
         return true, true
@@ -2978,8 +2974,6 @@ local function OnEvent(self, event, ...)
         iST.State.LastSwingTime, iST.State.NextSwingTime = 0, 0
         iST:InvalidateBarState()
         iST.WrathTracker:Reset()
-        iST.State.PendingWrathRelease = nil
-        iST.State.WrathUnleashedUntil = nil
         iST.State.WrathAuraInstanceID = nil
         iST.State.WrathEchoSeal = nil
         iST.State.EchoSwitchBackSeal = nil

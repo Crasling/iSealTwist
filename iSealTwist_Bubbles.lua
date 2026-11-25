@@ -100,27 +100,12 @@ function iST:RenderStackBubbles(frame, count, color, target)
     end
 end
 
-function iST:CreateStackSealIcons(parent, size, gap, texture, nativeButton)
+function iST:CreateStackSealIcons(parent, size, gap, texture)
     local strip = CreateFrame("Frame", nil, parent)
     strip.pipGap, strip.pipSize = gap, size
     strip:SetSize(size * 3 + gap * 2, size + 8)
     strip:EnableMouse(false)
     strip.dimIcons, strip.brightIcons = {}, {}
-    local clip
-    if nativeButton then
-        local progress = CreateFrame("StatusBar", nil, nativeButton)
-        progress:SetAllPoints(strip)
-        progress:EnableMouse(false)
-        progress:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        progress:SetAlpha(0)
-        clip = CreateFrame("Frame", nil, nativeButton, "DisableUntrustedLayoutScriptsTemplate")
-        clip:SetClipsChildren(true)
-        clip:EnableMouse(false)
-        clip:SetPoint("TOPLEFT", progress, "TOPLEFT")
-        clip:SetPoint("BOTTOMRIGHT", progress:GetStatusBarTexture(), "BOTTOMRIGHT")
-        nativeButton:SetApplicationBar(progress, { maxApplications = 3 })
-        strip.progress, strip.clip = progress, clip
-    end
     for index = 1, 3 do
         local x = (index - 2) * (size + gap)
         local dim = strip:CreateTexture(nil, "ARTWORK")
@@ -133,12 +118,12 @@ function iST:CreateStackSealIcons(parent, size, gap, texture, nativeButton)
         dimMask:SetTexture(CIRCLE_TEXTURE)
         dimMask:SetAllPoints(dim)
         dim:AddMaskTexture(dimMask)
-        local bright = (clip or strip):CreateTexture(nil, "OVERLAY")
+        local bright = strip:CreateTexture(nil, "OVERLAY")
         bright:SetSize(size, size)
         bright:SetPoint("CENTER", strip, "CENTER", x, 0)
         bright:SetTexture(texture)
         bright:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        local brightMask = (clip or strip):CreateMaskTexture()
+        local brightMask = strip:CreateMaskTexture()
         brightMask:SetTexture(CIRCLE_TEXTURE)
         brightMask:SetAllPoints(bright)
         bright:AddMaskTexture(brightMask)
@@ -181,7 +166,6 @@ function iST:RenderStackSealIcons(strip, count, texture, target)
         end
         strip.texture = texture
     end
-    if strip.progress then return end
     strip.visiblePips = math.max(strip.targetPips or 3, count)
     if strip.lastCount == count then return end
     strip.lastCount = count

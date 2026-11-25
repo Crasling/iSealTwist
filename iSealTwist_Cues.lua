@@ -109,7 +109,6 @@ function iST:ApplyStackCounterColor()
         return
     end
     local baseColor = self:GetWrathCueColor(0)
-    local readyColor = self:GetWrathCueColor(3)
     local function ColorText(fontString, color)
         if fontString then fontString:SetTextColor(color.r, color.g, color.b, color.a or 1) end
     end
@@ -118,8 +117,6 @@ function iST:ApplyStackCounterColor()
     for _, row in ipairs(bar.stackManagedRows or {}) do
         -- WoW colors the live digit through the native stack formatter.
         ColorText(row.count, { r = 1, g = 1, b = 1, a = 1 })
-        ColorText(row.total, baseColor)
-        if row.threeStackGate then ColorText(row.threeStackGate.text, readyColor) end
     end
     self.State.PendingStackCounterColor = nil
 end
@@ -156,7 +153,7 @@ function iST:ResetWrathColors()
 end
 
 function iST:CreateWrathCue(bar)
-    if bar.wrathCueFrame then return end
+    if bar.stackCountFrame then return end
 
     -- Keep the buff counter outside the bar so the bar can fade on its own.
     local stackFrame = CreateFrame("Frame", nil, UIParent)
@@ -221,20 +218,6 @@ function iST:CreateWrathCue(bar)
         end
     end
 
-    local cueFrame = CreateFrame("Frame", nil, bar)
-    cueFrame:SetPoint("BOTTOM", bar, "TOP", 0, 9)
-    cueFrame:SetHeight(24)
-    cueFrame:SetFrameLevel(bar:GetFrameLevel() + 4)
-    cueFrame:EnableMouse(false)
-    cueFrame:Hide()
-    bar.wrathCueFrame = cueFrame
-
-    local text = cueFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    text:SetPoint("CENTER", cueFrame, "CENTER")
-    text:SetText("")
-    text:SetShadowOffset(1, -1)
-    text:SetShadowColor(0, 0, 0, 1)
-    bar.wrathCueText = text
     self:CreateSwordImageCue(bar)
     bar.wrathCircles = self:CreateStackBubbles(bar, nil, 18, 9)
     bar.wrathCircles:SetPoint("BOTTOM", bar, "TOP", 0, self:GetStackPipYOffset())
@@ -1244,129 +1227,6 @@ function iST:ApplyStackStageFormatter()
     end
 end
 
-local function ReadyGateFormatter(target)
-    if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return end
-    local formatter = C_StringUtil.CreateNumericRuleFormatter()
-    if pcall(formatter.SetBreakpoints, formatter, {
-        { threshold = 0, format = "" },
-        { threshold = target, format = string.rep("W", 70) },
-    }) then return formatter end
-end
-
-function iST:UpdateNativeReadyDisplay()
-    local bar = self.BarFrame
-    if not bar or CombatLocked() then return end
-    local wanted = self:IsWrathTrackingEnabled() and not self.State.TestMode
-        and iSTSettings.showThreeStackReadyText
-    if not wanted then
-        if bar.nativeReadyContainer then bar.nativeReadyContainer:Hide() end
-        return
-    end
-    if not NativeContainerReady() then return end
-    if bar.nativeReadyFailed then return end
-    if not bar.nativeReadyContainer then
-        if not ReadyGateFormatter(3) then
-            bar.nativeReadyFailed = true
-            return
-        end
-        local ok, result = pcall(function()
-            local frame = CreateFrame("AuraContainer", nil, bar, "CustomAuraContainerTemplate")
-            frame:SetSize(250, 32)
-            frame:EnableMouse(false)
-            frame:SetPoint("BOTTOM", bar, "TOP", 0, 35)
-            frame:SetFrameLevel(bar:GetFrameLevel() + 7)
-            frame:SetUnit("player")
-            bar.nativeReadySlots, bar.nativeReadyRows = {}, {}
-            for _, spell in ipairs(self.WrathEchoSpells) do
-                bar.nativeReadySlots[#bar.nativeReadySlots + 1] = {
-                    key = "echo" .. spell.id, spellID = spell.id, seal = spell.seal,
-                }
-            end
-            for _, slot in ipairs(bar.nativeReadySlots) do
-                local slotInfo = slot
-                frame:AddAuraSlot(slotInfo.key, "HELPFUL", {
-                    candidateFilters = StackSpellFilter(slotInfo),
-                    initializeFrame = function(button)
-                    button:SetAllPoints(frame)
-                    button:EnableMouse(false)
-                    -- The native count changes this hidden text's width. Its clip
-                    -- reveals the fixed message at the chosen switch count.
-                    local gate = button:CreateFontString(nil, "BACKGROUND")
-                    gate:SetFont(STANDARD_TEXT_FONT, 64, "")
-                    gate:SetWordWrap(false)
-                    gate:SetWidth(0)
-                    gate:SetPoint("LEFT", button, "LEFT")
-                    gate:SetAlpha(0)
-                    gate:SetTextColor(0, 0, 0, 0)
-                    local clip = CreateFrame("Frame", nil, button, "DisableUntrustedLayoutScriptsTemplate")
-                    clip:SetClipsChildren(true)
-                    clip:EnableMouse(false)
-                    clip:SetPoint("LEFT", button, "LEFT")
-                    clip:SetPoint("RIGHT", gate, "RIGHT")
-                    clip:SetPoint("TOP", button, "TOP")
-                    clip:SetPoint("BOTTOM", button, "BOTTOM")
-                    local text = clip:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-                    text:SetAllPoints(button)
-                    text:SetJustifyH("CENTER")
-                    text:SetFont(self:GetBarFontPath(), iSTSettings.stackCounterTextSize or 16, "THICKOUTLINE")
-                    text:SetTextColor(1, 0.78, 0.24, 1)
-                    text:SetText(iSTSettings.wrathReadyText or "Switch now")
-                    local target = self:GetTwistStackTarget(slotInfo.seal)
-                    button:SetApplicationCount(gate, { formatter = assert(ReadyGateFormatter(target)) })
-                    bar.nativeReadyRows[#bar.nativeReadyRows + 1] = {
-                        button = button, text = text, gate = gate, clip = clip,
-                        seal = slotInfo.seal,
-                    }
-                end,
-            })
-            end
-            frame:SetEnabled(true)
-            return frame
-        end)
-        if not ok then
-            bar.nativeReadyFailed = true
-            self:DebugMsg("Three-stack message could not be attached to the buff: " .. tostring(result), 2)
-            return
-        end
-        bar.nativeReadyContainer = result
-        bar.nativeReadyFilterKey = StackFilterKey()
-        for _, row in ipairs(bar.stackManagedRows or {}) do self:ApplyThreeStackGate(row) end
-    end
-    if bar.nativeReadyFilterKey ~= StackFilterKey() then
-        local updated = true
-        for _, slot in ipairs(bar.nativeReadySlots or {}) do
-            if not pcall(bar.nativeReadyContainer.SetAuraSlotCandidateFilters,
-                bar.nativeReadyContainer, slot.key, StackSpellFilter(slot)) then updated = false end
-        end
-        if updated then bar.nativeReadyFilterKey = StackFilterKey() end
-    end
-    local font, size = self:GetBarFontPath(), iSTSettings.stackCounterTextSize or 16
-    for _, row in ipairs(bar.nativeReadyRows or {}) do
-        local target = self:GetTwistStackTarget(row.seal)
-        local key = tostring(target)
-        if row.targetKey ~= key then
-            local formatter = ReadyGateFormatter(target)
-            if formatter and pcall(row.button.SetApplicationCount, row.button, row.gate,
-                { formatter = formatter }) then row.targetKey = key end
-        end
-        if row.message ~= iSTSettings.wrathReadyText then
-            row.text:SetText(iSTSettings.wrathReadyText or "Switch now")
-            row.message = iSTSettings.wrathReadyText
-        end
-        if row.font ~= font or row.size ~= size then
-            row.text:SetFont(font, size, "THICKOUTLINE")
-            row.font, row.size = font, size
-        end
-        local color = self:GetWrathCueColor(target)
-        local colorKey = table.concat({ color.r, color.g, color.b, color.a or 1 }, ":")
-        if row.colorKey ~= colorKey then
-            row.text:SetTextColor(color.r, color.g, color.b, color.a or 1)
-            row.colorKey = colorKey
-        end
-    end
-    if not bar.nativeReadyContainer:IsShown() then bar.nativeReadyContainer:Show() end
-end
-
 local function StageGateFormatter(stage)
     if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return end
     local formatter = C_StringUtil.CreateNumericRuleFormatter()
@@ -2108,95 +1968,6 @@ function iST:UpdateVerticalSword(count, confirmedEcho)
     UpdateSwordLayerVisibility(frame, live, preview, confirmedEcho)
 end
 
-local function LayoutThreeStackGate(row)
-    local button, gate = row.button, row.threeStackGate
-    if not gate then return end
-    local layout = iST.BarFrame and iST.BarFrame.stackCountLayout
-    if not layout then return end
-    local margin = 6
-    local fontSize = iSTSettings.stackCounterTextSize or 16
-    local readyHeight = fontSize + 8
-    -- The aura button's size can be secret even after combat. Use our own layout.
-    local step = math.max(layout.rowWidth + margin * 2, fontSize * 11, 180)
-    gate.bar:ClearAllPoints()
-    gate.bar:SetSize(step * 3, layout.rowHeight + margin * 2 + readyHeight + 6)
-    gate.bar:SetPoint("BOTTOMLEFT", button, "BOTTOM", -step * 2.5, -margin)
-    gate.clip:ClearAllPoints()
-    gate.clip:SetPoint("TOPLEFT", gate.bar, "TOPLEFT", step * 2, 0)
-    gate.clip:SetPoint("BOTTOMRIGHT", gate.bar:GetStatusBarTexture(), "BOTTOMRIGHT")
-    gate.text:SetSize(step - 4, readyHeight)
-    gate.text:SetFont(iST:GetBarFontPath(), fontSize, "THICKOUTLINE")
-    gate.text:SetText(iSTSettings.wrathReadyText or "Switch now")
-end
-
-local function ShowThreeStackChoices(row)
-    local gate = row.threeStackGate
-    if not gate then return end
-    gate.text:SetShown(iSTSettings.showThreeStackReadyText and not iST.BarFrame.nativeReadyContainer)
-    gate.clip:Show()
-end
-
-function iST:ApplyThreeStackGate(row)
-    if CombatLocked() then return end
-    if not iSTSettings.showThreeStackReadyText or self.BarFrame.nativeReadyContainer then
-        if row.threeStackGate then row.threeStackGate.clip:Hide() end
-        return
-    end
-    if row.threeStackGateFailed then return end
-    if row.threeStackGate then
-        local target = self:GetTwistStackTarget(row.seal)
-        if row.threeStackGate.target ~= target and pcall(row.button.SetApplicationBar,
-            row.button, row.threeStackGate.bar, { maxApplications = target }) then
-            row.threeStackGate.target = target
-        end
-        LayoutThreeStackGate(row)
-        ShowThreeStackChoices(row)
-        return
-    end
-    if not (C_AuraContainerUtil and C_AuraContainerUtil.ProcessCustomAuraButtonApplicationBarOptions)
-        or type(row.button.SetApplicationBar) ~= "function" then
-        row.threeStackGateFailed = true
-        if not self.BarFrame.threeStackGateWarningShown then
-            self.BarFrame.threeStackGateWarningShown = true
-            self:DebugMsg("Three-stack ready message is unavailable on this client; the counter still works.", 2)
-        end
-        return
-    end
-
-    local clip
-    local ok, err = pcall(function()
-        local button = row.button
-        local bar = CreateFrame("StatusBar", nil, button)
-        bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-        bar:SetAlpha(0)
-        clip = CreateFrame("Frame", nil, button, "DisableUntrustedLayoutScriptsTemplate")
-        clip:SetClipsChildren(true)
-        clip:EnableMouse(false)
-        local text = clip:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        text:SetPoint("BOTTOM", button, "TOP", 0, 4)
-        text:SetJustifyH("CENTER")
-        text:SetShadowOffset(1, -1)
-        text:SetShadowColor(0, 0, 0, 1)
-        local color = self:GetWrathCueColor(3)
-        text:SetTextColor(color.r, color.g, color.b, color.a or 1)
-        local target = self:GetTwistStackTarget(row.seal)
-        row.threeStackGate = { bar = bar, clip = clip, text = text, target = target }
-        LayoutThreeStackGate(row)
-        button:SetApplicationBar(bar, { maxApplications = target })
-    end)
-    if not ok then
-        row.threeStackGate = nil
-        row.threeStackGateFailed = true
-        if clip then clip:Hide() end
-        if not self.BarFrame.threeStackGateWarningShown then
-            self.BarFrame.threeStackGateWarningShown = true
-            self:DebugMsg("Three-stack ready message could not bind to the buff: " .. tostring(err), 2)
-        end
-    else
-        ShowThreeStackChoices(row)
-    end
-end
-
 function iST:LayoutManagedStackReadout(initial)
     local bar = self.BarFrame
     if not bar or not bar.stackManagedRows or not bar.stackCountLayout then return end
@@ -2207,20 +1978,18 @@ function iST:LayoutManagedStackReadout(initial)
     self.State.PendingStackTypography = nil
     local layout = bar.stackCountLayout
     local function layoutRow(row)
-        local button, count, total = row.button, row.count, row.total
+        local button, count = row.button, row.count
         button:SetSize(layout.rowWidth, layout.rowHeight)
         count:SetFont(layout.fontPath, layout.fontSize, "THICKOUTLINE")
         count:ClearAllPoints()
         count:SetPoint("CENTER", button, "CENTER", 0, 0)
         count:SetSize(layout.rowWidth, layout.rowHeight)
         count:SetJustifyH("CENTER")
-        total:Hide()
         if row.icon then
             row.icon:SetSize(layout.iconSize, layout.iconSize)
             row.icon:ClearAllPoints()
             row.icon:SetPoint("RIGHT", button, "CENTER", -layout.countWidth - 8, 0)
         end
-        LayoutThreeStackGate(row)
     end
     if initial then
         -- A slot is still editable while its own initialization callback runs.
@@ -2236,7 +2005,6 @@ function iST:CreateStackManagedDisplay()
         or bar.stackManagedContainerFailed or CombatLocked() then return end
     if bar.stackManagedContainer then
         self:UpdateStackManagedFilter()
-        for _, row in ipairs(bar.stackManagedRows or {}) do self:ApplyThreeStackGate(row) end
         return
     end
     if not (C_AddOns and C_AddOns.LoadAddOn) and not C_AuraContainerUtil then
@@ -2259,8 +2027,6 @@ function iST:CreateStackManagedDisplay()
             and C_StringUtil.CreateAbbreviatedNumberFormatter() or nil
         bar.stackManagedSlots = {}
         bar.stackManagedRows = {}
-        bar.stackManagedTexts = {}
-        bar.stackManagedButtons = {}
         for _, spell in ipairs(self.WrathEchoSpells) do
             bar.stackManagedSlots[#bar.stackManagedSlots + 1] = {
                 key = "echo" .. spell.id, spellID = spell.id, seal = spell.seal,
@@ -2282,12 +2048,6 @@ function iST:CreateStackManagedDisplay()
                     count:SetShadowOffset(1, -1)
                     count:SetShadowColor(0, 0, 0, 1)
 
-                    local total = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                    total:SetPoint("LEFT", button, "CENTER", 0, 0)
-                    total:SetSize(64, 26)
-                    total:SetShadowOffset(1, -1)
-                    total:SetShadowColor(0, 0, 0, 1)
-                    total:SetText("/ " .. self:GetTwistStackTarget(slot.seal))
                     local icon
                     local texture = slot.seal and bar.stackSealIcons[slot.seal]
                     if texture then
@@ -2301,16 +2061,12 @@ function iST:CreateStackManagedDisplay()
                         icon:Show()
                     end
                     bar.stackManagedRows[#bar.stackManagedRows + 1] = {
-                        button = button, count = count, total = total, icon = icon,
+                        button = button, count = count, icon = icon,
                         seal = slot.seal,
                     }
-                    bar.stackManagedTexts[#bar.stackManagedTexts + 1] = count
-                    bar.stackManagedTexts[#bar.stackManagedTexts + 1] = total
-                    bar.stackManagedButtons[#bar.stackManagedButtons + 1] = button
                     self:LayoutManagedStackReadout(true)
                     button:SetApplicationCount(count, { formatter = NativeCountFormatter(
                         self:GetTwistStackTarget(slot.seal), self:GetTwistStackTargetLabel(slot.seal)) or formatter })
-                    self:ApplyThreeStackGate(bar.stackManagedRows[#bar.stackManagedRows])
                 end,
             })
         end
@@ -2389,10 +2145,10 @@ end
 
 function iST:UpdateWrathDisplay(now, confirmedEcho)
     local bar = self.BarFrame
-    if not bar or not bar.wrathCueFrame then return end
+    if not bar or not bar.stackCountFrame then return end
     now = now or GetTime()
     -- Previews supply their own count; drawing the cue does not change live stacks.
-    local count, active, armed = self:GetWrathDisplayState(now)
+    local count, active = self:GetWrathDisplayState(now)
     count = math.max(0, math.min(3, math.floor(count or 0)))
     local color = self:GetWrathCueColor(count)
     self:UpdateStackCountDisplay(now, active and iSTSettings.showStackCounter, count)
@@ -2402,7 +2158,6 @@ function iST:UpdateWrathDisplay(now, confirmedEcho)
         bar.stackCountValue:SetTextColor(color.r, color.g, color.b, color.a or 1)
         bar.stackCountTotal:SetTextColor(color.r, color.g, color.b, color.a or 1)
     end
-    self:UpdateNativeReadyDisplay()
     self:UpdateCenterSwitchText()
     self:UpdateEchoSwitchBackText()
     self:UpdateCenterSwitchSealGate()
@@ -2417,11 +2172,6 @@ function iST:UpdateWrathDisplay(now, confirmedEcho)
     self:UpdateSwingFillColor(previewColor)
     local border = iSTSettings.borderNormalColor
     bar.artwork:SetBackdropBorderColor(border.r, border.g, border.b, border.a or 1)
-    local cueWidth = math.max(100, bar:GetWidth())
-    if bar.wrathCueWidth ~= cueWidth then
-        bar.wrathCueFrame:SetWidth(cueWidth)
-        bar.wrathCueWidth = cueWidth
-    end
 
     local imagesVisible = active and self:UsesSwordImages()
         and (nativeMain or self.State.TestMode)
@@ -2450,24 +2200,6 @@ function iST:UpdateWrathDisplay(now, confirmedEcho)
         bar.wrathTextOffset = textOffset
     end
 
-    local ready = iSTSettings.wrathReadyText or "Switch now"
-    -- Once the replacement seal is active, the next attack releases the stored stacks.
-    if armed and ready == "Switch now" then ready = L["WrathAttackNow"] end
-    local cueText
-    if active and self.State.TestMode and iSTSettings.showThreeStackReadyText
-        and count >= self:GetTwistStackTarget(iSTSettings.twistFromSeal)
-        then
-        cueText = ready
-    end
-
-    if cueText then
-        bar.wrathCueText:SetText(cueText)
-        bar.wrathCueText:SetTextColor(color.r, color.g, color.b, color.a or 1)
-        bar.wrathCueFrame:Show()
-    else
-        bar.wrathCueText:SetText("")
-        bar.wrathCueFrame:Hide()
-    end
     local circlesVisible = active and iSTSettings.showStackCircles
         and iSTSettings.stackBubbleStyle == "CIRCLES" and self.State.TestMode
     if circlesVisible then self:RenderStackBubbles(bar.wrathCircles,

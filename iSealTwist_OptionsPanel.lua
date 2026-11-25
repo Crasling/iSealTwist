@@ -3305,7 +3305,7 @@ function iST:CreateOptionsPanel()
         profileDropdown, y = CreateSettingsDropdown(profilesContent, L["ProfileChoose"], y, 325,
             function()
                 local options = {}
-                for _, name in ipairs(iST:GetSavedProfileNames()) do
+                for _, name in ipairs(iST:GetSavedProfileNames(true)) do
                     options[#options + 1] = { value = name, text = name }
                 end
                 if #options == 0 then options[1] = { value = "", text = L["ProfileChoose"] } end
@@ -3341,7 +3341,7 @@ function iST:CreateOptionsPanel()
         end)
         DependsOn(CreateSettingsButtonAt(profilesContent, L["ProfileDelete"], 145, 340, y, function()
             if not selectedProfile then SetStatus("Select a saved profile.", true); return end
-            if selectedProfile == "Main" or selectedProfile == iST:GetActiveProfileName() then
+            if selectedProfile == "Main" or selectedProfile == "Previous setup" or selectedProfile == iST:GetActiveProfileName() then
                 local _, err = iST:DeleteProfile(selectedProfile)
                 SetStatus(err, true)
                 return
@@ -3362,6 +3362,7 @@ function iST:CreateOptionsPanel()
             if reason then return reason end
             if not selectedProfile then return L["SettingsSelectProfile"] end
             if selectedProfile == "Main" then return L["SettingsMainProfileDelete"] end
+            if selectedProfile == "Previous setup" then return L["SettingsPreviousProfileDelete"] end
             if selectedProfile == iST:GetActiveProfileName() then return L["SettingsActiveProfileDelete"] end
         end)
         y = y - 38

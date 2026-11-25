@@ -232,7 +232,23 @@ local function ProfileStore()
         end
         profiles[name], profiles[MAIN_NAME] = profiles[MAIN_NAME], nil
     end
+    -- Old versions stored the last setup as a shared, named profile.
+    if type(profiles[PREVIOUS_NAME]) == "table" and type(iSTAccountSettings.legacyPreviousSetup) ~= "table" then
+        iSTAccountSettings.legacyPreviousSetup = profiles[PREVIOUS_NAME]
+    end
+    profiles[PREVIOUS_NAME] = nil
     return profiles
+end
+
+local function PreviousSetup()
+    local previous = iSTSettings.previousSetup
+    if type(previous) == "table" and type(previous.settings) == "table" then
+        local name = previous.profileName
+        return previous.settings, type(name) == "string" and name or nil
+    end
+    ProfileStore()
+    local legacy = iSTAccountSettings.legacyPreviousSetup
+    if type(legacy) == "table" then return legacy end
 end
 
 local function SnapshotCode(data)
@@ -246,6 +262,8 @@ local function MigratePortraitSockets()
         for _, profile in pairs(ProfileStore()) do
             if type(profile) == "table" then profile.playerPipFrameStyle = style end
         end
+        local previous = iSTAccountSettings.legacyPreviousSetup
+        if type(previous) == "table" then previous.playerPipFrameStyle = style end
         iSTAccountSettings.portraitSocketsMigrated = true
     end
     if iSTSettings.portraitSocketsMigrated then return end
@@ -261,13 +279,18 @@ local function MigratePortraitSockets()
     iSTSettings.portraitSocketsMigrated = true
 end
 
-local function RecoverProfile(profiles, oldName, snapshot)
+local function StoreRecoveredProfile(profiles, oldName, snapshot)
     local base = ("Recovered " .. oldName):sub(1, 25)
     local name, index = base, 2
     while profiles[name] do
         name, index = base .. " " .. index, index + 1
     end
     profiles[name] = snapshot
+    return name
+end
+
+local function RecoverProfile(profiles, oldName, snapshot)
+    local name = StoreRecoveredProfile(profiles, oldName, snapshot)
     iSTSettings.activeProfileName = name
     iSTSettings.activeProfileBaselineCode = Encode(snapshot)
     return name
@@ -275,6 +298,7 @@ end
 
 local function InstallSnapshot(snapshot, name, mainProfile)
     snapshot.mainProfile = mainProfile
+    snapshot.previousSetup = iSTSettings.previousSetup
     snapshot.activeProfileName = name
     snapshot.activeProfileBaselineCode = name ~= MAIN_NAME and Encode(snapshot) or nil
     snapshot.generatedMacroBody = iSTSettings.generatedMacroBody
@@ -292,10 +316,7 @@ function iST:ExportSettings()
     return Encode(snapshot)
 end
 
-function iST:GetActiveProfileName()
-    local name = iSTSettings and iSTSettings.activeProfileName
-    if type(name) ~= "string" or name == "" then return MAIN_NAME end
-    local profiles = ProfileStore()
+local function ResolveProfileName(name, profiles)
     local renames = iSTAccountSettings.profileRenames
     if type(renames) == "table" then
         for _ = 1, 10 do
@@ -303,8 +324,39 @@ function iST:GetActiveProfileName()
             if type(updated) ~= "string" or type(profiles[updated]) ~= "table" then break end
             name = updated
         end
-        iSTSettings.activeProfileName = name
     end
+    return name
+end
+
+local function RestoredProfileName(name, snapshot)
+    if name == MAIN_NAME then return name end
+    local profiles = ProfileStore()
+    local code = Encode(snapshot)
+    if name then
+        name = ResolveProfileName(name, profiles)
+        if SnapshotCode(profiles[name]) == code then return name end
+    elseif SnapshotCode(iSTSettings.mainProfile) == code then
+        return MAIN_NAME
+    end
+    -- Keep the exact setup even if its saved profile changed or was deleted.
+    return StoreRecoveredProfile(profiles, name or "setup", CleanSnapshot(snapshot, false))
+end
+
+function iST:GetActiveProfileName()
+    local name = iSTSettings and iSTSettings.activeProfileName
+    if type(name) ~= "string" or name == "" then return MAIN_NAME end
+    local profiles = ProfileStore()
+    if name == PREVIOUS_NAME then
+        local snapshot = CleanSnapshot(iSTSettings, false)
+        if snapshot and Encode(snapshot) ~= SnapshotCode(iSTSettings.mainProfile) then
+            return RecoverProfile(profiles, "setup", snapshot)
+        end
+        iSTSettings.activeProfileName = MAIN_NAME
+        iSTSettings.activeProfileBaselineCode = nil
+        return MAIN_NAME
+    end
+    name = ResolveProfileName(name, profiles)
+    iSTSettings.activeProfileName = name
     -- Preserve a character's current setup when another character deleted
     -- its active account profile. Its separate Main setup stays intact.
     if name ~= MAIN_NAME and type(profiles[name]) ~= "table" then
@@ -336,13 +388,14 @@ function iST:ReconcileActiveProfileOnLoad()
     end
 end
 
-function iST:GetSavedProfileNames()
+function iST:GetSavedProfileNames(includePrevious)
     local names = { MAIN_NAME }
     for name, profile in pairs(ProfileStore()) do
         if type(name) == "string" and name ~= MAIN_NAME and type(profile) == "table" then
             names[#names + 1] = name
         end
     end
+    if includePrevious and PreviousSetup() then names[#names + 1] = PREVIOUS_NAME end
     table.sort(names, function(a, b)
         if a == MAIN_NAME then return true end
         if b == MAIN_NAME then return false end
@@ -451,6 +504,7 @@ function iST:DeleteProfile(name)
     if InCombatLockdown and InCombatLockdown() then return false, "Leave combat before changing profiles." end
     local profiles = ProfileStore()
     if name == MAIN_NAME then return false, "Main cannot be deleted." end
+    if name == PREVIOUS_NAME then return false, self.L["SettingsPreviousProfileDelete"] end
     if name == self:GetActiveProfileName() then return false, "Switch profiles before deleting the active one." end
     if type(name) ~= "string" or not profiles[name] then return false, "Select a saved profile." end
     profiles[name] = nil
@@ -463,7 +517,7 @@ function iST:DeleteProfile(name)
     return true
 end
 
-function iST:ApplyProfile(snapshot, targetName)
+function iST:ApplyProfile(snapshot, targetName, restorePrevious)
     if InCombatLockdown and InCombatLockdown() then return false, "Leave combat before changing settings." end
     local clean, err = CleanSnapshot(snapshot, false)
     if not clean then return false, err end
@@ -471,13 +525,19 @@ function iST:ApplyProfile(snapshot, targetName)
     if not previous then return false, backupError end
     local saved, saveError = self:SaveActiveProfile()
     if not saved then return false, saveError end
-    local profiles = ProfileStore()
-    profiles[PREVIOUS_NAME] = previous
+    local previousName = self:GetActiveProfileName()
+    if restorePrevious then targetName = RestoredProfileName(targetName, clean) end
     InstallSnapshot(clean, targetName or MAIN_NAME, iSTSettings.mainProfile)
+    iSTSettings.previousSetup = { settings = previous, profileName = previousName }
     return true
 end
 
 function iST:LoadProfile(name)
+    if name == PREVIOUS_NAME then
+        local snapshot, previousName = PreviousSetup()
+        if not snapshot then return false, "There is no previous setup to restore." end
+        return self:ApplyProfile(snapshot, previousName, true)
+    end
     if name == self:GetActiveProfileName() then return false, "This profile is already active." end
     local profile = name == MAIN_NAME and iSTSettings.mainProfile or ProfileStore()[name]
     if type(profile) ~= "table" then return false, "Select a saved profile." end
