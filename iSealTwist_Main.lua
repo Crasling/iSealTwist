@@ -73,6 +73,8 @@ iST.CONSTANTS = {
     BAR_STALE_THRESHOLD = 0.5,      -- hide bar this long after expected swing
     SEAL_DURATION = 30,            -- Forever seals are tracked from successful casts
     PARRY_EVENT_DELAY = 0.65,     -- Observed offset between Forever's parry and swing event streams
+    NAMEPLATE_ECHO_OFFSET_RANGE = { -60, 300 },
+    VERTICAL_SWORD_GLOW_SCALE_RANGE = { 75, 225 },
 }
 
 -- Unsealed Wrath stores stacks on a separate Echo buff for each Seal.
@@ -293,6 +295,7 @@ iST.WrathTracker = iST:NewWrathTracker()
 -- Default settings
 iST.SettingsDefault = {
     enabled = true,
+    showSwingBar = true,
     debugMode = false,
     barWidth = 250,
     barHeight = 25,
@@ -340,15 +343,24 @@ iST.SettingsDefault = {
     stackBubbleStyle = "SEAL_ICONS",
     showStackBarColor = false,
     showStackSwordImages = false,
-    showWorldEchoCue = false,
-    worldEchoCueStyle = "WINGS",
-    worldEchoCuePhase = "SWITCH",
-    worldEchoCueScale = 1,
-    worldEchoCueColor = { r = 1, g = 0.76, b = 0.22, a = 1 },
+    swordFrameStyle = "Original",
+    showVerticalSword = false,
+    verticalSwordVisibility = "ALWAYS",
+    verticalSwordMode = "SHARED",
+    verticalSwordStyle = "Ashbringer_Forged",
+    verticalSwordSecondStyle = "Frostmourne_Forged",
+    verticalSwordHeight = 176,
+    verticalSwordOpacity = 70,
+    showVerticalSwordPhaseMarker = true,
+    fadeVerticalSwordGlow = true,
+    showVerticalSwordSealGlow = false,
+    verticalSwordCorrectGlowScale = 75,
+    verticalSwordWrongGlowScale = 75,
     nameplateEchoColor = { r = 1, g = 0.72, b = 0.20, a = 1 },
     echoTimerTextColor = { r = 0.20, g = 0.72, b = 1, a = 1 },
     showPlayerWrathBubbles = false,
     showPlayerPipFrame = true,
+    playerPipFrameStyle = "PORTRAIT",
     wrathColorScheme = "GOLD",
     wrathColor0 = { r = 0.50, g = 0.45, b = 0.34, a = 1 },
     wrathColor1 = { r = 1, g = 0.52, b = 0.12, a = 1 },
@@ -363,6 +375,7 @@ iST.SettingsDefault = {
     twistIntoSeal     = "Seal of Justice",
     twistFromStacks   = 3,
     twistIntoStacks   = 3,
+    twistMacroResetOnCombat = true,
     MinimapButton = { hide = false, minimapPos = 220, showInCompartment = true },
 }
 
@@ -448,18 +461,25 @@ function iST:InitializeSettings()
         iSTSettings.indicatorsMigrated = true
     end
     iSTSettings.wrathCue = nil
-    -- Floating Wings are paused for this release, including saved profiles.
-    iSTSettings.showWorldEchoCue = false
+    iSTSettings.showWorldEchoCue = nil
+    iSTSettings.worldEchoCueStyle = nil
+    iSTSettings.worldEchoCuePhase = nil
+    iSTSettings.worldEchoCueScale = nil
+    iSTSettings.worldEchoCueColor = nil
+    iSTSettings.worldEchoCuePoint = nil
+    iSTSettings.swordFrameStyle = self:NormalizeSwordStyle(iSTSettings.swordFrameStyle)
+    self:NormalizeVerticalSwordSettings(iSTSettings)
+    local swordOpacity = tonumber(iSTSettings.verticalSwordOpacity) or self.SettingsDefault.verticalSwordOpacity
+    iSTSettings.verticalSwordOpacity = math.floor(math.max(0, math.min(100, swordOpacity)) + 0.5)
     iSTSettings.testThreeStackHighlight = nil
     -- Remove unfinished ready-message choices from saved settings.
     iSTSettings.showThreeStackReadyText = nil
     iSTSettings.wrathReadyText = nil
-    iSTSettings.worldEchoCueStyle = "WINGS"
-    if iSTSettings.worldEchoCuePhase ~= "SWITCH" and iSTSettings.worldEchoCuePhase ~= "ATTACK" then
-        iSTSettings.worldEchoCuePhase = "SWITCH"
-    end
     if iSTSettings.stackBubbleStyle ~= "CIRCLES" and iSTSettings.stackBubbleStyle ~= "SEAL_ICONS" then
         iSTSettings.stackBubbleStyle = "SEAL_ICONS"
+    end
+    if iSTSettings.playerPipFrameStyle ~= "PORTRAIT" and iSTSettings.playerPipFrameStyle ~= "GOLD" then
+        iSTSettings.playerPipFrameStyle = self.SettingsDefault.playerPipFrameStyle
     end
     if iSTSettings.centerSwitchMode ~= "SWITCH" and iSTSettings.centerSwitchMode ~= "ATTACK"
         and iSTSettings.centerSwitchMode ~= "BOTH" then
@@ -468,8 +488,6 @@ function iST:InitializeSettings()
     if iSTSettings.nameplateEchoStyle ~= "DOTS" and iSTSettings.nameplateEchoStyle ~= "SEAL_ICONS" then
         iSTSettings.nameplateEchoStyle = "DOTS"
     end
-    if type(iSTSettings.worldEchoCueScale) ~= "number" then iSTSettings.worldEchoCueScale = 1 end
-    iSTSettings.worldEchoCueScale = math.max(0.5, math.min(2.5, iSTSettings.worldEchoCueScale))
     local validBarStyles = { CLASSIC = true, BLOCK = true, GLOSSY = true, FRAMELESS = true }
     if not validBarStyles[iSTSettings.barStyle] then
         iSTSettings.barStyle = self.SettingsDefault.barStyle
@@ -503,9 +521,11 @@ function iST:InitializeSettings()
         iSTSettings.centerAttackCustomText = iSTSettings.centerAttackText
     end
     iSTSettings.centerSwitchVisual = "TEXT"
-    if iSTSettings.barVisibility ~= "ALWAYS" and iSTSettings.barVisibility ~= "COMBAT"
-        and iSTSettings.barVisibility ~= "COMBAT_OR_AURA" then
-        iSTSettings.barVisibility = "COMBAT_OR_AURA"
+    for _, key in ipairs({ "barVisibility", "verticalSwordVisibility" }) do
+        local mode = iSTSettings[key]
+        if mode ~= "ALWAYS" and mode ~= "COMBAT" and mode ~= "COMBAT_OR_AURA" then
+            iSTSettings[key] = self.SettingsDefault[key]
+        end
     end
     iSTSettings.onlyInCombat = nil
     for _, key in ipairs({ "twistFromStacks", "twistIntoStacks" }) do
@@ -683,22 +703,23 @@ function iST:ApplyBarStyle(bar)
     bar = bar or self.BarFrame
     if not bar or not bar.fill then return end
     local style = iSTSettings.barStyle
+    local artwork = bar.artwork or bar
     local frameless = style == "FRAMELESS"
     local inset = frameless and 0 or 3
     bar.contentInset = inset
-    local red, green, blue, alpha = bar:GetBackdropBorderColor()
+    local red, green, blue, alpha = artwork:GetBackdropBorderColor()
     if not red then
         local color = iSTSettings.borderNormalColor
         red, green, blue, alpha = color.r, color.g, color.b, color.a or 1
     end
-    bar:SetBackdrop({
+    artwork:SetBackdrop({
         bgFile = "Interface\\BUTTONS\\WHITE8X8",
         edgeFile = not frameless and (style == "CLASSIC" and "Interface\\Tooltips\\UI-Tooltip-Border" or "Interface\\BUTTONS\\WHITE8X8") or nil,
         edgeSize = not frameless and (style == "CLASSIC" and 9 or 1) or nil,
         insets = { left = inset, right = inset, top = inset, bottom = inset },
     })
-    bar:SetBackdropColor(0.025, 0.025, 0.045, frameless and 0.55 or 0.94)
-    bar:SetBackdropBorderColor(red, green, blue, alpha)
+    artwork:SetBackdropColor(0.025, 0.025, 0.045, frameless and 0.55 or 0.94)
+    artwork:SetBackdropBorderColor(red, green, blue, alpha)
     local textures = {
         BLIZZARD = "Interface\\TargetingFrame\\UI-StatusBar",
         RAID = "Interface\\RaidFrame\\Raid-Bar-Hp-Fill",
@@ -720,6 +741,11 @@ function iST:ApplyBarStyle(bar)
     bar.gloss:SetHeight(math.max(1, math.floor((bar:GetHeight() - inset * 2) * 0.35)))
     bar.gloss:SetVertexColor(1, 1, 1, style == "GLOSSY" and 0.22 or 0.055)
     bar.gloss:SetShown(style == "CLASSIC" or style == "GLOSSY")
+    if bar.artwork then
+        bar.artwork:SetShown(iSTSettings.showSwingBar)
+        bar.labelOverlay:SetShown(iSTSettings.showSwingBar)
+    end
+    if bar == self.BarFrame then self:InvalidateBarState() end
 end
 
 -- Swing bar and its labels
@@ -776,8 +802,8 @@ function iST:UpdateMoveOutlines()
         if iSTSettings.showStackCounter and bar.stackCountFrame then
             wanted[bar.stackCountFrame] = true
         end
-        if iSTSettings.showWorldEchoCue and self.WorldEchoCueFrame then
-            wanted[self.WorldEchoCueFrame] = true
+        if iSTSettings.showVerticalSword and self.VerticalSwordFrame then
+            wanted[self.VerticalSwordFrame] = true
         end
         if iSTSettings.showCenterSwitchText and self.CenterSwitchFrame then
             wanted[self.CenterSwitchFrame] = true
@@ -985,26 +1011,21 @@ function iST:CreateSwingBar()
     local barHeight = iSTSettings.barHeight
     local CONTENT_INSET = 3
 
-    local bar = CreateFrame("Frame", "iSealTwistBar", UIParent, "BackdropTemplate")
+    local bar = CreateFrame("Frame", "iSealTwistBar", UIParent)
     bar:SetSize(barWidth, barHeight)
     bar.contentInset = CONTENT_INSET
     bar:SetClampedToScreen(true)
     bar:SetMovable(true)
     bar:EnableMouse(false)
 
-    if bar.SetBackdrop then
-        bar:SetBackdrop({
-            bgFile = "Interface\\BUTTONS\\WHITE8X8",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            edgeSize = 9,
-            insets = { left = CONTENT_INSET, right = CONTENT_INSET, top = CONTENT_INSET, bottom = CONTENT_INSET },
-        })
-        bar:SetBackdropColor(0.025, 0.025, 0.045, 0.94)
-        bar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
-    end
+    -- The visuals can be hidden while the shared anchor and buff indicators keep updating.
+    local artwork = CreateFrame("Frame", nil, bar, "BackdropTemplate")
+    artwork:SetAllPoints(bar)
+    artwork:EnableMouse(false)
+    bar.artwork = artwork
 
     -- A faint highlight sits over the top of the fill.
-    local gloss = bar:CreateTexture(nil, "ARTWORK", nil, 6)
+    local gloss = artwork:CreateTexture(nil, "ARTWORK", nil, 6)
     gloss:SetPoint("TOPLEFT", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
     gloss:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -CONTENT_INSET, -CONTENT_INSET)
     gloss:SetHeight(math.max(1, math.floor((barHeight - CONTENT_INSET * 2) * 0.35)))
@@ -1034,7 +1055,7 @@ function iST:CreateSwingBar()
     end)
 
     -- The fill stays inside the border as the bar changes size.
-    local fill = bar:CreateTexture(nil, "ARTWORK")
+    local fill = artwork:CreateTexture(nil, "ARTWORK")
     fill:SetPoint("TOPLEFT", bar, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
     fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", CONTENT_INSET, CONTENT_INSET)
     fill:SetWidth(1)
@@ -1043,14 +1064,14 @@ function iST:CreateSwingBar()
     fill:SetVertexColor(bc.r, bc.g, bc.b, bc.a)
     bar.fill = fill
 
-    local parryTrail = bar:CreateTexture(nil, "ARTWORK", nil, 2)
+    local parryTrail = artwork:CreateTexture(nil, "ARTWORK", nil, 2)
     parryTrail:SetTexture("Interface\\BUTTONS\\WHITE8X8")
     parryTrail:SetVertexColor(1, 0.78, 0.25, 1)
     parryTrail:SetBlendMode("ADD")
     parryTrail:Hide()
     bar.parryTrail = parryTrail
 
-    local parrySpark = bar:CreateTexture(nil, "ARTWORK", nil, 3)
+    local parrySpark = artwork:CreateTexture(nil, "ARTWORK", nil, 3)
     parrySpark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
     parrySpark:SetVertexColor(1, 0.88, 0.45, 1)
     parrySpark:SetBlendMode("ADD")
@@ -1184,26 +1205,26 @@ function iST:CreateSwingBar()
     sealTimerLabel:Hide()
     bar.sealTimerLabel = sealTimerLabel
 
+    -- Keep the labels above the sword and the native stack graphics.
+    local labelOverlay = CreateFrame("Frame", nil, bar)
+    labelOverlay:SetAllPoints(bar)
+    labelOverlay:SetFrameLevel(bar:GetFrameLevel() + 20)
+    labelOverlay:EnableMouse(false)
+    bar.labelOverlay = labelOverlay
+
     -- Time remaining text (right side)
-    local timeText = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local timeText = labelOverlay:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     timeText:SetPoint("RIGHT", bar, "RIGHT", -5, 0)
     timeText:SetText("")
     timeText:SetTextColor(1, 1, 1, 1)
     bar.timeText = timeText
 
     -- Weapon speed text (left side)
-    local speedText = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local speedText = labelOverlay:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     speedText:SetPoint("LEFT", bar, "LEFT", 6, 0)
     speedText:SetText("")
     speedText:SetTextColor(0.8, 0.8, 0.8, 0.7)
     bar.speedText = speedText
-
-    -- Keep the labels above the sword image frame, including its outer glow.
-    local labelOverlay = CreateFrame("Frame", nil, bar)
-    labelOverlay:SetAllPoints(bar)
-    labelOverlay:SetFrameLevel(bar:GetFrameLevel() + 3)
-    labelOverlay:EnableMouse(false)
-    bar.labelOverlay = labelOverlay
 
     -- Latency text (bottom-right, small)
     local latencyText = labelOverlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -1220,10 +1241,6 @@ function iST:CreateSwingBar()
     bar.sealText = sealText
 
     bar.updateAccum = 0
-    bar:SetScript("OnUpdate", function(self, elapsed)
-        iST:OnBarUpdate(elapsed)
-    end)
-
     bar:Hide()
     self.BarFrame = bar
     self:ApplyBarStyle()
@@ -1242,7 +1259,7 @@ function iST:SaveBarPosition()
 end
 
 function iST:GetAttachedStackCounterOffset()
-    local swordLift = iSTSettings.showStackSwordImages and 8 or 0
+    local swordLift = self:GetSwordImagePipLift()
     if iSTSettings.showStackCircles then
         local pipSize = math.max(10, math.min(50, tonumber(iSTSettings.wrathCircleSize) or 18))
         return math.max(35, pipSize + 15) + swordLift
@@ -1251,7 +1268,7 @@ function iST:GetAttachedStackCounterOffset()
 end
 
 function iST:GetStackPipYOffset()
-    return iSTSettings.showStackSwordImages and 14 or 6
+    return 6 + self:GetSwordImagePipLift()
 end
 
 function iST:AnchorAttachedIndicators()
@@ -1310,25 +1327,46 @@ function iST:CenterBarHorizontally()
     self:RestoreBarPosition()
 end
 
--- Update the visible timer at a limited rate.
+local function RunSwingBarAnimation(_, elapsed)
+    iST:OnBarUpdate(elapsed)
+end
+
+local function SetSwingFillWidth(bar, width)
+    if bar.displayedFillWidth == width then return end
+    bar.fill:SetWidth(width)
+    bar.displayedFillWidth = width
+end
+
+function iST:UpdateBarAnimationDriver()
+    local bar = self.BarFrame
+    if not bar then return end
+    local alpha = bar.fadeAlpha or 1
+    local fading = bar.fadeTarget ~= nil and bar.fadeTarget ~= alpha
+    local animating = bar:IsShown() and (fading or alpha > 0 and (
+        self.State.TestMode == true or iSTSettings.showSwingBar and not self.State.Idle
+        or bar.nextSealDisplayAt ~= nil))
+    if bar.animating == animating then return end
+    bar.animating = animating
+    bar.updateAccum = 0
+    bar:SetScript("OnUpdate", animating and RunSwingBarAnimation or nil)
+end
+
+-- The timer and the fade need frame updates. Echo graphics follow aura events.
 function iST:OnBarUpdate(elapsed)
     local bar = self.BarFrame
     if not bar then return end
 
     self:UpdateBarFade(elapsed)
-    if iSTSettings.barVisibility ~= "ALWAYS" and not self.State.InCombat and not self.State.TestMode then
-        bar.prepareCheckAccum = (bar.prepareCheckAccum or 0) + elapsed
-        if bar.prepareCheckAccum >= 0.2 then
-            bar.prepareCheckAccum = 0
-            self:UpdateBarVisibility()
-        end
+    if bar.fadeAlpha == 0 then
+        self:UpdateBarAnimationDriver()
+        return
     end
     bar.updateAccum = bar.updateAccum + elapsed
     if bar.updateAccum < self.CONSTANTS.BAR_UPDATE_RATE then return end
     bar.updateAccum = 0
 
     local state, now = self.State, GetTime()
-    self:UpdateSealTimer(now)
+    if bar.nextSealDisplayAt and now >= bar.nextSealDisplayAt then self:UpdateSealTimer(now) end
     if state.TestMode and now >= state.NextSwingTime then
         if not state.EditMode then
             state.PreviewStacks = state.StackTestMode and (state.PreviewStacks + 1) % 4 or 0
@@ -1336,46 +1374,48 @@ function iST:OnBarUpdate(elapsed)
         self:ResetSwingTimer(3.6, false, nil, "PREVIEW")
     end
 
-    -- Wait for the next swing event rather than inventing another attack.
-    -- If it does not arrive, show the dim idle bar instead of a stale timer.
+    if not iSTSettings.showSwingBar then
+        self:UpdateBarAnimationDriver()
+        return
+    end
+
+    -- An expired swing leaves a dim bar until the next real swing.
     local noSwing = state.NextSwingTime <= 0 or state.WeaponSpeed <= 0
     local stale = not noSwing and not state.TestMode
         and now > state.NextSwingTime + self.CONSTANTS.BAR_STALE_THRESHOLD
     if noSwing or stale then
-        self:ClearParryAnimation()
         if not state.Idle then
+            self:ClearParryAnimation()
             state.Idle = true
-            self:UpdateBarVisibility()
+            self:UpdateSwingFillColor()
             local inset = bar.contentInset or 1
-            bar.fill:SetWidth(math.max(1, bar:GetWidth() - inset * 2))
+            SetSwingFillWidth(bar, math.max(1, bar:GetWidth() - inset * 2))
             bar.timeText:SetText("")
             bar.speedText:Hide()
-            bar.latencyText:SetShown(iSTSettings.showLatency)
+            bar.displayedSwingTenths, bar.displayedWeaponSpeed = nil, nil
         end
     else
         state.Idle = false
         local inset = bar.contentInset or 1
         local width = bar:GetWidth() - inset * 2
         local progress = self:GetSwingBarProgress(now)
-        bar.fill:SetWidth(math.max(1, progress * width))
+        SetSwingFillWidth(bar, math.max(1, progress * width))
         self:UpdateParryAnimation(now, progress, width)
-        bar.timeText:SetText(iSTSettings.showSwingRemaining
-            and string.format("%.1fs", math.max(0, state.NextSwingTime - now)) or "")
-        if iSTSettings.showWeaponSpeed then
-            bar.speedText:SetText(string.format("%.2f", state.WeaponSpeed))
-            bar.speedText:Show()
-        else
-            bar.speedText:Hide()
+        local tenths = iSTSettings.showSwingRemaining
+            and math.floor(math.max(0, state.NextSwingTime - now) * 10 + 0.5) or nil
+        if bar.displayedSwingTenths ~= tenths then
+            bar.timeText:SetText(tenths and string.format("%.1fs", tenths / 10) or "")
+            bar.displayedSwingTenths = tenths
         end
-        if iSTSettings.showLatency then
-            bar.latencyText:SetText(state.HomeLag .. "ms")
-            bar.latencyText:Show()
-        else
-            bar.latencyText:Hide()
+        local speed = iSTSettings.showWeaponSpeed and state.WeaponSpeed or nil
+        if bar.displayedWeaponSpeed ~= speed then
+            if speed then bar.speedText:SetText(string.format("%.2f", speed)) end
+            bar.speedText:SetShown(speed ~= nil)
+            bar.displayedWeaponSpeed = speed
         end
     end
 
-    self:UpdateWrathDisplay(now)
+    self:UpdateBarAnimationDriver()
 end
 
 local function SetSwingBarAlpha(bar, alpha)
@@ -1389,6 +1429,7 @@ function iST:HideBar()
         self.BarFrame.fadeAlpha = 1
         SetSwingBarAlpha(self.BarFrame, 1)
         self.BarFrame:Hide()
+        self:UpdateBarAnimationDriver()
         if self.BarFrame.stackCountFrame then self.BarFrame.stackCountFrame:Hide() end
         self.State.BarVisible = false
     end
@@ -1402,6 +1443,7 @@ function iST:ShowBar()
         self.BarFrame:EnableMouse(self.State.EditMode == true and not iSTSettings.barLocked
             and self.State.InCombat ~= true and not (InCombatLockdown and InCombatLockdown()))
         self.BarFrame:Show()
+        self:UpdateBarAnimationDriver()
         self.State.BarVisible = true
     end
 end
@@ -1424,6 +1466,7 @@ function iST:FadeBarTo(target)
     end
     bar.fadeTarget = target
     bar:Show()
+    self:UpdateBarAnimationDriver()
     self.State.BarVisible = target > 0
 end
 
@@ -1465,15 +1508,20 @@ function iST:HasActiveSeal()
         and not IsSecret(expires) and type(expires) == "number" and expires > now
 end
 
+function iST:GetActiveSealPairStatus()
+    if not self:HasActiveSeal() then return nil end
+    local seal = self.State.CurrentSealName
+    if seal == iSTSettings.twistFromSeal or seal == iSTSettings.twistIntoSeal then return "CORRECT" end
+    return "OTHER"
+end
+
 function iST:GetBarFillColor()
     if iSTSettings.barColorBySeal and self:HasActiveSeal() then
         local colors = iSTSettings.sealBarColors
         local color = colors and colors[self.State.CurrentSealName]
         if type(color) == "table" then return color end
     end
-    if iSTSettings.highlightWrongSeal and self:IsWrathTrackingEnabled() and self:HasActiveSeal()
-        and self.State.CurrentSealName ~= iSTSettings.twistFromSeal
-        and self.State.CurrentSealName ~= iSTSettings.twistIntoSeal then
+    if iSTSettings.highlightWrongSeal and self:IsWrathTrackingEnabled() and self:GetActiveSealPairStatus() == "OTHER" then
         return iSTSettings.wrongSealColor
     end
     return iSTSettings.barColor
@@ -1491,20 +1539,28 @@ function iST:HasConfirmedWrathStacks()
     return false
 end
 
-function iST:UpdateBarVisibility()
+function iST:MatchesDisplayVisibility(mode, confirmedEcho)
+    if mode == "ALWAYS" or self.State.TestMode or self.State.InCombat then return true end
+    return mode == "COMBAT_OR_AURA" and (self:HasActiveSeal() or confirmedEcho or self:HasConfirmedWrathStacks())
+end
+
+function iST:UpdateSwingBarVisibility(confirmedEcho)
     if not self.BarFrame then return end
     if not self:ShouldShowBar() then
         self:HideBar()
     -- A confirmed Echo can keep the bar up after the Seal ends.
     elseif iSTSettings.barVisibility ~= "ALWAYS" and not self.State.TestMode then
-        local visible = self.State.InCombat or (iSTSettings.barVisibility == "COMBAT_OR_AURA"
-            and (self:HasActiveSeal() or self:HasConfirmedWrathStacks()))
+        local visible = self:MatchesDisplayVisibility(iSTSettings.barVisibility, confirmedEcho)
         self:FadeBarTo(visible and 1 or 0)
     else
         self:ShowBar()
     end
-    self:UpdateWrathDisplay()
-    self:UpdatePlayerWrathBubbles()
+end
+
+function iST:UpdateBarVisibility(confirmedEcho)
+    if not self.BarFrame then return end
+    self:UpdateSwingBarVisibility(confirmedEcho)
+    self:UpdateWrathDisplay(nil, confirmedEcho)
     self:UpdateReminders()
 end
 
@@ -1655,6 +1711,7 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
             self:ScheduleWrathAuraCheck()
         end
     end
+    local wasIdle = self.State.Idle
     self.State.Idle = false
 
     local previousRemaining = math.max(0, self.State.NextSwingTime - now)
@@ -1665,7 +1722,12 @@ function iST:ResetSwingTimer(swingDuration, isMeleeAttack, spellID, sourceEvent)
     local resetName = not IsSecret(spellID) and self.SWING_RESET_SPELLS[spellID] or nil
     debugTimerReset("Weapon swing timer reset", spellID, sourceEvent, previousRemaining, speed,
         isMeleeAttack and "Main-hand auto attack" or resetName or "Timer update")
-    self:UpdateBarVisibility()
+    if self.State.TestMode then
+        self:UpdateBarVisibility()
+    else
+        self:UpdateSwingBarVisibility()
+        if wasIdle and self.BarFrame then self:UpdateSwingFillColor() end
+    end
 end
 
 function iST:OnAttackSpeedChanged()
@@ -1691,12 +1753,14 @@ function iST:OnAttackSpeedChanged()
     state.WeaponSpeed = newSpeed
     state.LastSwingTime = now - (fraction * newSpeed)
     state.NextSwingTime = state.LastSwingTime + newSpeed
+    self:InvalidateBarState()
 end
 
 -- Settings can change while the bar is idle. Repaint it on the next update.
 function iST:InvalidateBarState()
     self.State.Idle = false
     if self.BarFrame then
+        self:UpdateBarAnimationDriver()
         self.BarFrame.updateAccum = self.CONSTANTS.BAR_UPDATE_RATE
     end
 end
@@ -1704,8 +1768,9 @@ end
 
 -- Talent and seal tracking
 function iST:HasUnsealedWrath()
-    -- Keep the result until a talent or loadout event asks for a fresh check.
-    if self.State.UnsealedWrathKnown ~= nil then return self.State.UnsealedWrathKnown end
+    -- A positive result stays valid until a talent event. A negative result
+    -- may come from a talent tree that was still loading at login.
+    if self.State.UnsealedWrathKnown == true then return true end
     local now = GetTime()
     if now < (self.State.NextWrathTalentCheck or 0) then return false end
     self.State.NextWrathTalentCheck = now + 1
@@ -1722,8 +1787,11 @@ function iST:HasUnsealedWrath()
         if IsSecret(configID) or not configID then return nil end
         local config = configID and C_Traits.GetConfigInfo(configID)
         if IsSecret(config) or not config then return nil end
-        for _, treeID in ipairs(config and config.treeIDs or {}) do
+        if type(config.treeIDs) ~= "table" or #config.treeIDs == 0 then return nil end
+        local nodesSeen = 0
+        for _, treeID in ipairs(config.treeIDs) do
             for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
+                nodesSeen = nodesSeen + 1
                 local node = C_Traits.GetNodeInfo(configID, nodeID)
                 if IsSecret(node) then return nil end
                 local activeRank = node and (node.activeRank or node.currentRank
@@ -1743,10 +1811,30 @@ function iST:HasUnsealedWrath()
                 end
             end
         end
+        if nodesSeen == 0 then return nil end
         return false
     end)
     if ok and learned ~= nil then
         self.State.UnsealedWrathKnown = learned
+        if not learned then self.State.NextWrathTalentCheck = now + 10 end
+        if learned and self.State.Initialized and self.BarFrame then
+            C_Timer.After(0, function()
+                if self.State.Initialized then
+                    self:CreateStackManagedDisplay()
+                    self:UpdateBarVisibility()
+                end
+            end)
+        end
+    end
+    if self.State.UnsealedWrathKnown ~= true and self.State.Initialized and not self.State.WrathTalentRetryPending then
+        self.State.WrathTalentRetryPending = true
+        C_Timer.After(self.State.NextWrathTalentCheck - now, function()
+            self.State.WrathTalentRetryPending = nil
+            if self:ShouldShowBar() and self.State.UnsealedWrathKnown ~= true then
+                self.State.NextWrathTalentCheck = 0
+                self:HasUnsealedWrath()
+            end
+        end)
     end
     return ok and learned == true
 end
@@ -1849,7 +1937,7 @@ function iST:FindWrathEchoAura()
     return nil, true
 end
 
-function iST:ApplyWrathAura(aura, source, refreshed)
+function iST:ApplyWrathAura(aura, source, refreshed, newlyAdded)
     if IsSecret(aura) or type(aura) ~= "table" then return false end
     local ok, count, expiresAt, instanceID, spellID, name = pcall(function()
         return aura.applications, aura.expirationTime, aura.auraInstanceID, aura.spellId, aura.name
@@ -1857,7 +1945,9 @@ function iST:ApplyWrathAura(aura, source, refreshed)
     if not ok then return false end
     local state, tracker = self.State, self.WrathTracker
     -- Cache public identity fields even if this particular count is hidden.
-    if not IsSecret(instanceID) and type(instanceID) == "number" and instanceID > 0 then state.WrathAuraInstanceID = instanceID end
+    local previousInstance = state.WrathAuraInstanceID
+    local knownInstance = not IsSecret(instanceID) and type(instanceID) == "number" and instanceID > 0 and instanceID or nil
+    if knownInstance then state.WrathAuraInstanceID = knownInstance end
     local echoSeal
     if not IsSecret(spellID) then echoSeal = self.WrathEchoSpellIDs[spellID] end
     if not echoSeal and not IsSecret(name) and type(name) == "string" then
@@ -1871,6 +1961,9 @@ function iST:ApplyWrathAura(aura, source, refreshed)
     if echoSeal then
         state.WrathEchoSeal = echoSeal
         state.EchoSwitchBackSeal = nil
+        if knownInstance then
+            self:ObserveVerticalSwordEcho(knownInstance, echoSeal, newlyAdded and knownInstance ~= previousInstance)
+        end
     end
     if not IsSecret(spellID) and type(spellID) == "number" and spellID > 0 then
         state.WrathAuraSpellID = spellID
@@ -1879,11 +1972,13 @@ function iST:ApplyWrathAura(aura, source, refreshed)
     if IsSecret(count) then
         if not state.WrathCountRestricted then self:DebugMsg("Unsealed Wrath stack count is restricted; continuing hit tracking.", 3) end
         state.WrathCountRestricted = true
-        return false
+        if previousInstance ~= state.WrathAuraInstanceID then self:UpdateBarVisibility(true) end
+        -- Aura identity is confirmed. A fallback lookup must not clear it
+        -- just because this update could not supply a readable count.
+        return true, false
     end
     if IsSecret(expiresAt) then expiresAt = nil end
     local snapshot = state.WrathAuraSnapshot
-    local knownInstance = not IsSecret(instanceID) and type(instanceID) == "number" and instanceID > 0 and instanceID or nil
     local knownExpiry = type(expiresAt) == "number" and expiresAt or nil
     -- Keep an unchanged combat snapshot from undoing a delayed melee hit.
     -- Once combat ends, the readable buff settles both the count and timer.
@@ -1903,7 +1998,10 @@ function iST:ApplyWrathAura(aura, source, refreshed)
                 and (not knownExpiry or (not tracker.expiryUnconfirmed and tracker.expiresAt == knownExpiry)))
             or (inCombat and tracker.countUnconfirmed)) then return true, false end
     local previous, previousUnconfirmed = tracker.count, tracker.countUnconfirmed
-    if not tracker:Observe(count, expiresAt, state.WrathEchoSeal or state.CurrentSealName, GetTime(), refreshed) then return false end
+    if not tracker:Observe(count, expiresAt, state.WrathEchoSeal or state.CurrentSealName, GetTime(), refreshed) then
+        if previousInstance ~= state.WrathAuraInstanceID then self:UpdateBarVisibility(true) end
+        return false
+    end
     if state.WrathEchoSeal then tracker.seal = state.WrathEchoSeal end
     state.WrathAuraSnapshot = {
         count = count,
@@ -1917,7 +2015,7 @@ function iST:ApplyWrathAura(aura, source, refreshed)
             source, previous, tracker.count, tracker.expiryUnconfirmed and "derived from stack updates" or "confirmed by buff"), 3)
     end
     self:UpdateThreeStackSound(tracker.count, self:IsWrathTrackingEnabled(), GetTime(), true)
-    self:UpdateWrathDisplay()
+    self:UpdateBarVisibility(knownInstance ~= nil)
     return true, true
 end
 
@@ -1927,13 +2025,14 @@ function iST:ObserveWrathAura(updateInfo, delayed)
     local removedCurrent = false
     local reader = C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID
     if not IsSecret(updateInfo) and type(updateInfo) == "table" then
-        local readOK, added, updated, removed = pcall(function()
-            return updateInfo.addedAuras, updateInfo.updatedAuraInstanceIDs, updateInfo.removedAuraInstanceIDs
+        local readOK, added, updated, removed, full = pcall(function()
+            return updateInfo.addedAuras, updateInfo.updatedAuraInstanceIDs, updateInfo.removedAuraInstanceIDs, updateInfo.isFullUpdate
         end)
         if readOK and not IsSecret(added) and type(added) == "table" then
             for _, aura in ipairs(added) do
                 if IsWrathAura(aura) then
-                    local handled, changed = self:ApplyWrathAura(aura, "UNIT_AURA addition", true)
+                    local newlyAdded = not IsSecret(full) and full ~= true
+                    local handled, changed = self:ApplyWrathAura(aura, "UNIT_AURA addition", true, newlyAdded)
                     if handled then return true, changed end
                 end
             end
@@ -1994,7 +2093,7 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         local pending = state.PendingWrathRelease
         if pending and pending.auraID == removedID then self:ConfirmWrathRelease() end
         self:UpdateThreeStackSound(0, self:IsWrathTrackingEnabled(), GetTime(), true)
-        self:UpdateWrathDisplay()
+        self:UpdateBarVisibility()
         return true, true
     end
     if not delayed then self:ScheduleWrathAuraCheck() end
@@ -2007,6 +2106,9 @@ function iST:SetCurrentSeal(spellID, observedExpirationTime, sourceEvent)
 
     local previousRemaining = math.max(0, (self.State.SealExpiresAt or 0) - GetTime())
     self.State.SealStatusKnown = true
+    if self.State.CurrentSealID ~= spellID or sourceEvent == "UNIT_SPELLCAST_SUCCEEDED" then
+        self.State.SealAuraInstanceID = nil
+    end
     self.State.CurrentSealID = spellID
     local previousSeal = self.State.CurrentSealName
     self.State.CurrentSealName = name
@@ -2043,48 +2145,113 @@ function iST:SetCurrentSeal(spellID, observedExpirationTime, sourceEvent)
     end)
 
     self:UpdateSealDisplay()
-    self:UpdateWrathDisplay()
+    self:UpdateBarVisibility()
 end
 
-function iST:ScanForActiveSealOutOfCombat(sourceEvent)
+function iST:ScanForActiveSealOutOfCombat(sourceEvent, preferredID)
     -- Recover a seal that was already active when the addon loaded.
     -- Keep the current seal timer while combat blocks this scan.
     if (InCombatLockdown and InCombatLockdown())
         or (UnitAffectingCombat and UnitAffectingCombat("player")) then return end
     if not (C_UnitAuras and type(C_UnitAuras.GetPlayerAuraBySpellID) == "function") then return end
 
-    for spellID in pairs(self.SEALS) do
+    local function checkSpell(spellID)
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellID)
-        if not ok or IsSecret(aura) then return end
-        if aura ~= nil then
-            local expirationTime
-            local readable = pcall(function() expirationTime = aura.expirationTime end)
-            if not readable then return end
-            -- An unrelated aura update must not manufacture another full
-            -- duration when the seal's actual expiry is unavailable.
-            if IsSecret(expirationTime) or type(expirationTime) ~= "number"
-                or expirationTime <= GetTime() or expirationTime >= math.huge
-                or expirationTime ~= expirationTime then return end
-            if self.State.CurrentSealName == self.SEALS[spellID]
-                and self.State.SealExpiresAt == expirationTime then return end
+        if not ok or IsSecret(aura) then return true end
+        if aura == nil then return false end
+        local readable, expirationTime, instanceID = pcall(function()
+            return aura.expirationTime, aura.auraInstanceID
+        end)
+        if not readable then return true end
+        -- Keep the cast's timer if the duration cannot be read.
+        if IsSecret(expirationTime) or type(expirationTime) ~= "number"
+            or expirationTime <= GetTime() or expirationTime >= math.huge
+            or expirationTime ~= expirationTime then return true end
+        if self.State.CurrentSealName ~= self.SEALS[spellID] or self.State.SealExpiresAt ~= expirationTime then
             self:SetCurrentSeal(spellID, expirationTime, sourceEvent or "OUT_OF_COMBAT_AURA_SCAN")
-            return
         end
+        if not IsSecret(instanceID) and type(instanceID) == "number" then
+            self.State.SealAuraInstanceID = instanceID
+        end
+        return true
+    end
+    local currentID = self.State.CurrentSealID
+    if preferredID and checkSpell(preferredID) then return end
+    if currentID and currentID ~= preferredID and checkSpell(currentID) then return end
+    for spellID in pairs(self.SEALS) do
+        if spellID ~= currentID and spellID ~= preferredID and checkSpell(spellID) then return end
     end
 
     self:ClearCurrentSeal()
 end
 
+local EMPTY_AURA_CHANGES = {}
+
+local function PlayerAuraImpact(addon, info)
+    if IsSecret(info) or type(info) ~= "table" then return true, true end
+    local ok, full, added, updated, removed = pcall(function()
+        return info.isFullUpdate, info.addedAuras, info.updatedAuraInstanceIDs, info.removedAuraInstanceIDs
+    end)
+    if not ok or IsSecret(full) or full == true
+        or IsSecret(added) or IsSecret(updated) or IsSecret(removed) then return true, true end
+    if (added ~= nil and type(added) ~= "table") or (updated ~= nil and type(updated) ~= "table")
+        or (removed ~= nil and type(removed) ~= "table")
+        or (full ~= false and not added and not updated and not removed) then return true, true end
+
+    local state = addon.State
+    local seal, echo, sealSpellID = false, false, nil
+    local function checkAura(aura)
+        local readable, spellID = pcall(function() return aura.spellId end)
+        if not readable or IsSecret(spellID) or type(spellID) ~= "number" then
+            seal, echo = true, true
+        elseif addon.SEALS[spellID] then
+            seal, sealSpellID = true, spellID
+        elseif addon.WrathEchoSpellIDs[spellID] then
+            echo = true
+        end
+    end
+    for _, aura in ipairs(added or EMPTY_AURA_CHANGES) do
+        if IsSecret(aura) or type(aura) ~= "table" then return true, true end
+        checkAura(aura)
+    end
+    local lookup = C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID
+    for _, id in ipairs(updated or EMPTY_AURA_CHANGES) do
+        if IsSecret(id) or type(id) ~= "number" then return true, true end
+        local knownSeal = id == state.SealAuraInstanceID
+        local knownEcho = id == state.WrathAuraInstanceID
+        if knownSeal or knownEcho then
+            seal, echo = seal or knownSeal, echo or knownEcho
+        elseif type(lookup) == "function" then
+            local readOK, aura = pcall(lookup, "player", id)
+            if not readOK or IsSecret(aura) then return true, true end
+            if aura then checkAura(aura) end
+        else
+            return true, true
+        end
+    end
+    for _, id in ipairs(removed or EMPTY_AURA_CHANGES) do
+        if IsSecret(id) or type(id) ~= "number" then return true, true end
+        seal = seal or id == state.SealAuraInstanceID
+            or (state.CurrentSealID ~= nil and state.SealAuraInstanceID == nil)
+        echo = echo or id == state.WrathAuraInstanceID or state.WrathEchoSeal ~= nil
+            and state.WrathAuraInstanceID == nil
+    end
+    return seal, echo, sealSpellID
+end
+
 function iST:ClearCurrentSeal()
+    if self.State.SealStatusKnown and not self.State.CurrentSealID and not self.State.CurrentSealName
+        and not self.State.CurrentSealIcon and self.State.SealExpiresAt == 0 then return end
     self.State.SealStatusKnown = true
     self.State.CurrentSealID = nil
+    self.State.SealAuraInstanceID = nil
     self.State.CurrentSealName = nil
     self.State.CurrentSealIcon = nil
     self.State.SealCastTime = 0
     self.State.SealExpiresAt = 0
     self.State.SealGeneration = (self.State.SealGeneration or 0) + 1
     self:UpdateSealDisplay()
-    if iSTSettings.barColorBySeal or iSTSettings.highlightWrongSeal then self:UpdateWrathDisplay() end
+    self:UpdateBarVisibility()
 end
 
 function iST:UpdateSealTimer(now)
@@ -2103,22 +2270,28 @@ function iST:UpdateSealTimer(now)
         and (self.State.CurrentSealIcon or self.State.EditMode)
         and remaining > 0
 
-    local urgent = remaining < 5
+    local urgent = remaining <= 5
     self:UpdateSealRing(expiresAt, showTimer, urgent)
-    if bar.sealTimerLabel then bar.sealTimerLabel:Hide() end
-    if showTimer then
-        local displayedSeconds = math.ceil(remaining)
-        bar.sealTimerText:SetText(tostring(displayedSeconds))
-        if urgent then
-            bar.sealTimerText:SetTextColor(1, 0.12, 0.08, 1)
-        else
-            bar.sealTimerText:SetTextColor(1, 1, 1, 1)
-        end
-        bar.sealTimerText:Show()
-    else
-        bar.sealTimerText:SetText("")
-        bar.sealTimerText:Hide()
+    local displayedSeconds = showTimer and math.ceil(remaining) or nil
+    if bar.sealDisplayedSeconds ~= displayedSeconds then
+        bar.sealTimerText:SetText(displayedSeconds and tostring(displayedSeconds) or "")
+        bar.sealDisplayedSeconds = displayedSeconds
     end
+    if showTimer then
+        if bar.sealTextUrgent ~= urgent then
+            bar.sealTimerText:SetTextColor(1, urgent and 0.12 or 1, urgent and 0.08 or 1, 1)
+            bar.sealTextUrgent = urgent
+        end
+        bar.nextSealDisplayAt = expiresAt - displayedSeconds + 1
+    else
+        bar.nextSealDisplayAt = nil
+    end
+    local visible = displayedSeconds ~= nil
+    if bar.sealTextVisible ~= visible then
+        bar.sealTimerText:SetShown(visible)
+        bar.sealTextVisible = visible
+    end
+    self:UpdateBarAnimationDriver()
 end
 
 function iST:UpdateSealRing(expiresAt, showTimer, urgent)
@@ -2126,10 +2299,12 @@ function iST:UpdateSealRing(expiresAt, showTimer, urgent)
     local countdown = bar and bar.sealRingCountdown
     if not countdown then return end
     if not showTimer then
-        if bar.sealRingExpiresAt then countdown:Clear() end
-        countdown:Hide()
-        bar.sealRingExpiresAt, bar.sealRingUrgent = nil, nil
-        bar.sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95)
+        if bar.sealRingExpiresAt then
+            countdown:Clear()
+            countdown:Hide()
+            bar.sealRingExpiresAt, bar.sealRingUrgent = nil, nil
+            bar.sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95)
+        end
         return
     end
 
@@ -2139,6 +2314,7 @@ function iST:UpdateSealRing(expiresAt, showTimer, urgent)
         -- full thirty-second scale instead of drawing a fresh ring on recovery.
         local duration = self.CONSTANTS.SEAL_DURATION
         countdown:SetCooldown(expiresAt - duration, duration)
+        countdown:Show()
         bar.sealRingExpiresAt = expiresAt
     end
     if expiryChanged then
@@ -2149,7 +2325,6 @@ function iST:UpdateSealRing(expiresAt, showTimer, urgent)
         else countdown:SetSwipeColor(1, 0.59, 0.09, 0.95) end
         bar.sealRingUrgent = urgent
     end
-    countdown:Show()
 end
 
 function iST:UpdateSealDisplay()
@@ -2179,9 +2354,17 @@ function iST:UpdateSealDisplay()
 end
 
 -- Refresh the latency label separately from the bar animation.
+function iST:UpdateLatencyLabel()
+    local bar = self.BarFrame
+    if not bar then return end
+    bar.latencyText:SetText(iSTSettings.showLatency and (self.State.HomeLag or 0) .. "ms" or "")
+    bar.latencyText:SetShown(iSTSettings.showLatency)
+end
+
 function iST:UpdateLatency()
     local _, _, homeLag = GetNetStats()
     self.State.HomeLag = homeLag or 0
+    self:UpdateLatencyLabel()
 
     C_Timer.After(iST.CONSTANTS.LATENCY_UPDATE_INTERVAL, function()
         iST:UpdateLatency()
@@ -2189,9 +2372,13 @@ function iST:UpdateLatency()
 end
 
 -- Minimap and addon compartment button
-function iST:UpdateMoveSurfaceMouse()
-    local moving = self.State.EditMode == true and not iSTSettings.barLocked
+function iST:IsLayoutUnlocked()
+    return self.State.EditMode == true and not iSTSettings.barLocked
         and self.State.InCombat ~= true and not (InCombatLockdown and InCombatLockdown())
+end
+
+function iST:UpdateMoveSurfaceMouse()
+    local moving = self:IsLayoutUnlocked()
     local bar = self.BarFrame
     if bar then
         pcall(bar.EnableMouse, bar, moving and bar:IsShown() and (bar.fadeTarget or 1) > 0)
@@ -2205,6 +2392,10 @@ function iST:UpdateMoveSurfaceMouse()
             pcall(frame.EnableMouse, frame, moving and settings ~= nil and settings.enabled == true)
         end
     end
+    if self.VerticalSwordFrame then
+        local handle = self.VerticalSwordFrame.handle
+        handle:EnableMouse(moving and iSTSettings.showVerticalSword == true)
+    end
     if not moving then
         local center = self.CenterSwitchFrame
         if center then
@@ -2214,14 +2405,12 @@ function iST:UpdateMoveSurfaceMouse()
                 pcall(center.dragHandle.Hide, center.dragHandle)
             end
         end
-        if self.WorldEchoCueFrame then
-            pcall(self.WorldEchoCueFrame.EnableMouse, self.WorldEchoCueFrame, false)
-        end
     end
 end
 
 function iST:SetBarLocked(locked, announce)
     iSTSettings.barLocked = locked == true
+    if locked then self.State.ResumeEditAfterCombat = nil end
     if iSTSettings.barLocked and self.State.EditMode then
         self:StopTestMode()
     elseif not iSTSettings.barLocked and not self.State.EditMode
@@ -2232,7 +2421,7 @@ function iST:SetBarLocked(locked, announce)
     self:UpdateReminders()
     self:UpdateMoveOutlines()
     local checkbox = self.SettingsFrame and self.SettingsFrame.barLockCheckbox
-    if checkbox then checkbox:SetChecked(iSTSettings.barLocked) end
+    if checkbox then checkbox:SetChecked(not self:IsLayoutUnlocked()) end
     if self.SettingsFrame then
         local panel = self.SettingsFrame
         if panel.centerMoveButton then
@@ -2240,11 +2429,19 @@ function iST:SetBarLocked(locked, announce)
                 and L["DoneMovingCenterSwitchText"] or L["MoveCenterSwitchText"])
         end
     end
-    if announce then print(L[iSTSettings.barLocked and "BarLocked" or "BarUnlocked"]) end
+    if announce then print(L[self:IsLayoutUnlocked() and "BarUnlocked" or "BarLocked"]) end
 end
 
 function iST:ToggleBarLock()
-    self:SetBarLocked(not iSTSettings.barLocked, true)
+    if self.State.InCombat or (InCombatLockdown and InCombatLockdown()) then return end
+    self:SetBarLocked(self:IsLayoutUnlocked(), true)
+end
+
+function iST:ToggleLayoutEdit()
+    if self.State.InCombat or (InCombatLockdown and InCombatLockdown()) or not self:ShouldShowBar() then return end
+    local wasEditing = self.State.EditMode == true
+    self:SetBarLocked(wasEditing)
+    if not wasEditing and self.State.EditMode then self:SettingsClose() end
 end
 
 function iST:CreateMinimapButton()
@@ -2261,14 +2458,6 @@ function iST:CreateMinimapButton()
         OnClick = function(_, button)
             if button == "RightButton" and IsShiftKeyDown() then
                 iST:ToggleBarLock()
-            elseif button == "LeftButton" and IsShiftKeyDown() then
-                iSTSettings.enabled = not iSTSettings.enabled
-                if iSTSettings.enabled then
-                    print(L["BarEnabled"])
-                else
-                    print(L["BarDisabled"])
-                end
-                iST:UpdateBarVisibility()
             elseif button == "LeftButton" then
                 iST:QuickMacroToggle()
             elseif button == "RightButton" then
@@ -2280,14 +2469,16 @@ function iST:CreateMinimapButton()
             tooltip:AddLine(" ", 1, 1, 1)
             tooltip:AddLine(L["MinimapLeftClick"], 1, 1, 1)
             tooltip:AddLine(L["MinimapRightClick"], 1, 1, 1)
-            tooltip:AddLine(L["MinimapShiftLeftClick"], 1, 1, 1)
-            tooltip:AddLine(L[iSTSettings.barLocked and "MinimapShiftRightClickUnlock"
-                or "MinimapShiftRightClickLock"], 1, 1, 1)
+            local unlocked = iST:IsLayoutUnlocked()
+            if not iST.State.InCombat and not (InCombatLockdown and InCombatLockdown()) then
+                tooltip:AddLine(L[unlocked and "MinimapShiftRightClickLock"
+                    or "MinimapShiftRightClickUnlock"], 1, 1, 1)
+            end
             tooltip:AddLine(" ", 1, 1, 1)
             tooltip:AddLine(L["TooltipStatus"] .. (iSTSettings.enabled and L["StatusEnabled"] or L["StatusDisabled"]), 1, 1, 1)
-            tooltip:AddLine(L["TooltipPositionLock"] .. (iSTSettings.barLocked
-                and L["StatusPositionsLocked"] or L["StatusPositionsUnlocked"]), 1, 1, 1)
-            if not iSTSettings.barLocked then tooltip:AddLine(L["MinimapMoveResetHint"], 1, 1, 1) end
+            tooltip:AddLine(L["TooltipPositionLock"] .. L[unlocked and "StatusPositionsUnlocked"
+                or "StatusPositionsLocked"], 1, 1, 1)
+            if unlocked then tooltip:AddLine(L["MinimapMoveResetHint"], 1, 1, 1) end
             tooltip:Show()
         end,
     })
@@ -2315,7 +2506,8 @@ function iST:BuildTwistMacroBody(fromSeal, intoSeal)
     local localizedFrom = fromSpellID and GetLocalizedSpellName(fromSpellID, fromSeal) or fromSeal
     local localizedInto = intoSpellID and GetLocalizedSpellName(intoSpellID, intoSeal) or intoSeal
 
-    return "#showtooltip\n/castsequence reset=30 " .. localizedFrom .. ", " .. localizedInto .. "\n/startattack"
+    local reset = iSTSettings.twistMacroResetOnCombat == false and "30" or "combat/30"
+    return "#showtooltip\n/castsequence reset=" .. reset .. " " .. localizedFrom .. ", " .. localizedInto .. "\n/startattack"
 end
 
 local function NormalizeMacroBody(body)
@@ -2323,8 +2515,23 @@ local function NormalizeMacroBody(body)
     return body:gsub("\r\n", "\n"):gsub("%s+$", "")
 end
 
--- Update the macro only if its body still matches the last one saved by iST.
--- A matching name alone does not mean the addon owns it.
+local function IsManagedTwistMacro(addon, body)
+    body = NormalizeMacroBody(body)
+    if not body then return false end
+    if body == NormalizeMacroBody(iSTSettings.generatedMacroBody) then return true end
+
+    -- A generated account macro may be missing the ownership record on this character.
+    local reset, from, into = body:match("^#showtooltip\n/castsequence reset=(%S+) ([^,\n]+), ([^\n]+)\n/startattack$")
+    if reset ~= "30" and reset ~= "combat/30" then return false end
+    local fromFound, intoFound = false, false
+    for seal, spellID in pairs(addon.SEAL_SPELL_IDS) do
+        local name = GetLocalizedSpellName(spellID, seal)
+        fromFound, intoFound = fromFound or name == from, intoFound or name == into
+        if fromFound and intoFound then return true end
+    end
+    return false
+end
+
 function iST:RefreshTwistMacro()
     if not iSTSettings then return false end
     if InCombatLockdown and InCombatLockdown() then return false end
@@ -2333,10 +2540,7 @@ function iST:RefreshTwistMacro()
     if not macroIndex or macroIndex == 0 then return false end
 
     local _, icon, currentBody = GetMacroInfo(macroIndex)
-    local managedBody = iSTSettings.generatedMacroBody
-    local isManaged = managedBody
-        and NormalizeMacroBody(currentBody) == NormalizeMacroBody(managedBody)
-    if not isManaged then return false end
+    if not IsManagedTwistMacro(self, currentBody) then return false end
 
     local desiredBody = self:BuildTwistMacroBody()
     if not desiredBody then return false end
@@ -2411,10 +2615,7 @@ function iST:CreateTwistMacro()
             return true
         end
 
-        -- A body previously written by iST remains safe to update. Any other
-        -- same-named macro belongs to the player and must not be overwritten.
-        if iSTSettings.generatedMacroBody
-            and NormalizeMacroBody(existingBody) == NormalizeMacroBody(iSTSettings.generatedMacroBody) then
+        if IsManagedTwistMacro(self, existingBody) then
             return self:RefreshTwistMacro()
         end
         print(L["PrintPrefix"] .. Colors.Red .. "A macro named " .. TWIST_MACRO_NAME
@@ -2487,21 +2688,20 @@ function iST:ScheduleTwistMacroCheck()
 end
 
 -- Bar previews
-function iST:StopTestMode()
+function iST:StopTestMode(resumeEditAfterCombat)
     local state = self.State
     if not state.TestMode then return end
     if state.EditMode then
+        state.ResumeEditAfterCombat = resumeEditAfterCombat and not iSTSettings.barLocked or nil
         state.EditMode = nil
         state.EditSealExpiresAt = nil
-        if self.WorldEchoCueFrame and self.WorldEchoCueFrame.moving then
-            pcall(self.SetWorldEchoCueMoveMode, self, false)
-        end
         if self.CenterSwitchFrame and self.CenterSwitchFrame.moving then
             pcall(self.SetCenterSwitchMoveMode, self, false)
         end
     end
     self:ClearParryAnimation()
     state.TestMode, state.StackTestMode, state.PreviewStacks = false, false, 0
+    if self.UpdateLayoutControls then self:UpdateLayoutControls() end
     state.TestModeGeneration = state.TestModeGeneration + 1
     -- Return to the real swing timing without touching the live stack tracker.
     local saved = state.TestSwingSnapshot
@@ -2554,6 +2754,7 @@ function iST:StartEditMode()
     end
     state.TestModeGeneration = (state.TestModeGeneration or 0) + 1
     state.TestMode, state.StackTestMode, state.EditMode = true, true, true
+    if self.UpdateLayoutControls then self:UpdateLayoutControls() end
     state.PreviewStacks = 2
     state.EditSealExpiresAt = GetTime() + 25
     state.WeaponSpeed = 3.6
@@ -2562,7 +2763,6 @@ function iST:StartEditMode()
     self:ShowBar()
     self:UpdateSealDisplay()
     self:UpdateWrathDisplay()
-    if iSTSettings.showWorldEchoCue then self:SetWorldEchoCueMoveMode(true) end
     if iSTSettings.showCenterSwitchText then self:SetCenterSwitchMoveMode(true) end
     self:UpdateReminders()
     self:UpdateMoveSurfaceMouse()
@@ -2602,8 +2802,12 @@ function iST:RegisterSlashCommands()
             iST:CheckCueSound(argument)
         elseif cmd == "settings" or cmd == "options" or cmd == "config" then
             iST:SettingsToggle()
+        elseif cmd == "new" or cmd == "news" then
+            iST:OpenWhatsNew()
         elseif cmd == "lock" then
             iST:ToggleBarLock()
+        elseif cmd == "edit" then
+            iST:ToggleLayoutEdit()
         elseif cmd == "reset" then
             iST:ResetBarPosition()
         elseif cmd == "test" then
@@ -2614,6 +2818,8 @@ function iST:RegisterSlashCommands()
             print(L["SlashHelp3"])
             print(L["SlashHelp4"])
             print(L["SlashHelp5"])
+            print(L["SlashHelpEdit"])
+            print(L["SlashHelpWhatsNew"])
         end
     end
 end
@@ -2664,7 +2870,8 @@ local function OnEvent(self, event, ...)
         local swingDuration, swingType = ...
         if IsSecret(swingType) then return end
         if swingType == nil or swingType == Enum.PlayerSwingType.MainHand then
-            iST:StopTestMode()
+            -- A real swing can arrive before the combat start event.
+            iST:StopTestMode(true)
             iST:ResetSwingTimer(swingDuration, true, nil, "PLAYER_SWING")
         end
         return
@@ -2694,7 +2901,7 @@ local function OnEvent(self, event, ...)
 
     if event == "PLAYER_REGEN_DISABLED" then
         iST.State.InCombat = true
-        iST:StopTestMode()
+        iST:StopTestMode(true)
         iST:UpdateMoveSurfaceMouse()
 
         iST:UpdateBarVisibility()
@@ -2742,18 +2949,22 @@ local function OnEvent(self, event, ...)
         if iST.State.PendingWhatsNew and iST.MaybeShowWhatsNew then
             iST:MaybeShowWhatsNew()
         end
+        if iST.State.ResumeEditAfterCombat then
+            iST.State.ResumeEditAfterCombat = nil
+            if not iSTSettings.barLocked and iST:ShouldShowBar() then iST:SetBarLocked(false) end
+        end
         return
     end
 
     if event == "UNIT_AURA" then
         local unit, updateInfo = ...
         if not IsSecret(unit) and unit == "player" then
-            iST:ScanForActiveSealOutOfCombat("UNIT_AURA")
-            iST:ObserveWrathAura(updateInfo)
-            if iST.BarFrame then
-                iST.BarFrame.nextStackCountDisplay = nil
+            local scanSeal, scanEcho, sealSpellID = PlayerAuraImpact(iST, updateInfo)
+            if scanSeal then iST:ScanForActiveSealOutOfCombat("UNIT_AURA", sealSpellID) end
+            if scanEcho and iST:IsWrathTrackingEnabled() then
+                local _, changed = iST:ObserveWrathAura(updateInfo)
+                if not changed then iST:RequestWrathDisplayUpdate() end
             end
-            iST:UpdateWrathDisplay()
         end
         return
     end

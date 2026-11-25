@@ -21,6 +21,33 @@ local function NativeContainerReady()
     end
     return C_AuraContainerUtil ~= nil
 end
+iST.EnsureNativeAuraContainer = NativeContainerReady
+
+function iST:AddEchoPresenceGroup(container, anchor, width)
+    local spellIDs = {}
+    for _, spell in ipairs(self.WrathEchoSpells) do
+        spellIDs[spell.id] = true
+    end
+    container:SetPoint("TOPLEFT", anchor, "TOP", -width / 2, 0)
+    container:AddAuraGroup("activeEcho", "HELPFUL", {
+        candidateFilters = { includeSpellIDs = spellIDs },
+        maxFrameCount = 1,
+        layout = { elementWidth = width + 1, elementHeight = 1 },
+        initializeFrame = function(button)
+            button:SetSize(width + 1, 1)
+            button:EnableMouse(false)
+        end,
+    })
+end
+
+function iST:RequestWrathDisplayUpdate()
+    if self.State.WrathDisplayPending then return end
+    self.State.WrathDisplayPending = true
+    C_Timer.After(0, function()
+        self.State.WrathDisplayPending = nil
+        self:UpdateWrathDisplay()
+    end)
+end
 
 -- Each palette runs from no stacks to three stacks.
 local COLOR_SCHEMES = {
@@ -238,13 +265,9 @@ function iST:LayoutStackPips()
         self:AnchorAttachedIndicators()
         bar.stackPipCounterOffset = counterOffset
     end
-    local function PipShift(frame)
-        local visible = math.max(1, math.min(3, frame.visiblePips or 3))
-        return (3 - visible) * ((frame.pipSize or 18) + (frame.pipGap or 5)) / 2
-    end
     local function Place(frame)
         if not frame then return end
-        local x = PipShift(frame)
+        local x = self:GetStackPipCenterOffset(frame)
         if frame.pipOffset ~= offset or frame.pipXOffset ~= x then
             local ok = pcall(function()
                 frame:ClearAllPoints()
@@ -260,23 +283,9 @@ function iST:LayoutStackPips()
         for _, row in ipairs(bar.nativeSealIconsMain.iconRows or {}) do Place(row.strip) end
     end
     if self.PlayerWrathFrame then
-        local playerFrame = self.PlayerWrathFrame
-        local function CenterPlayer(frame)
-            if not frame then return end
-            local x = PipShift(frame)
-            if frame.playerPipXOffset ~= x then
-                local ok = pcall(function()
-                    frame:ClearAllPoints()
-                    frame:SetPoint("CENTER", playerFrame, "CENTER", x, 0)
-                end)
-                if ok then frame.playerPipXOffset = x end
-            end
-        end
-        CenterPlayer(playerFrame.bubbles)
-        CenterPlayer(playerFrame.sealIcons)
-        for _, row in ipairs(bar.nativeStagePlayerRows or {}) do CenterPlayer(row.bubbles) end
+        for _, row in ipairs(bar.nativeStagePlayerRows or {}) do self:LayoutPlayerPipRow(row.bubbles) end
         if bar.nativeSealIconsPlayer then
-            for _, row in ipairs(bar.nativeSealIconsPlayer.iconRows or {}) do CenterPlayer(row.strip) end
+            for _, row in ipairs(bar.nativeSealIconsPlayer.iconRows or {}) do self:LayoutPlayerPipRow(row.strip) end
         end
     end
 end
@@ -289,8 +298,7 @@ function iST:ApplyWrathCircleSize()
         return
     end
     local size = math.max(10, math.min(50, tonumber(iSTSettings.wrathCircleSize) or 18))
-    local configuredPlayerSize = math.max(10, math.min(50, tonumber(iSTSettings.playerPipSize) or 18))
-    local playerSize = math.max(10, configuredPlayerSize - 2)
+    local playerSize = self:GetPlayerPipSize()
     -- Resize around each pip's fixed bottom anchor. Scaling the whole frame
     -- also scales its anchor offset and makes the pips climb above the bar.
     self:ResizeStackBubbles(bar.wrathCircles, size)
@@ -303,19 +311,9 @@ function iST:ApplyWrathCircleSize()
             self:ResizeStackSealIcons(row.strip, size)
         end
     end
-    if bar.nativeSealIconsPlayer then
-        for _, row in ipairs(bar.nativeSealIconsPlayer.iconRows or {}) do
-            self:ResizeStackSealIcons(row.strip, playerSize)
-        end
-    end
-    for _, row in ipairs(bar.nativeStagePlayerRows or {}) do
-        self:ResizeStackBubbles(row.bubbles, playerSize)
-    end
     if self.PlayerWrathFrame then
         self.PlayerWrathFrame:SetHeight(math.max(28, playerSize + 12))
         self.PlayerWrathFrame.layoutWidth = nil
-        self:ResizeStackBubbles(self.PlayerWrathFrame.bubbles, playerSize)
-        self:ResizeStackSealIcons(self.PlayerWrathFrame.sealIcons, playerSize)
     end
     self:LayoutStackPips()
     self.State.PendingWrathCircleSize = nil
@@ -866,286 +864,6 @@ local function CenterMessageFormatter(message, target)
     }) then return formatter end
 end
 
-local function WorldCueGateFormatter(target)
-    if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return end
-    local formatter = C_StringUtil.CreateNumericRuleFormatter()
-    if pcall(formatter.SetBreakpoints, formatter, {
-        { threshold = 0, format = "" },
-        { threshold = target, format = string.rep("W", 70) },
-    }) then return formatter end
-end
-
-local WORLD_WING_BASE = iST.AddonPath .. "Images\\Cues\\Wing_Base.blp"
-local WORLD_WING_GLOW = iST.AddonPath .. "Images\\Cues\\Wing_Glow.blp"
-local WORLD_WING_MASK = iST.AddonPath .. "Images\\Cues\\Wing_EdgeMask.tga"
-local WORLD_WING_WIDTH, WORLD_WING_HEIGHT = 320, 190
-
-local function WorldWingTint(color)
-    -- The supplied artwork already has its gold palette. Preserve it for the
-    -- previous default color while still allowing custom tints.
-    if color.r == 1 and color.g == 0.76 and color.b == 0.22 then return 1, 1, 1 end
-    return color.r, color.g, color.b
-end
-
-local function CreateWorldGlowEffects(parent, anchor, showInitially)
-    local effects, all = {}, {}
-    local color = iSTSettings.worldEchoCueColor
-    local tintR, tintG, tintB = WorldWingTint(color)
-    local function Add(path, opacity, pulse, blend)
-        local art = parent:CreateTexture(nil, "ARTWORK")
-        art:SetTexture(path)
-        local scale = iSTSettings.worldEchoCueScale or 1
-        art:SetSize(WORLD_WING_WIDTH * scale, WORLD_WING_HEIGHT * scale)
-        art:SetPoint("CENTER", anchor, "CENTER")
-        art:SetBlendMode(blend or "ADD")
-        local mask = parent:CreateMaskTexture()
-        mask:SetTexture(WORLD_WING_MASK)
-        mask:SetAllPoints(art)
-        art:AddMaskTexture(mask)
-        art:SetVertexColor(tintR, tintG, tintB, (color.a or 1) * opacity)
-        art:SetShown(showInitially == true)
-        effects[#effects + 1] = art
-        all[#all + 1] = { texture = art, opacity = opacity }
-        if pulse then
-            -- The animation runs on a prebuilt texture; no combat-time layout or aura reads.
-            pcall(function()
-                local animation = art:CreateAnimationGroup()
-                animation:SetLooping("BOUNCE")
-                local fade = animation:CreateAnimation("Alpha")
-                fade:SetFromAlpha(0.35)
-                fade:SetToAlpha(1)
-                fade:SetDuration(pulse)
-                fade:SetSmoothing("IN_OUT")
-                animation:Play()
-            end)
-        end
-        return art
-    end
-    Add(WORLD_WING_BASE, 0.95, nil, "BLEND")
-    Add(WORLD_WING_GLOW, 0.48, 1.1, "BLEND")
-    return effects, all
-end
-
-function iST:UpdateWorldEchoCue(preview)
-    local wanted = preview or (iSTSettings.showWorldEchoCue and self:IsWrathTrackingEnabled()
-        and self:ShouldShowAuxiliaryCues())
-    local host = self.WorldEchoCueFrame
-    if not wanted and not (host and host.moving) then
-        if host and host.cueShown and pcall(host.Hide, host) then host.cueShown = false end
-        return
-    end
-    if not host then
-        if CombatLocked() or not NativeContainerReady() or self.State.WorldEchoCueFailed then return end
-        local ok, result = pcall(function()
-            local frame = CreateFrame("Frame", nil, UIParent)
-            frame:SetSize(WORLD_WING_WIDTH, WORLD_WING_HEIGHT)
-            frame:SetFrameStrata("HIGH")
-            frame:SetMovable(true)
-            frame:RegisterForDrag("LeftButton")
-            frame:EnableMouse(false)
-            if iSTSettings.worldEchoCuePoint then
-                local point = iSTSettings.worldEchoCuePoint
-                frame:SetPoint("CENTER", UIParent, "CENTER", point[1], point[2])
-            else
-                frame:SetPoint("CENTER", UIParent, "CENTER", 0, -50)
-            end
-            frame:SetScript("OnDragStart", function(self)
-                if self.moving and not CombatLocked() then
-                    iST:BeginMoveGuides(self)
-                end
-            end)
-            frame:SetScript("OnDragStop", function(self)
-                iST:EndMoveGuides(self)
-                local x, y = self:GetCenter()
-                local rootX, rootY = UIParent:GetCenter()
-                if x and y and rootX and rootY then
-                    iSTSettings.worldEchoCuePoint = { x - rootX, y - rootY }
-                    self:ClearAllPoints()
-                    self:SetPoint("CENTER", UIParent, "CENTER",
-                        iSTSettings.worldEchoCuePoint[1], iSTSettings.worldEchoCuePoint[2])
-                end
-            end)
-            frame:SetScript("OnMouseUp", function(self, button)
-                if button == "RightButton" and iST:CanResetMovePosition(self) then
-                    iST:ResetWorldEchoCuePosition()
-                end
-            end)
-            local preview = frame:CreateTexture(nil, "BACKGROUND")
-            preview:SetAllPoints(frame)
-            -- The artwork itself is the drag preview; a filled backdrop leaves
-            -- a visible rectangle around the transparent wings.
-            preview:SetColorTexture(0, 0, 0, 0)
-            preview:Hide()
-            frame.preview = preview
-            frame.previewEffects, frame.previewArts = CreateWorldGlowEffects(frame, frame)
-            frame.rows, frame.slots = {}, {}
-            for _, spell in ipairs(self.WrathEchoSpells) do
-                frame.slots[#frame.slots + 1] = {
-                    key = "echo" .. spell.id, spellID = spell.id, seal = spell.seal,
-                }
-            end
-            local container = CreateFrame("AuraContainer", nil, frame, "CustomAuraContainerTemplate")
-            container:SetAllPoints(frame)
-            container:EnableMouse(false)
-            container:SetUnit("player")
-            frame.container = container
-            for _, slot in ipairs(frame.slots) do
-                local slotInfo = slot
-                container:AddAuraSlot(slotInfo.key, "HELPFUL", {
-                    candidateFilters = StackSpellFilter(slotInfo),
-                    initializeFrame = function(button)
-                        button:SetAllPoints(frame)
-                        button:EnableMouse(false)
-                        local gate = button:CreateFontString(nil, "BACKGROUND")
-                        gate:SetFont(STANDARD_TEXT_FONT, 64, "")
-                        gate:SetWidth(0)
-                        gate:SetWordWrap(false)
-                        gate:SetPoint("LEFT", button, "LEFT")
-                        gate:SetAlpha(0)
-                        local clip = CreateFrame("Frame", nil, button, "DisableUntrustedLayoutScriptsTemplate")
-                        clip:SetClipsChildren(true)
-                        clip:EnableMouse(false)
-                        clip:SetPoint("TOPLEFT", button, "TOPLEFT")
-                        clip:SetPoint("BOTTOM", button, "BOTTOM")
-                        clip:SetPoint("RIGHT", gate, "RIGHT")
-                        local effects, allEffects = CreateWorldGlowEffects(clip, button, true)
-                        local target = self:GetTwistStackTarget(slotInfo.seal)
-                        button:SetApplicationCount(gate, { formatter = assert(WorldCueGateFormatter(target)) })
-                        frame.rows[#frame.rows + 1] = {
-                            button = button, gate = gate, effects = effects, allEffects = allEffects,
-                            seal = slotInfo.seal, wingsShown = true,
-                        }
-                    end,
-                })
-            end
-            container:SetEnabled(true)
-            return frame
-        end)
-        if not ok then
-            self.State.WorldEchoCueFailed = true
-            self:DebugMsg("Floating Echo cue is unavailable: " .. tostring(result), 2)
-            return
-        end
-        host = result
-        self.WorldEchoCueFrame = host
-        host.filterKey = StackFilterKey()
-    end
-    if not CombatLocked() then
-        local filterKey = StackFilterKey()
-        if host.filterKey ~= filterKey then
-            local updated = true
-            for _, slot in ipairs(host.slots) do
-                if not pcall(host.container.SetAuraSlotCandidateFilters, host.container,
-                    slot.key, StackSpellFilter(slot)) then updated = false end
-            end
-            if updated then host.filterKey = filterKey end
-        end
-        for _, row in ipairs(host.rows) do
-            local target = self:GetTwistStackTarget(row.seal)
-            if row.target ~= target then
-                local formatter = WorldCueGateFormatter(target)
-                if formatter and pcall(row.button.SetApplicationCount, row.button, row.gate,
-                    { formatter = formatter }) then row.target = target end
-            end
-            if not row.wingsShown then
-                for _, art in ipairs(row.effects) do art:Show() end
-                row.wingsShown = true
-            end
-        end
-        local color = iSTSettings.worldEchoCueColor
-        local colorKey = table.concat({ color.r, color.g, color.b, color.a or 1 }, ":")
-        if host.colorKey ~= colorKey then
-            local tintR, tintG, tintB = WorldWingTint(color)
-            local updated = true
-            for _, row in ipairs(host.rows) do
-                for _, effect in ipairs(row.allEffects) do
-                    if not pcall(effect.texture.SetVertexColor, effect.texture, tintR, tintG, tintB,
-                        (color.a or 1) * effect.opacity) then updated = false end
-                end
-            end
-            for _, effect in ipairs(host.previewArts) do
-                if not pcall(effect.texture.SetVertexColor, effect.texture, tintR, tintG, tintB,
-                    (color.a or 1) * effect.opacity) then updated = false end
-            end
-            if updated then host.colorKey = colorKey end
-        end
-        local scale = iSTSettings.worldEchoCueScale or 1
-        if host.displayScale ~= scale then
-            host:SetScale(1)
-            host:SetSize(WORLD_WING_WIDTH * scale, WORLD_WING_HEIGHT * scale)
-            for _, effect in ipairs(host.previewArts) do
-                effect.texture:SetSize(WORLD_WING_WIDTH * scale, WORLD_WING_HEIGHT * scale)
-            end
-            for _, row in ipairs(host.rows) do
-                for _, effect in ipairs(row.allEffects) do
-                    effect.texture:SetSize(WORLD_WING_WIDTH * scale, WORLD_WING_HEIGHT * scale)
-                end
-            end
-            host.displayScale = scale
-        end
-        if host.moving then
-            for _, art in ipairs(host.previewEffects) do art:Show() end
-        end
-    end
-    local source = self.State.WrathEchoSeal or self.WrathTracker.seal
-    local switchPhase = self:IsEchoSwitchPhase(source)
-    local phase = iSTSettings.worldEchoCuePhase or "SWITCH"
-    local switchBack = phase == "SWITCH" and self:ShouldShowEchoSwitchBack()
-    local previewVisible = host.moving or switchBack
-    if host.previewVisible ~= previewVisible then
-        local updated = true
-        for _, art in ipairs(host.previewEffects) do
-            if not pcall(art.SetShown, art, previewVisible) then updated = false end
-        end
-        if updated then host.previewVisible = previewVisible end
-    end
-    local showPhase = host.moving or switchBack or (switchPhase ~= nil
-        and (phase == "SWITCH" and switchPhase or phase == "ATTACK" and not switchPhase))
-    local phaseAlpha = showPhase and 1 or 0
-    if host.phaseAlpha ~= phaseAlpha and pcall(host.SetAlpha, host, phaseAlpha) then
-        host.phaseAlpha = phaseAlpha
-    end
-    if not host.cueShown and pcall(host.Show, host) then host.cueShown = true end
-end
-
-function iST:SetWorldEchoCueMoveMode(moving)
-    if CombatLocked() then
-        if not moving and self.WorldEchoCueFrame then
-            local frame = self.WorldEchoCueFrame
-            frame.moving = false
-            frame.previewVisible = nil
-            pcall(frame.EnableMouse, frame, false)
-            pcall(frame.preview.Hide, frame.preview)
-            for _, effect in ipairs(frame.previewArts or {}) do
-                pcall(effect.texture.Hide, effect.texture)
-            end
-        end
-        return
-    end
-    if moving and (not self.State.EditMode or iSTSettings.barLocked) then self:SetBarLocked(false) end
-    if moving and (not self.State.EditMode or iSTSettings.barLocked) then return end
-    if moving and not self.WorldEchoCueFrame then self:UpdateWorldEchoCue(true) end
-    local frame = self.WorldEchoCueFrame
-    if not frame then return end
-    frame.moving = moving and true or false
-    frame:EnableMouse(frame.moving)
-    frame.preview:SetShown(frame.moving)
-    if not frame.moving then
-        for _, effect in ipairs(frame.previewArts) do effect.texture:Hide() end
-    end
-    frame.previewVisible = nil
-    self:UpdateWorldEchoCue()
-end
-
-function iST:ResetWorldEchoCuePosition()
-    if CombatLocked() then return end
-    iSTSettings.worldEchoCuePoint = nil
-    local frame = self.WorldEchoCueFrame
-    if not frame then return end
-    frame:ClearAllPoints()
-    frame:SetPoint("CENTER", UIParent, "CENTER", 0, -50)
-end
-
 function iST:IsEchoSwitchPhase(source)
     if not source then return nil end
     local current = self.State.CurrentSealName
@@ -1154,13 +872,16 @@ function iST:IsEchoSwitchPhase(source)
     return not (current and current ~= source and cast == current)
 end
 
-function iST:ShouldShowEchoSwitchBack()
+local function EchoSwitchBackPending(self)
     local source = self.State.EchoSwitchBackSeal
     local current = self.State.CurrentSealName
     if issecretvalue and (issecretvalue(source) or issecretvalue(current)) then return false end
     return source ~= nil and self:GetTwistStackSelection(source) == 0
         and (current == nil or current == source)
-        and not self.State.EditMode and self:IsWrathTrackingEnabled()
+end
+
+function iST:ShouldShowEchoSwitchBack()
+    return EchoSwitchBackPending(self) and not self.State.EditMode and self:IsWrathTrackingEnabled()
         and self:ShouldShowAuxiliaryCues()
         and (self.State.InCombat == true or self:HasActiveSeal())
 end
@@ -1679,14 +1400,14 @@ local function CreateStageButton(button, host, stage)
     clip:SetPoint("TOP", button, "TOP")
     clip:SetPoint("BOTTOM", button, "BOTTOM")
     button:SetApplicationCount(gate, { formatter = assert(StageGateFormatter(stage)) })
-    return clip
+    return clip, gate
 end
 
-local function BuildStageContainer(parent, host, build)
+local function BuildStageContainer(parent, host, build, initialize)
     local frame = CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")
-    frame:SetAllPoints(host)
     frame:EnableMouse(false)
     frame:SetUnit("player")
+    if initialize then initialize(frame) else frame:SetAllPoints(host) end
     local rows = {}
     frame.slotInfos = {}
     -- Each row belongs to one Echo spell, so the number of unfilled pips can
@@ -1699,11 +1420,12 @@ local function BuildStageContainer(parent, host, build)
             frame:AddAuraSlot(slot.key, "HELPFUL", {
                 candidateFilters = StackSpellFilter(slot),
                 initializeFrame = function(button)
-                    local clip = CreateStageButton(button, host, slot.stage)
-                    local row = build(clip, slot.stage, slot.seal)
+                    local clip, gate = CreateStageButton(button, host, slot.stage)
+                    local row = build(clip, slot.stage, slot.seal, gate)
                     row.stage, row.seal = slot.stage, slot.seal
                     rows[#rows + 1] = row
                     if iST.BarFrame then iST.BarFrame.nativeStageVisualKey = nil end
+                    if not CombatLocked() then iST:RequestWrathDisplayUpdate() end
                 end,
             })
         end
@@ -1717,11 +1439,11 @@ local function BuildSealIconContainer(parent, bar, player)
     -- The count itself stays in Blizzard's aura formatter during combat.
     local frame, rows = BuildStageContainer(parent, parent, function(clip, stage, seal)
         local texture = bar.stackSealIcons[seal]
-        local size = math.max(10, math.min(50, tonumber(player and iSTSettings.playerPipSize
-            or iSTSettings.wrathCircleSize) or 18))
+        local size = player and iST:GetPlayerPipSize()
+            or math.max(10, math.min(50, tonumber(iSTSettings.wrathCircleSize) or 18))
         local strip = iST:CreateStackSealIcons(clip, size, 5, texture)
         iST:RenderStackSealIcons(strip, stage, texture, iST:GetTwistStackTarget(seal))
-        if player then strip:SetPoint("CENTER", parent, "CENTER")
+        if player then iST:LayoutPlayerPipRow(strip)
         else strip:SetPoint("BOTTOM", bar, "TOP", 0, iST:GetStackPipYOffset()) end
         return { strip = strip }
     end)
@@ -1783,9 +1505,10 @@ function iST:UpdateNativeStageVisuals()
     local bar = self.BarFrame
     if not bar or CombatLocked() then return end
     self:UpdateNativeSealIconStrips()
-    local stackBarColor = iSTSettings.showStackBarColor and not iSTSettings.barColorBySeal
+    local stackBarColor = iSTSettings.showSwingBar and iSTSettings.showStackBarColor and not iSTSettings.barColorBySeal
+    local swordImages = self:UsesSwordImages()
     local mainWanted = self:IsWrathTrackingEnabled() and not self.State.TestMode
-        and (stackBarColor or iSTSettings.showStackSwordImages
+        and (stackBarColor or swordImages
             or (iSTSettings.showStackCircles and iSTSettings.stackBubbleStyle == "CIRCLES"))
     local playerWanted = self:IsWrathTrackingEnabled() and not self.State.TestMode
         and iSTSettings.showPlayerWrathBubbles and iSTSettings.stackBubbleStyle == "CIRCLES"
@@ -1794,11 +1517,16 @@ function iST:UpdateNativeStageVisuals()
     if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return end
     if not NativeContainerReady() then return end
     if mainWanted and not bar.nativeStageMain and not bar.nativeStageFailed then
-        local ok, frame, rows = pcall(BuildStageContainer, bar, bar, function(clip, stage)
+        local ok, frame, rows = pcall(BuildStageContainer, bar, bar, function(clip, stage, seal)
             local overlay = clip:CreateTexture(nil, "ARTWORK")
             overlay:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
             overlay:SetAllPoints(bar.fill)
             local sword = self:CreateNativeSwordStage(bar, clip)
+            if self:UsesSwordImages() then
+                self:UpdateNativeSwordStage(bar, sword, self:GetWrathCueColor(stage),
+                    self:GetSwordImageGlowStage(stage, self:GetTwistStackTarget(seal)))
+                sword:Show()
+            end
             local circles = self:CreateStackBubbles(clip, nil,
                 math.max(10, math.min(50, tonumber(iSTSettings.wrathCircleSize) or 18)), 9)
             circles:SetPoint("BOTTOM", bar, "TOP", 0, self:GetStackPipYOffset())
@@ -1811,15 +1539,6 @@ function iST:UpdateNativeStageVisuals()
             bar.nativeStageMainVisible = false
             bar.nativeStageVisualKey = nil
             self:ApplyWrathCircleSize()
-            if not bar.nativeStageTextLayer then
-                local textLayer = CreateFrame("Frame", nil, bar)
-                textLayer:SetAllPoints(bar)
-                textLayer:SetFrameLevel(bar:GetFrameLevel() + 20)
-                for _, label in ipairs({ bar.timeText, bar.speedText, bar.latencyText, bar.sealText }) do
-                    if label then label:SetParent(textLayer) end
-                end
-                bar.nativeStageTextLayer = textLayer
-            end
         else
             bar.nativeStageFailed = true
             self:DebugMsg("Stack graphics could not attach to the buff: " .. tostring(frame), 2)
@@ -1827,10 +1546,12 @@ function iST:UpdateNativeStageVisuals()
     end
     if playerWanted and self.PlayerWrathFrame and not bar.nativeStagePlayer and not bar.nativePlayerStageFailed then
         local ok, frame, rows = pcall(BuildStageContainer, self.PlayerWrathFrame,
-            self.PlayerWrathFrame, function(clip, stage)
-                local bubbles = self:CreateStackBubbles(clip, nil,
-                    math.max(10, math.min(50, tonumber(iSTSettings.playerPipSize) or 18)), 10)
-                bubbles:SetPoint("CENTER", self.PlayerWrathFrame, "CENTER")
+            self.PlayerWrathFrame, function(clip, stage, seal)
+                local bubbles = self:CreateStackBubbles(clip, nil, self:GetPlayerPipSize(), 10)
+                self:RenderStackBubbles(bubbles, stage, self:GetWrathCueColor(stage),
+                    self:GetTwistStackTarget(seal))
+                self:LayoutPlayerPipRow(bubbles)
+                bubbles:Show()
                 return { bubbles = bubbles }
             end)
         if ok then
@@ -1868,7 +1589,8 @@ function iST:UpdateNativeStageVisuals()
     end
     if not mainWanted and not playerWanted then return end
     local visualParts = { tostring(stackBarColor),
-        tostring(iSTSettings.showStackSwordImages), tostring(iSTSettings.showStackCircles),
+        tostring(swordImages), tostring(iSTSettings.showStackCircles),
+        tostring(iSTSettings.swordFrameStyle),
         tostring(iSTSettings.stackBubbleStyle),
         tostring(iSTSettings.wrathColorScheme),
         tostring(iSTSettings.twistFromSeal), tostring(iSTSettings.twistIntoSeal),
@@ -1889,7 +1611,7 @@ function iST:UpdateNativeStageVisuals()
             row.overlay:SetShown(stackBarColor)
             self:UpdateNativeSwordStage(bar, row.sword, color,
                 self:GetSwordImageGlowStage(stage, self:GetTwistStackTarget(row.seal)))
-            row.sword:SetShown(iSTSettings.showStackSwordImages)
+            row.sword:SetShown(swordImages)
             self:RenderStackBubbles(row.circles, stage, color,
                 self:GetTwistStackTarget(row.seal))
             row.circles:SetShown(iSTSettings.showStackCircles and iSTSettings.stackBubbleStyle == "CIRCLES")
@@ -1903,6 +1625,487 @@ function iST:UpdateNativeStageVisuals()
             row.bubbles:Show()
         end
     end
+end
+
+local function SwordFillInterpolation()
+    return Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.ExponentialEaseOut
+end
+
+local function CreateVerticalSwordHost()
+    local frame = CreateFrame("Frame", nil, UIParent)
+    frame:SetFrameStrata("MEDIUM")
+    frame:SetClampedToScreen(true)
+    frame:EnableMouse(false)
+
+    local liveLayer = CreateFrame("Frame", nil, frame)
+    liveLayer:SetAllPoints(frame)
+    liveLayer:EnableMouse(false)
+
+    -- Keep the drag surface and preview outside the native aura hierarchy so
+    -- combat can always clear them, even when an Echo is already active.
+    local handle = CreateFrame("Frame", nil, UIParent)
+    handle:SetAllPoints(frame)
+    handle:SetFrameStrata("MEDIUM")
+    handle:SetFrameLevel(frame:GetFrameLevel() + 20)
+    handle:EnableMouse(false)
+    handle:RegisterForDrag("LeftButton")
+    handle:SetScript("OnDragStart", function()
+        if iST:IsLayoutUnlocked() then iST:BeginMoveGuides(frame) end
+    end)
+    handle:SetScript("OnDragStop", function()
+        if not iST.MoveGuides or iST.MoveGuides.movingFrame ~= frame then return end
+        iST:EndMoveGuides(frame)
+        if not iST:IsLayoutUnlocked() then return end
+        local _, _, _, x, y = frame:GetPoint()
+        iSTSettings.verticalSwordPoint = { x, y }
+        frame.position = iSTSettings.verticalSwordPoint
+    end)
+    handle:SetScript("OnMouseUp", function(_, button)
+        if button ~= "RightButton" or not iST:CanResetMovePosition(frame) then return end
+        iSTSettings.verticalSwordPoint = nil
+        iST:UpdateVerticalSword(iST.State.PreviewStacks)
+    end)
+    if SwordFillInterpolation() then
+        frame.previewSword = iST:CreateAnimatedVerticalSword(handle, handle)
+    else
+        frame.artwork = iST:CreateVerticalSwordArtwork(handle, handle)
+    end
+    handle:Hide()
+    frame.liveLayer, frame.handle = liveLayer, handle
+    return frame
+end
+
+local function BindVerticalSwordFill(row, target)
+    row.button:SetApplicationBar(row.sword.bar, {
+        minApplications = 0,
+        maxApplications = target,
+        interpolation = SwordFillInterpolation(),
+    })
+    row.target = target
+end
+
+function iST:ObserveVerticalSwordEcho(instanceID, seal, newlyAdded)
+    local frame = self.VerticalSwordFrame
+    if not frame or not frame.animated or frame.swordEchoInstanceID == instanceID then return end
+    -- A temporary absence during a refresh can clear the tracker, but it
+    -- must not rearm the sweep for the same Echo instance.
+    frame.swordEchoInstanceID = instanceID
+    if not newlyAdded or not frame.nativeWanted or frame.preview then return end
+    for _, row in ipairs(frame.rows) do
+        if row.seal == seal then
+            local sweep = row.sword.fillSweep
+            if sweep then
+                local ok = pcall(function()
+                    sweep:Stop()
+                    sweep:Play()
+                end)
+                if not ok then
+                    row.sword.fillSweep = nil
+                    self:DebugMsg("Sword fill animation could not play.", 3)
+                end
+            end
+            return
+        end
+    end
+end
+
+local SWORD_CLIP_WIDTH = 256
+local SWORD_BUILDING_GATE_TEXT = string.rep("W", 16)
+
+local function BindSwordWarningThreshold(frame, row, target)
+    local gate = row.warningGate
+    if not gate then
+        gate = row.button:CreateFontString(nil, "BACKGROUND")
+        gate:SetFont(STANDARD_TEXT_FONT, 64, "")
+        gate:SetWordWrap(false)
+        gate:SetWidth(0)
+        gate:SetPoint("LEFT", frame, "CENTER", -SWORD_CLIP_WIDTH / 2, 0)
+        gate:SetAlpha(0)
+        -- Measure the public marker before the client binds the native count.
+        gate:SetText(SWORD_BUILDING_GATE_TEXT)
+        local width = gate:GetStringWidth()
+        assert(width >= SWORD_CLIP_WIDTH, "sword gate marker is too narrow")
+        gate:SetText("")
+        row.warningOffset = -width
+        row.warningGate = gate
+    end
+    local points = { { threshold = 0, format = "" } }
+    if target > 1 then points[#points + 1] = { threshold = 1, format = SWORD_BUILDING_GATE_TEXT } end
+    points[#points + 1] = { threshold = target, format = SWORD_BUILDING_GATE_TEXT:rep(2) }
+    local formatter = C_StringUtil.CreateNumericRuleFormatter()
+    formatter:SetBreakpoints(points)
+    row.button:SetApplicationCount(gate, { formatter = formatter })
+    row.warningTarget = target
+end
+
+local function BuildAnimatedSwordContainer(frame, container)
+    container:EnableMouse(false)
+    container:SetUnit("player")
+    local rows = {}
+    for _, spell in ipairs(iST.WrathEchoSpells) do
+        local slot = { spellID = spell.id, seal = spell.seal }
+        container:AddAuraSlot("swordEcho" .. slot.spellID, "HELPFUL", {
+            candidateFilters = StackSpellFilter(slot),
+            initializeFrame = function(button)
+                button:SetAllPoints(frame)
+                button:EnableMouse(false)
+                local sword = iST:CreateAnimatedVerticalSword(button, frame)
+                local row = { button = button, sword = sword, seal = slot.seal }
+                iST:RenderAnimatedVerticalSword(sword, row.seal, frame.height)
+                local target = iST:GetTwistStackTarget(row.seal)
+                BindVerticalSwordFill(row, target)
+                if C_StringUtil and C_StringUtil.CreateNumericRuleFormatter then
+                    local ok, err = pcall(BindSwordWarningThreshold, frame, row, target)
+                    if not ok then iST:DebugMsg("The sword switch cue could not attach to the Echo: " .. tostring(err), 2) end
+                end
+                -- The native bar owns the stack value. The startup sweep runs
+                -- only for a newly added Echo, even if its button is shown again.
+                local ok, sweep = pcall(iST.CreateVerticalSwordFillSweep, iST, sword)
+                if ok then sword.fillSweep = sweep
+                else iST:DebugMsg("Sword fill animation could not attach: " .. tostring(sweep), 3) end
+                rows[#rows + 1] = row
+            end,
+        })
+    end
+    return rows
+end
+
+local function CreateEmptySwordClip(host, container, parent)
+    -- A matching Echo fills the group and closes the empty sword's clip.
+    local clip = CreateFrame("Frame", nil, parent, "DisableUntrustedLayoutScriptsTemplate")
+    clip:SetClipsChildren(true)
+    clip:EnableMouse(false)
+    clip:SetPoint("TOPLEFT", container, "TOPRIGHT", -1, 0)
+    clip:SetPoint("BOTTOMRIGHT", host, "BOTTOM", SWORD_CLIP_WIDTH / 2, 0)
+    return clip
+end
+
+local function CreateEmptySwordArtwork(host, container)
+    iST:AddEchoPresenceGroup(container, host, SWORD_CLIP_WIDTH)
+    local clip = CreateEmptySwordClip(host, container, host.liveLayer)
+    return iST:CreateVerticalSwordArtwork(clip, host)
+end
+
+local function InitializeEmptySword(frame, container)
+    local ok, artwork = pcall(CreateEmptySwordArtwork, frame, container)
+    if ok then frame.emptyArtwork = artwork
+    else iST:DebugMsg("Empty sword could not attach to the Echo buff: " .. tostring(artwork), 2) end
+end
+
+local function CreateSwordVisualLayer(parent, frame)
+    local layer = CreateFrame("Frame", nil, parent)
+    layer:SetAllPoints(frame)
+    layer:EnableMouse(false)
+    layer:SetAlpha(0)
+    return { layer = layer, active = false }
+end
+
+local function CreateSwordWarningLayer(parent, frame)
+    local visual = CreateSwordVisualLayer(parent, frame)
+    visual.artwork = iST:CreateVerticalSwordWarning(visual.layer, frame)
+    return visual
+end
+
+local function SetSwordVisualActive(visual, active)
+    if visual and visual.active ~= active then
+        visual.layer:SetAlpha(active and 1 or 0)
+        visual.active = active
+    end
+end
+
+local function RefreshSwordPhaseThreshold(frame, row, target)
+    if not row.stage and row.warningTarget ~= target then
+        local ok, err = pcall(BindSwordWarningThreshold, frame, row, target)
+        if not ok then
+            iST:DebugMsg("The sword switch cue could not attach to the Echo: " .. tostring(err), 2)
+            return false
+        end
+    end
+    return row.warningGate ~= nil
+end
+
+local function CreateSwordPhaseClip(parent, frame, row, phase)
+    -- Native marker widths represent absent, building, and ready. Only
+    -- geometry follows the protected count. Combat changes our plain parent.
+    local gate = row.warningGate
+    local clip = CreateFrame("Frame", nil, parent, "DisableUntrustedLayoutScriptsTemplate")
+    clip:SetClipsChildren(true)
+    clip:EnableMouse(false)
+    if phase == "BUILDING" then
+        clip:SetPoint("LEFT", gate, "RIGHT", row.warningOffset, 0)
+        clip:SetWidth(SWORD_CLIP_WIDTH)
+    else
+        local offset = phase == "SWITCH" and row.warningOffset or 0
+        clip:SetPoint("LEFT", gate, "LEFT", offset, 0)
+        clip:SetPoint("RIGHT", gate, "RIGHT", offset, 0)
+    end
+    clip:SetPoint("TOP", frame, "TOP")
+    clip:SetPoint("BOTTOM", frame, "BOTTOM")
+    return clip
+end
+
+local function ConfigureSwordPhaseWarning(frame, row, field, height, layout, color, atTarget)
+    local warning = row[field]
+    if not warning then
+        warning = CreateSwordWarningLayer(frame.liveLayer, frame)
+        warning.layer:SetFrameLevel(frame:GetFrameLevel() + 20)
+        -- The marker follows the Echo threshold across the whole sword.
+        -- Some Ashbringer crossguards sit below the blade's reveal.
+        warning.artwork.parent = CreateSwordPhaseClip(warning.layer, frame, row, atTarget and "SWITCH" or "ACTIVE")
+        row[field] = warning
+    end
+    iST:RenderVerticalSwordWarning(warning.artwork, layout, height, color)
+end
+
+local function ConfigureSwordWarnings(frame, row, height, ready, bound, layout)
+    row.warnAtTarget = ready and layout ~= nil
+    row.hasWarning = bound and layout ~= nil
+    if not row.hasWarning then return end
+    ConfigureSwordPhaseWarning(frame, row, "forcedWarning", height, layout, "SWITCH", false)
+    if row.warnAtTarget then
+        -- Both colors use the native stack threshold. Combat only changes the
+        -- opacity of their addon-owned parents.
+        ConfigureSwordPhaseWarning(frame, row, "switchWarning", height, layout, "SWITCH", true)
+        ConfigureSwordPhaseWarning(frame, row, "attackWarning", height, layout, "ACTIVE", true)
+    end
+end
+
+local function UpdateSwordHiltPhase(frame, row, field, phase, layout, height)
+    local visual = row[field]
+    if not visual then
+        visual = CreateSwordVisualLayer(frame.liveLayer, frame)
+        visual.layer:SetFrameLevel(frame:GetFrameLevel() + 23)
+        local clip = CreateSwordPhaseClip(visual.layer, frame, row, phase)
+        visual.glow = iST:CreateVerticalSwordHiltGlow(clip, frame)
+        row[field] = visual
+    end
+    local artwork = row.sword and row.sword.base or row.texture
+    iST:RenderVerticalSwordHiltGlow(visual.glow, layout, height, phase == "SWITCH" and "SWITCH" or "ACTIVE",
+        artwork.swordOpacity)
+end
+
+local function ConfigureSwordHiltGlows(frame, row, height, ready, bound)
+    row.hiltAtTarget = ready
+    row.hiltEnabled = bound and iSTSettings.showVerticalSwordSealGlow
+    if not row.hiltEnabled then return end
+    local layout = iST:GetVerticalSwordHiltLayout(row.seal)
+    UpdateSwordHiltPhase(frame, row, "activeHilt", "ACTIVE", layout, height)
+    if ready then UpdateSwordHiltPhase(frame, row, "switchHilt", "SWITCH", layout, height) end
+    if not row.stage then UpdateSwordHiltPhase(frame, row, "buildingHilt", "BUILDING", layout, height) end
+end
+
+local function ConfigureEmptySwordHilt(frame, field, layout, status)
+    local visual = frame[field]
+    if not visual then
+        visual = CreateSwordVisualLayer(frame.liveLayer, frame)
+        visual.layer:SetFrameLevel(frame:GetFrameLevel() + 23)
+        local clip = CreateEmptySwordClip(frame, frame.native, visual.layer)
+        visual.glow = iST:CreateVerticalSwordHiltGlow(clip, frame)
+        frame[field] = visual
+    end
+    iST:RenderVerticalSwordHiltGlow(visual.glow, layout, frame.height, status, frame.emptyArtwork.swordOpacity)
+end
+
+local function UpdateSwordLayerVisibility(frame, live, preview, confirmedEcho)
+    local visible = live and not preview and iST:MatchesDisplayVisibility(iSTSettings.verticalSwordVisibility, confirmedEcho)
+    local alpha = visible and 1 or 0
+    if frame.liveAlpha ~= alpha then
+        frame.liveLayer:SetAlpha(alpha)
+        frame.liveAlpha = alpha
+    end
+    local hasSeal = visible and iST:HasActiveSeal()
+    local switchBack = visible and EchoSwitchBackPending(iST)
+    local forceWarning = visible and (not hasSeal or switchBack) or false
+    if frame.emptyWarning then
+        SetSwordVisualActive(frame.emptyWarning, forceWarning and frame.emptyWarning.artwork.shown == true)
+    end
+    local showGlow = hasSeal and iSTSettings.showVerticalSwordSealGlow
+    SetSwordVisualActive(frame.emptyActiveHilt, (showGlow and not switchBack) == true)
+    SetSwordVisualActive(frame.emptySwitchHilt, (showGlow and switchBack) == true)
+    for _, row in ipairs(frame.rows or {}) do
+        local phase = iST:IsEchoSwitchPhase(row.seal)
+        local switch = phase == true
+        local ready = (visible and not forceWarning and row.warnAtTarget and phase ~= nil) == true
+        SetSwordVisualActive(row.switchWarning, ready and switch)
+        SetSwordVisualActive(row.attackWarning, ready and not switch)
+        SetSwordVisualActive(row.forcedWarning, (forceWarning and row.hasWarning) == true)
+        local glow = showGlow and row.hiltEnabled
+        SetSwordVisualActive(row.activeHilt, (glow and (not switch or not row.hiltAtTarget)) == true)
+        SetSwordVisualActive(row.buildingHilt, (glow and switch) == true)
+        SetSwordVisualActive(row.switchHilt, (glow and switch and row.hiltAtTarget) == true)
+    end
+end
+
+function iST:UpdateVerticalSword(count, confirmedEcho)
+    local frame = self.VerticalSwordFrame
+    local selected = iSTSettings.showVerticalSword and self:ShouldShowBar()
+    if not selected and not frame then return end
+    local preview = selected and self.State.TestMode and self.State.StackTestMode
+    if CombatLocked() then
+        if frame and frame.preview then
+            frame.handle:EnableMouse(false)
+            frame.handle:Hide()
+            frame.preview = false
+        end
+        if frame then UpdateSwordLayerVisibility(frame, selected and frame.nativeWanted, false, confirmedEcho) end
+        return
+    end
+    local live = selected and self:IsWrathTrackingEnabled()
+    if not frame and not preview and not live then return end
+    if not frame then
+        frame = CreateVerticalSwordHost()
+        self.VerticalSwordFrame = frame
+    end
+    local settings = iSTSettings
+    local point = settings.verticalSwordPoint
+    if not frame.positioned or frame.position ~= point then
+        frame:ClearAllPoints()
+        frame:SetPoint("CENTER", UIParent, "CENTER", point and point[1] or 200, point and point[2] or 0)
+        frame.positioned, frame.position = true, point
+    end
+    local height = math.max(80, math.min(280, tonumber(settings.verticalSwordHeight) or 176))
+    local aspect = self:GetVerticalSwordAspectRatio(settings.verticalSwordStyle)
+    if settings.verticalSwordMode == "PER_SEAL" then
+        aspect = math.max(aspect, self:GetVerticalSwordAspectRatio(settings.verticalSwordSecondStyle))
+    end
+    local width = height * aspect
+    if frame.height ~= height or frame.width ~= width then
+        frame:SetSize(width, height)
+        frame.width, frame.height = width, height
+    end
+    if frame.preview ~= preview then
+        frame.handle:SetShown(preview == true)
+        frame.handle:EnableMouse(preview == true and self:IsLayoutUnlocked())
+        frame.preview = preview
+        frame.previewEchoSeal = nil
+    end
+    if preview then
+        count = count or 0
+        if count == 0 then
+            frame.previewEchoSeal = nil
+        elseif not frame.previewEchoSeal then
+            frame.previewEchoSeal = self.State.CurrentSealName == settings.twistIntoSeal
+                and settings.twistIntoSeal or settings.twistFromSeal
+        end
+        local seal = frame.previewEchoSeal or settings.twistFromSeal
+        if frame.previewSword then self:RenderAnimatedVerticalSword(frame.previewSword, seal, height, count)
+        else self:RenderVerticalSword(frame.artwork, count, seal, height) end
+        local artwork = frame.previewSword and frame.previewSword.base or frame.artwork
+        local hasSeal = self:HasActiveSeal()
+        local switchBack = EchoSwitchBackPending(self)
+        local ready = count >= self:GetTwistStackTarget(seal)
+        local phase = self:IsEchoSwitchPhase(seal)
+        local status
+        if not hasSeal or switchBack then status = "SWITCH"
+        elseif ready and phase ~= nil then status = phase and "SWITCH" or "ACTIVE" end
+        local warning = self:GetVerticalSwordWarningLayout(seal)
+        if warning and not frame.previewWarning then
+            frame.previewWarning = self:CreateVerticalSwordWarning(frame.handle, frame.handle)
+        end
+        if frame.previewWarning then
+            self:RenderVerticalSwordWarning(frame.previewWarning, warning, height, status, artwork.swordOpacity)
+        end
+        if settings.showVerticalSwordSealGlow and not frame.previewHilt then
+            frame.previewHilt = self:CreateVerticalSwordHiltGlow(frame.handle, frame.handle)
+        end
+        if frame.previewHilt then
+            self:RenderVerticalSwordHiltGlow(frame.previewHilt, self:GetVerticalSwordHiltLayout(seal),
+                height, hasSeal and (status or "ACTIVE") or nil, artwork.swordOpacity)
+        end
+    end
+
+    if live and not frame.native and not frame.nativeFailed and NativeContainerReady() then
+        if SwordFillInterpolation() and C_AuraContainerUtil
+            and type(C_AuraContainerUtil.ProcessCustomAuraButtonApplicationBarOptions) == "function" then
+            local container
+            local ok, rows = pcall(function()
+                container = CreateFrame("AuraContainer", nil, frame.liveLayer, "CustomAuraContainerTemplate")
+                local builtRows = BuildAnimatedSwordContainer(frame, container)
+                InitializeEmptySword(frame, container)
+                container:SetEnabled(true)
+                return builtRows
+            end)
+            if ok then
+                frame.native, frame.rows, frame.animated = container, rows, true
+            else
+                if frame.emptyArtwork then
+                    frame.emptyArtwork:Hide()
+                    frame.emptyArtwork = nil
+                end
+                if container then pcall(container.Hide, container) end
+                self:DebugMsg("Animated sword could not attach to the Echo buff: " .. tostring(rows), 2)
+            end
+        end
+        if not frame.native and C_StringUtil and C_StringUtil.CreateNumericRuleFormatter then
+            local ok, native, rows = pcall(BuildStageContainer, frame.liveLayer, frame, function(clip, stage, seal, gate)
+                local texture = self:CreateVerticalSwordArtwork(clip, frame)
+                self:RenderVerticalSword(texture, stage, seal, frame.height)
+                return { texture = texture, warningGate = gate }
+            end, function(container) InitializeEmptySword(frame, container) end)
+            if ok then
+                frame.native, frame.rows = native, rows
+            else
+                frame.nativeFailed = true
+                frame.liveLayer:Hide()
+                self:DebugMsg("Vertical sword could not attach to the Echo buff: " .. tostring(native), 2)
+            end
+        end
+    end
+    if not frame.native then
+        UpdateSwordLayerVisibility(frame, false, preview, confirmedEcho)
+        return
+    end
+    -- Keep the native display ready through Edit Layout and combat transitions.
+    if frame.nativeWanted ~= live then
+        frame.liveLayer:SetShown(live)
+        frame.nativeWanted = live
+    end
+    if not live then
+        UpdateSwordLayerVisibility(frame, false, preview, confirmedEcho)
+        return
+    end
+    local visualKey = table.concat({ settings.verticalSwordMode, settings.verticalSwordStyle, settings.verticalSwordSecondStyle,
+        settings.twistFromSeal, settings.twistIntoSeal, settings.twistFromStacks, settings.twistIntoStacks,
+        settings.verticalSwordOpacity, tostring(settings.showVerticalSwordPhaseMarker),
+        tostring(settings.showVerticalSwordSealGlow), tostring(settings.fadeVerticalSwordGlow),
+        settings.verticalSwordCorrectGlowScale, settings.verticalSwordWrongGlowScale, height }, ":")
+    if frame.visualKey ~= visualKey then
+        if frame.emptyArtwork then self:RenderVerticalSword(frame.emptyArtwork, 0, settings.twistFromSeal, height) end
+        local emptyLayout = self:GetVerticalSwordWarningLayout(settings.twistFromSeal)
+        if frame.emptyArtwork and emptyLayout and not frame.emptyWarning then
+            frame.emptyWarning = CreateSwordWarningLayer(frame.liveLayer, frame)
+            frame.emptyWarning.layer:SetFrameLevel(frame:GetFrameLevel() + 20)
+            frame.emptyWarning.artwork.parent = CreateEmptySwordClip(frame, frame.native, frame.emptyWarning.layer)
+        end
+        if frame.emptyWarning then
+            self:RenderVerticalSwordWarning(frame.emptyWarning.artwork, emptyLayout, height, "SWITCH",
+                frame.emptyArtwork.swordOpacity)
+        end
+        if frame.emptyArtwork and settings.showVerticalSwordSealGlow then
+            local layout = self:GetVerticalSwordHiltLayout(settings.twistFromSeal)
+            ConfigureEmptySwordHilt(frame, "emptyActiveHilt", layout, "ACTIVE")
+            ConfigureEmptySwordHilt(frame, "emptySwitchHilt", layout, "SWITCH")
+        end
+        for _, row in ipairs(frame.rows) do
+            local target = self:GetTwistStackTarget(row.seal)
+            if frame.animated then
+                self:RenderAnimatedVerticalSword(row.sword, row.seal, height)
+                if row.target ~= target then
+                    local ok, err = pcall(BindVerticalSwordFill, row, target)
+                    if not ok then self:DebugMsg("Sword fill target could not be updated: " .. tostring(err), 2) end
+                end
+            else
+                self:RenderVerticalSword(row.texture, row.stage, row.seal, height)
+            end
+            local warning = self:GetVerticalSwordWarningLayout(row.seal)
+            local bound = (warning or settings.showVerticalSwordSealGlow) and RefreshSwordPhaseThreshold(frame, row, target)
+            local ready = bound and (not row.stage or row.stage >= target)
+            ConfigureSwordWarnings(frame, row, height, ready, bound, warning)
+            ConfigureSwordHiltGlows(frame, row, height, ready, bound)
+        end
+        frame.visualKey = visualKey
+    end
+    UpdateSwordLayerVisibility(frame, live, preview, confirmedEcho)
 end
 
 local function LayoutThreeStackGate(row)
@@ -2178,7 +2381,13 @@ function iST:UpdateStackCountDisplay(now, active, count)
     end
 end
 
-function iST:UpdateWrathDisplay(now)
+function iST:UpdateSwingFillColor(previewColor)
+    local fillColor = previewColor or self:GetBarFillColor()
+    self.BarFrame.fill:SetVertexColor(fillColor.r, fillColor.g, fillColor.b,
+        (fillColor.a or 1) * (self.State.Idle and 0.18 or 1))
+end
+
+function iST:UpdateWrathDisplay(now, confirmedEcho)
     local bar = self.BarFrame
     if not bar or not bar.wrathCueFrame then return end
     now = now or GetTime()
@@ -2194,31 +2403,27 @@ function iST:UpdateWrathDisplay(now)
         bar.stackCountTotal:SetTextColor(color.r, color.g, color.b, color.a or 1)
     end
     self:UpdateNativeReadyDisplay()
-    self:UpdateWorldEchoCue()
     self:UpdateCenterSwitchText()
     self:UpdateEchoSwitchBackText()
     self:UpdateCenterSwitchSealGate()
     self:UpdateNativeStageVisuals()
+    self:UpdateVerticalSword(count, confirmedEcho)
     self:LayoutStackPips()
     local nativeMain = bar.nativeStageMainVisible == true
 
     -- Stack colors belong on the fill for this cue. The other cues, and
     -- characters without the talent, keep the chosen normal bar color.
-    local fillColor = active and self.State.TestMode and iSTSettings.showStackBarColor
-        and color or self:GetBarFillColor()
-    bar.fill:SetVertexColor(fillColor.r, fillColor.g, fillColor.b,
-        (fillColor.a or 1) * (self.State.Idle and 0.18 or 1))
+    local previewColor = active and self.State.TestMode and iSTSettings.showStackBarColor and color
+    self:UpdateSwingFillColor(previewColor)
     local border = iSTSettings.borderNormalColor
-    if bar.SetBackdropBorderColor then
-        bar:SetBackdropBorderColor(border.r, border.g, border.b, border.a or 1)
-    end
+    bar.artwork:SetBackdropBorderColor(border.r, border.g, border.b, border.a or 1)
     local cueWidth = math.max(100, bar:GetWidth())
     if bar.wrathCueWidth ~= cueWidth then
         bar.wrathCueFrame:SetWidth(cueWidth)
         bar.wrathCueWidth = cueWidth
     end
 
-    local imagesVisible = active and iSTSettings.showStackSwordImages
+    local imagesVisible = active and self:UsesSwordImages()
         and (nativeMain or self.State.TestMode)
     self:UpdateSwordImageCue(bar, self.State.TestMode and count or 0, imagesVisible,
         self.State.TestMode and color or self:GetWrathCueColor(0),

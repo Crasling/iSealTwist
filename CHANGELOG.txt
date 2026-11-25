@@ -2,6 +2,17 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.10.1 - Sword Indicators and Layouts
+--------------------------------------------------------------------------------
+[ADDED] Sword frames for the swing bar and a movable Echo sword with per-Seal styles and optional Switch and Attack glows.
+[ADDED] Hide the swing bar while keeping your Seal icon and Echo indicators. Try three starter profiles.
+[ADDED] Blessing and Aura reminders. Hide reminders on flight paths, while dead, or in friendly capitals.
+[IMPROVED] Searchable settings, collapsible categories, and Edit Layout for moving displays.
+[IMPROVED] Wider nameplate offsets and fewer background updates.
+[CHANGED] Portrait Sockets are the default mana pip frame. Existing setups switch once on update.
+[CHANGED] Choose a 30-second macro reset with an optional reset when combat ends.
+[FIXED] Echo displays recover when talent data loads late. Edit Layout resumes after combat.
+
 v0.9.4 - Sword Images
 --------------------------------------------------------------------------------
 [ADDED] Sword Images can be used alongside other Echo indicators and fill according to each Seal's chosen stack target.

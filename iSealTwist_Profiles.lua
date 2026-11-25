@@ -12,7 +12,7 @@ local POSITION_TEMPLATES = {
     sealIconPoint = { 0, 0 },
     echoTimerPoint = { 0, 0 },
     stackCountPoint = { 0, 0 },
-    worldEchoCuePoint = { 0, 0 },
+    verticalSwordPoint = { 0, 0 },
 }
 local ANCHORS = { CENTER = true, TOP = true, BOTTOM = true, LEFT = true, RIGHT = true,
     TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
@@ -20,11 +20,22 @@ local NUMBER_LIMITS = {
     barWidth = { 100, 500 }, barHeight = { 15, 50 }, sealIconSize = { 16, 64 },
     swingTextSize = { 8, 28 }, stackCounterTextSize = { 10, 50 },
     wrathCircleSize = { 10, 50 }, playerPipSize = { 10, 50 },
+    verticalSwordHeight = { 80, 280 }, verticalSwordOpacity = { 0, 100 },
+    verticalSwordCorrectGlowScale = iST.CONSTANTS.VERTICAL_SWORD_GLOW_SCALE_RANGE,
+    verticalSwordWrongGlowScale = iST.CONSTANTS.VERTICAL_SWORD_GLOW_SCALE_RANGE,
     sealTextSize = { 8, 24 }, latencyTextSize = { 8, 20 },
-    worldEchoCueScale = { 0.5, 2.5 }, nameplateEchoScale = { 0.5, 2 },
+    nameplateEchoScale = { 0.5, 2 },
     nameplateEchoPipSize = { 10, 40 },
-    nameplateEchoOffsetY = { -60, 30 }, twistFromStacks = { 0, 3 },
+    nameplateEchoOffsetY = iST.CONSTANTS.NAMEPLATE_ECHO_OFFSET_RANGE, twistFromStacks = { 0, 3 },
     twistIntoStacks = { 0, 3 }, ["MinimapButton.minimapPos"] = { 0, 360 },
+}
+-- Accept the retired Wings fields in older setup codes without restoring them.
+local RETIRED_WINGS_FIELDS = {
+    showWorldEchoCue = "boolean",
+    worldEchoCueStyle = "string", worldEchoCuePhase = "string", worldEchoCueScale = "number",
+    ["worldEchoCueColor.r"] = "number", ["worldEchoCueColor.g"] = "number",
+    ["worldEchoCueColor.b"] = "number", ["worldEchoCueColor.a"] = "number",
+    ["worldEchoCuePoint.1"] = "number", ["worldEchoCuePoint.2"] = "number",
 }
 
 local function Schema()
@@ -94,8 +105,8 @@ local function CleanSnapshot(data, requireValues)
             SetPath(clean, path, value)
         end
     end
-    -- Keep older shared profiles loadable while the Wings indicator is paused.
-    clean.showWorldEchoCue = false
+    clean.swordFrameStyle = iST:NormalizeSwordStyle(clean.swordFrameStyle)
+    iST:NormalizeVerticalSwordSettings(clean)
     for key in pairs(POSITION_TEMPLATES) do
         local point = clean[key]
         if point and (type(point[1]) ~= "number" or type(point[2]) ~= "number") then
@@ -179,7 +190,8 @@ local function Decode(code)
         local encodedPath, kind, encodedValue = field:match("^([^=]+)=([bns]):(.*)$")
         local path = encodedPath and Unescape(encodedPath)
         local spec = path and schema[path]
-        if not spec or spec.kind:sub(1, 1) ~= kind or seen[path] then
+        local fieldType = spec and spec.kind or RETIRED_WINGS_FIELDS[path]
+        if not fieldType or fieldType:sub(1, 1) ~= kind or seen[path] then
             return nil, ImportError(4, "Unsupported or duplicate setting in code.")
         end
         local value
@@ -190,16 +202,23 @@ local function Decode(code)
             value = encodedValue == "1"
         elseif kind == "n" then value = tonumber(encodedValue)
         else value = Unescape(encodedValue) end
-        if not ValidValue(path, value, spec.kind) then
+        if not ValidValue(path, value, fieldType) then
             return nil, ImportError(5, "Invalid setting: " .. path)
         end
-        SetPath(values, path, value)
+        if spec then SetPath(values, path, value) end
         seen[path], found = true, found + 1
     end
     if found ~= count then return nil, ImportError(6, "Incomplete iST settings code.") end
     local snapshot, err = CleanSnapshot(values, false)
     if not snapshot then return nil, ImportError(5, err) end
     return snapshot
+end
+
+local function BaselineCode()
+    local code = iSTSettings.activeProfileBaselineCode
+    if not code then return nil end
+    local snapshot = Decode(code)
+    return snapshot and Encode(snapshot) or code
 end
 
 local function ProfileStore()
@@ -219,6 +238,27 @@ end
 local function SnapshotCode(data)
     local snapshot = CleanSnapshot(data, false)
     return snapshot and Encode(snapshot) or nil
+end
+
+local function MigratePortraitSockets()
+    local style = iST.SettingsDefault.playerPipFrameStyle
+    if not iSTAccountSettings.portraitSocketsMigrated then
+        for _, profile in pairs(ProfileStore()) do
+            if type(profile) == "table" then profile.playerPipFrameStyle = style end
+        end
+        iSTAccountSettings.portraitSocketsMigrated = true
+    end
+    if iSTSettings.portraitSocketsMigrated then return end
+
+    iSTSettings.playerPipFrameStyle = style
+    if type(iSTSettings.mainProfile) == "table" then iSTSettings.mainProfile.playerPipFrameStyle = style end
+    -- Migrate the baseline too so this change cannot look like a profile conflict.
+    local baseline = iSTSettings.activeProfileBaselineCode and Decode(iSTSettings.activeProfileBaselineCode)
+    if baseline then
+        baseline.playerPipFrameStyle = style
+        iSTSettings.activeProfileBaselineCode = Encode(baseline)
+    end
+    iSTSettings.portraitSocketsMigrated = true
 end
 
 local function RecoverProfile(profiles, oldName, snapshot)
@@ -241,6 +281,7 @@ local function InstallSnapshot(snapshot, name, mainProfile)
     snapshot.macroCreated = iSTSettings.macroCreated
     snapshot.hitDebugCapture = iSTSettings.hitDebugCapture
     snapshot.indicatorsMigrated = true
+    snapshot.portraitSocketsMigrated = iSTSettings.portraitSocketsMigrated
     iSTSettings = snapshot
     iST:InitializeSettings()
 end
@@ -274,6 +315,7 @@ function iST:GetActiveProfileName()
 end
 
 function iST:ReconcileActiveProfileOnLoad()
+    MigratePortraitSockets()
     local active = self:GetActiveProfileName()
     if active == MAIN_NAME then return end
     local profiles = ProfileStore()
@@ -281,7 +323,7 @@ function iST:ReconcileActiveProfileOnLoad()
     local sharedSnapshot = CleanSnapshot(profiles[active], false)
     if not localSnapshot or not sharedSnapshot then return end
     local currentCode, sharedCode = Encode(localSnapshot), Encode(sharedSnapshot)
-    local baseline = iSTSettings.activeProfileBaselineCode
+    local baseline = BaselineCode()
     if currentCode == sharedCode then
         iSTSettings.activeProfileBaselineCode = sharedCode
     elseif baseline and currentCode == baseline then
@@ -371,7 +413,7 @@ function iST:SaveActiveProfile()
     end
     local profiles = ProfileStore()
     local currentCode, sharedCode = Encode(snapshot), SnapshotCode(profiles[active])
-    local baseline = iSTSettings.activeProfileBaselineCode
+    local baseline = BaselineCode()
     if currentCode == sharedCode then
         iSTSettings.activeProfileBaselineCode = currentCode
     elseif currentCode == baseline then
@@ -442,6 +484,75 @@ function iST:LoadProfile(name)
     return self:ApplyProfile(profile, name)
 end
 
+iST.StarterProfiles = {
+    { key = "MINIMAL", label = "StarterMinimal", settings = {
+        barStyle = "BLOCK", barTexture = "SOLID", barWidth = 210, barHeight = 18,
+        showStackCounter = true, showStackCircles = false, showStackSwordImages = false,
+        showCenterSwitchText = false, showEchoTimer = false, showSealName = false, showLatency = false,
+    } },
+    { key = "PIPS", label = "StarterPips", settings = {
+        barStyle = "CLASSIC", barTexture = "BLIZZARD", barWidth = 250, barHeight = 25,
+        showStackCounter = false, showStackCircles = true, showStackSwordImages = false,
+        stackBubbleStyle = "SEAL_ICONS", showCenterSwitchText = true, showEchoTimer = true,
+        showSealName = true, showLatency = true,
+    } },
+    { key = "SWORD", label = "StarterSword", settings = {
+        barStyle = "CLASSIC", barTexture = "BLIZZARD", barWidth = 250, barHeight = 25,
+        showStackCounter = true, showStackCircles = false, showStackSwordImages = true,
+        showCenterSwitchText = true, showEchoTimer = true,
+        showSealName = true, showLatency = true,
+    } },
+}
+
+local function CreateProfileFromSnapshot(self, snapshot, name)
+    local profiles = ProfileStore()
+    local validName, err = NewProfileName(name, profiles)
+    if not validName then return false, err, 8 end
+    if #self:GetSavedProfileNames() - 1 >= MAX_PROFILES then
+        return false, "Profile limit reached.", 9
+    end
+    local applied, applyError = self:ApplyProfile(snapshot, validName)
+    if not applied then return false, applyError, 10 end
+    profiles[validName] = snapshot
+    if type(iSTAccountSettings.profileRenames) == "table" then
+        iSTAccountSettings.profileRenames[validName] = nil
+    end
+    return true, validName
+end
+
+function iST:ApplyStarterProfile(key)
+    if InCombatLockdown and InCombatLockdown() then return false, "Leave combat before changing profiles." end
+    local starter
+    for _, option in ipairs(self.StarterProfiles) do
+        if option.key == key then starter = option; break end
+    end
+    if not starter then return false, "Select a display preset." end
+    local snapshot, err = CleanSnapshot(iSTSettings, false)
+    if not snapshot then return false, err end
+    for setting, value in pairs(starter.settings) do snapshot[setting] = value end
+    snapshot.showSwingBar = true
+    snapshot.showStackBarColor = false
+    snapshot.showVerticalSword = false
+    snapshot.showPlayerWrathBubbles = false
+    snapshot.showNameplateEcho = false
+    snapshot.showSealIcon = true
+    snapshot.showSealTimer = true
+    snapshot.showWeaponSpeed = true
+    snapshot.showSwingRemaining = true
+    snapshot.barLocked = true
+    snapshot.stackCountPoint, snapshot.sealIconPoint, snapshot.echoTimerPoint = nil, nil, nil
+
+    local profiles = ProfileStore()
+    local base = self.L[starter.label]
+    for index = 1, MAX_PROFILES + 1 do
+        local name = index == 1 and base or base .. " " .. index
+        if NewProfileName(name, profiles) then
+            return CreateProfileFromSnapshot(self, snapshot, name)
+        end
+    end
+    return false, "No available name for this preset."
+end
+
 function iST:ImportSettings(code, requestedName)
     if InCombatLockdown and InCombatLockdown() then
         return false, ImportError(7, "Leave combat before importing settings.")
@@ -457,16 +568,7 @@ function iST:ImportSettings(code, requestedName)
             index = index + 1
         until not profiles[name] or index > MAX_PROFILES + 2
     end
-    local validName, nameError = NewProfileName(name, profiles)
-    if not validName then return false, ImportError(8, nameError) end
-    if #self:GetSavedProfileNames() - 1 >= MAX_PROFILES then
-        return false, ImportError(9, "Profile limit reached.")
-    end
-    local applied, applyError = self:ApplyProfile(snapshot, validName)
-    if not applied then return false, ImportError(10, applyError) end
-    profiles[validName] = snapshot
-    if type(iSTAccountSettings.profileRenames) == "table" then
-        iSTAccountSettings.profileRenames[validName] = nil
-    end
-    return true, validName
+    local ok, result, errorCode = CreateProfileFromSnapshot(self, snapshot, name)
+    if not ok then return false, ImportError(errorCode, result) end
+    return true, result
 end
