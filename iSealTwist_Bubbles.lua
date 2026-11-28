@@ -174,7 +174,7 @@ function iST:RenderStackSealIcons(strip, count, texture, target)
     end
 end
 
-local function GetPlayerManaAnchor()
+function iST:GetPlayerManaAnchor()
     if not PlayerFrame then return end
     -- Prefer the getter, with the current player-frame layout as a fallback.
     if type(PlayerFrame_GetManaBar) == "function" then
@@ -195,6 +195,21 @@ end
 
 function iST:GetPlayerPipSize()
     return math.max(10, math.min(50, tonumber(iSTSettings.playerPipSize) or 18) - 2)
+end
+
+function iST:GetPlayerPipManaWidth(mana)
+    mana = mana or self:GetPlayerManaAnchor()
+    if not mana or not mana.GetWidth then return end
+    local ok, width = pcall(mana.GetWidth, mana)
+    if ok and not (issecretvalue and issecretvalue(width))
+        and type(width) == "number" and width > 0 then
+        return width
+    end
+end
+
+function iST:GetPlayerPipFrameWidth(manaWidth)
+    local pipSize = math.max(10, math.min(50, tonumber(iSTSettings.playerPipSize) or 18))
+    return math.max(manaWidth + 6, pipSize * 3 + 18)
 end
 
 function iST:GetStackPipCenterOffset(strip)
@@ -363,11 +378,11 @@ function iST:CreateClassicPlayerPipFrame(frame, anchor)
     return artwork
 end
 
-local function CreatePlayerPipDisplay(parent, host)
+function iST:CreatePlayerPipDisplay(parent, host)
     local display = {
-        bubbles = iST:CreateStackBubbles(parent, nil, 16, 10),
-        sealIcons = iST:CreateStackSealIcons(parent, 16, 5),
-        artwork = iST:CreateClassicPlayerPipFrame(parent, host),
+        bubbles = self:CreateStackBubbles(parent, nil, 16, 10),
+        sealIcons = self:CreateStackSealIcons(parent, 16, 5),
+        artwork = self:CreateClassicPlayerPipFrame(parent, host),
     }
     display.bubbles:SetPoint("CENTER", host, "CENTER")
     display.sealIcons:SetPoint("CENTER", host, "CENTER")
@@ -408,13 +423,15 @@ local function BuildPlayerPipPresence(host)
     activeClip:SetPoint("TOPLEFT", host, "TOP", -width / 2, 0)
     activeClip:SetPoint("BOTTOMRIGHT", container, "TOPRIGHT", -1, -100)
     iST:CreateClassicPlayerPipFrame(activeClip, host)
-    local idle = CreatePlayerPipDisplay(idleClip, host)
+    local idle = iST:CreatePlayerPipDisplay(idleClip, host)
     container:SetEnabled(true)
     return { idle = idle, idleLayer = idleLayer, goldLayer = goldLayer }
 end
 
-local function RenderPlayerPips(display, host, count, texture, target, showGold, portrait)
+function iST:RenderPlayerPips(display, host, count, texture, target)
     local useIcons = texture ~= nil
+    local portrait = UsesPortraitSockets()
+    local showGold = iSTSettings.showPlayerPipFrame ~= false and not portrait
     if display.useIcons ~= useIcons then
         display.bubbles:SetShown(not useIcons)
         display.sealIcons:SetShown(useIcons)
@@ -426,11 +443,11 @@ local function RenderPlayerPips(display, host, count, texture, target, showGold,
     end
     local row = useIcons and display.sealIcons or display.bubbles
     if useIcons then
-        iST:RenderStackSealIcons(row, count, texture, target)
+        self:RenderStackSealIcons(row, count, texture, target)
     else
-        iST:RenderStackBubbles(row, count, iST:GetWrathCueColor(count), target)
+        self:RenderStackBubbles(row, count, self:GetWrathCueColor(count), target)
     end
-    iST:LayoutPlayerPipRow(row, host, portrait)
+    self:LayoutPlayerPipRow(row, host, portrait)
 end
 
 function iST:CreatePlayerWrathFrame()
@@ -443,7 +460,7 @@ function iST:CreatePlayerWrathFrame()
     frame:SetFrameLevel(0)
     frame:EnableMouse(false)
     frame.manualLayer = CreatePlayerPipLayer(frame)
-    frame.manualDisplay = CreatePlayerPipDisplay(frame.manualLayer, frame)
+    frame.manualDisplay = self:CreatePlayerPipDisplay(frame.manualLayer, frame)
     -- Keep checking the mana anchor while its pips are temporarily hidden.
     local updater = CreateFrame("Frame", nil, UIParent)
     updater:EnableMouse(false)
@@ -464,7 +481,10 @@ end
 function iST:UpdatePlayerWrathBubbles(now)
     local frame = self.PlayerWrathFrame
     if not frame then return end
-    if not iSTSettings.showPlayerWrathBubbles or not self:ShouldShowBar() then
+    local preview = self.State.TestMode
+    local echoPreview = preview and self.State.StackTestMode
+    if not iSTSettings.showPlayerWrathBubbles or not self:ShouldShowBar()
+        or (not echoPreview and not self:IsWrathTrackingEnabled()) then
         frame.updater:Hide()
         frame:Hide()
         return
@@ -472,12 +492,11 @@ function iST:UpdatePlayerWrathBubbles(now)
     frame.updater:Show()
     local locked = InCombatLockdown and InCombatLockdown()
     local inCombat = self.State.InCombat or (issecretvalue and issecretvalue(locked)) or locked == true
-    local preview = self.State.TestMode
     local iconStyle = iSTSettings.stackBubbleStyle == "SEAL_ICONS"
     local bar = self.BarFrame
     local native = not preview and bar and (iconStyle and bar.nativeSealIconsPlayerVisible == true
         or not iconStyle and bar.nativeStagePlayerVisible == true)
-    local mana = GetPlayerManaAnchor()
+    local mana = self:GetPlayerManaAnchor()
     if not IsVisible(PlayerFrame) or not IsVisible(mana) then frame:Hide() return end
     if UnitHasVehicleUI then
         local ok, vehicle = pcall(UnitHasVehicleUI, "player")
@@ -492,12 +511,10 @@ function iST:UpdatePlayerWrathBubbles(now)
         frame:SetPoint("TOP", mana, "BOTTOM", -1, 1)
         frame.manaAnchor = mana
     end
-    if not inCombat and mana.GetWidth then
-        local ok, width = pcall(mana.GetWidth, mana)
-        if ok and not (issecretvalue and issecretvalue(width))
-            and type(width) == "number" and width > 0 then
-            local pipSize = math.max(10, math.min(50, tonumber(iSTSettings.playerPipSize) or 18))
-            local desired = math.max(width + 6, pipSize * 3 + 18)
+    if not inCombat then
+        local width = self:GetPlayerPipManaWidth(mana)
+        if width then
+            local desired = self:GetPlayerPipFrameWidth(width)
             if frame.layoutWidth ~= desired then
                 frame:SetWidth(desired)
                 frame.layoutWidth = desired
@@ -517,8 +534,7 @@ function iST:UpdatePlayerWrathBubbles(now)
         local scale = manaScale / parentScale
         if frame.anchorScale ~= scale then frame:SetScale(scale); frame.anchorScale = scale end
     end
-    local portrait = UsesPortraitSockets()
-    local showGold = iSTSettings.showPlayerPipFrame ~= false and not portrait
+    local showGold = iSTSettings.showPlayerPipFrame ~= false and not UsesPortraitSockets()
     if native and not inCombat and not frame.presence and not frame.presenceFailed then
         local ok, presence = pcall(BuildPlayerPipPresence, frame)
         if ok then frame.presence = presence
@@ -558,8 +574,7 @@ function iST:UpdatePlayerWrathBubbles(now)
             local texture = iconStyle and bar and bar.stackSealIcons[source] or nil
             local target = self:GetTwistStackTarget(source)
             local count = preview and self:GetWrathDisplayState(now or GetTime()) or 0
-            RenderPlayerPips(live and presence.idle or frame.manualDisplay, frame,
-                count, texture, target, showGold, portrait)
+            self:RenderPlayerPips(live and presence.idle or frame.manualDisplay, frame, count, texture, target)
         end
     end
     frame:Show()

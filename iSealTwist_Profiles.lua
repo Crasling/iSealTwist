@@ -29,13 +29,14 @@ local NUMBER_LIMITS = {
     nameplateEchoOffsetY = iST.CONSTANTS.NAMEPLATE_ECHO_OFFSET_RANGE, twistFromStacks = { 0, 3 },
     twistIntoStacks = { 0, 3 }, ["MinimapButton.minimapPos"] = { 0, 360 },
 }
--- Accept the retired Wings fields in older setup codes without restoring them.
-local RETIRED_WINGS_FIELDS = {
+-- Accept retired settings in older setup codes without restoring them.
+local RETIRED_FIELDS = {
     showWorldEchoCue = "boolean",
     worldEchoCueStyle = "string", worldEchoCuePhase = "string", worldEchoCueScale = "number",
     ["worldEchoCueColor.r"] = "number", ["worldEchoCueColor.g"] = "number",
     ["worldEchoCueColor.b"] = "number", ["worldEchoCueColor.a"] = "number",
     ["worldEchoCuePoint.1"] = "number", ["worldEchoCuePoint.2"] = "number",
+    soundThreeStacks = "boolean", soundThreeStacksChoice = "string", echoSoundTrigger = "string",
 }
 
 local function Schema()
@@ -190,7 +191,7 @@ local function Decode(code)
         local encodedPath, kind, encodedValue = field:match("^([^=]+)=([bns]):(.*)$")
         local path = encodedPath and Unescape(encodedPath)
         local spec = path and schema[path]
-        local fieldType = spec and spec.kind or RETIRED_WINGS_FIELDS[path]
+        local fieldType = spec and spec.kind or RETIRED_FIELDS[path]
         if not fieldType or fieldType:sub(1, 1) ~= kind or seen[path] then
             return nil, ImportError(4, "Unsupported or duplicate setting in code.")
         end

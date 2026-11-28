@@ -25,7 +25,7 @@ local function CombatLocked()
     return (issecretvalue and issecretvalue(locked)) or locked == true
 end
 
-local function HideDisabledTooltip(owner)
+local function HideOwnedTooltip(owner)
     if GameTooltip and GameTooltip:IsOwned(owner) then GameTooltip:Hide() end
 end
 
@@ -40,7 +40,7 @@ local function SetDisabledReason(owner, reason)
     if owner.disabledReason == reason then return end
     owner.disabledReason = reason
     if GameTooltip and GameTooltip:IsOwned(owner) then
-        if reason then ShowDisabledTooltip(owner) else HideDisabledTooltip(owner) end
+        if reason then ShowDisabledTooltip(owner) else HideOwnedTooltip(owner) end
     end
 end
 
@@ -59,8 +59,8 @@ local function CreateDisabledHover(control)
     hover:EnableMouse(true)
     hover:EnableMouseWheel(false)
     hover:SetScript("OnEnter", ShowDisabledTooltip)
-    hover:SetScript("OnLeave", HideDisabledTooltip)
-    hover:SetScript("OnHide", HideDisabledTooltip)
+    hover:SetScript("OnLeave", HideOwnedTooltip)
+    hover:SetScript("OnHide", HideOwnedTooltip)
     return hover
 end
 
@@ -82,6 +82,18 @@ local function StyleSettingsSurface(frame, header)
     if header then frame:SetBackdropColor(0.075, 0.058, 0.035, 0.98)
     else frame:SetBackdropColor(0.025, 0.023, 0.020, 0.98) end
     frame:SetBackdropBorderColor(0.32, 0.25, 0.14, 1)
+end
+
+local function ReadPlayerManaTrim(mana)
+    local container = PlayerFrame and PlayerFrame.PlayerFrameContainer
+    local art = container and container.FrameTexture
+    if not (mana and art) then return end
+    local atlas = art:GetAtlas()
+    if (issecretvalue and issecretvalue(atlas)) or type(atlas) ~= "string" or atlas == "" then return end
+    local x, y, width, height = art:GetRect()
+    local manaX, manaY = mana:GetRect()
+    if width <= 0 or height <= 0 then return end
+    return atlas, x - manaX, y - manaY, width, height
 end
 
 local function StyleSettingsCheckbox(cb)
@@ -391,7 +403,6 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
         controlEnabled = enabled
         if not controlEnabled then isDragging = false end
         self:EnableMouse(controlEnabled)
-        self:EnableMouseWheel(controlEnabled)
         thumb:EnableMouse(controlEnabled)
         self:SetAlpha(controlEnabled and 1 or 0.35)
         sliderLabel:SetAlpha(controlEnabled and 1 or 0.45)
@@ -416,17 +427,6 @@ local function CreateCustomSlider(parent, label, yOffset, minVal, maxVal, step, 
         if iST.InvalidateBarState then iST:InvalidateBarState() end
         SetVisualValue(val)
     end)
-    track:EnableMouseWheel(true)
-    track:SetScript("OnMouseWheel", function(_, delta)
-        if not controlEnabled then return end
-        local current = getFunc()
-        local newVal = SnapValue(current + delta * step)
-        newVal = math.max(minVal, math.min(maxVal, newVal))
-        setFunc(newVal)
-        if iST.InvalidateBarState then iST:InvalidateBarState() end
-        SetVisualValue(newVal)
-    end)
-
     SetVisualValue(getFunc())
     return track, nextY
 end
@@ -715,10 +715,10 @@ local function CreateStyledDropdown(parent, width, getOptions, getValue, setValu
                     end
                 end)
                 button:SetScript("OnLeave", function(menuButton)
-                    HideDisabledTooltip(menuButton)
+                    HideOwnedTooltip(menuButton)
                     menuButton:SetBackdropColor(0, 0, 0, menuButton.selected and 0.30 or 0)
                 end)
-                button:SetScript("OnHide", HideDisabledTooltip)
+                button:SetScript("OnHide", HideOwnedTooltip)
                 if maxRows then
                     button:EnableMouseWheel(true)
                     button:SetScript("OnMouseWheel", function(_, delta)
@@ -843,42 +843,45 @@ end
 
 local function CreateColorEditor(parent, label, yOffset, getFunc, onChange, captureOriginal)
     if parent.indexSetting then parent:indexSetting(label, yOffset) end
-    local button = CreateFrame("Button", nil, parent, BACKDROP_TEMPLATE)
-    button:SetSize(parent:GetWidth() - 40, 28)
-    button:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, yOffset)
-    button:SetBackdrop(PANEL_BACKDROP)
-    button:SetBackdropColor(0.035, 0.030, 0.022, 0.92)
-    button:SetBackdropBorderColor(0.32, 0.25, 0.14, 1)
+    local rowInset, swatchInset, swatchSize, labelGap = 20, 8, 22, 8
+    local labelInset = rowInset + swatchInset + swatchSize + labelGap
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(parent:GetWidth() - 2 * rowInset, 28)
+    button:SetPoint("TOPLEFT", parent, "TOPLEFT", rowInset, yOffset)
     local description, nextY = CreateSettingDescription(parent,
         SETTING_DESCRIPTIONS[label] or string.format(L["CustomColorDesc"], label),
-        20, yOffset - 36, parent:GetWidth() - 40)
-    button.disabledHoverRow = { 20, yOffset, nextY + 4 }
+        labelInset, yOffset - 36, parent:GetWidth() - labelInset - rowInset)
+    button.disabledHoverRow = { rowInset, yOffset, nextY + 4 }
 
     local highlight = button:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetAllPoints()
-    highlight:SetColorTexture(1, 0.59, 0.09, 0.12)
+    highlight:SetColorTexture(1, 0.70, 0.27, 0.08)
+
+    local divider = button:CreateTexture(nil, "BORDER")
+    divider:SetHeight(1)
+    divider:SetPoint("BOTTOMLEFT", button)
+    divider:SetPoint("BOTTOMRIGHT", button)
+    divider:SetColorTexture(0.28, 0.24, 0.17, 0.50)
+
+    local circle = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
+    local swatchBackground = button:CreateTexture(nil, "BACKGROUND")
+    swatchBackground:SetSize(swatchSize, swatchSize)
+    swatchBackground:SetPoint("LEFT", button, "LEFT", swatchInset, 0)
+    swatchBackground:SetTexture(circle)
+    swatchBackground:SetVertexColor(0.32, 0.29, 0.24, 1)
+    local swatch = button:CreateTexture(nil, "ARTWORK")
+    swatch:SetSize(swatchSize - 2, swatchSize - 2)
+    swatch:SetPoint("CENTER", swatchBackground)
+    swatch:SetTexture(circle)
 
     local labelText = button:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    labelText:SetPoint("LEFT", button, "LEFT", 4, 0)
+    labelText:SetPoint("LEFT", swatchBackground, "RIGHT", labelGap, 0)
     labelText:SetText(label)
     labelText:SetTextColor(0.96, 0.90, 0.78)
 
-    local swatchBorder = button:CreateTexture(nil, "BACKGROUND")
-    swatchBorder:SetSize(32, 22)
-    swatchBorder:SetPoint("RIGHT", button, "RIGHT", -4, 0)
-    swatchBorder:SetColorTexture(0, 0, 0, 1)
-
-    local swatchBackground = button:CreateTexture(nil, "BORDER")
-    swatchBackground:SetSize(28, 18)
-    swatchBackground:SetPoint("CENTER", swatchBorder, "CENTER")
-    swatchBackground:SetColorTexture(0.5, 0.5, 0.5, 1)
-
-    local swatch = button:CreateTexture(nil, "ARTWORK")
-    swatch:SetAllPoints(swatchBackground)
-
     local function RefreshSwatch()
         local color = getFunc()
-        swatch:SetColorTexture(color.r, color.g, color.b, color.a or 1)
+        swatch:SetVertexColor(color.r, color.g, color.b, color.a or 1)
     end
 
     local function ApplyColor(r, g, b, a)
@@ -1196,7 +1199,6 @@ function iST:CreateOptionsPanel()
     local iNIFContent = CreateTabContent("iNIF")
     local iRCContent = CreateTabContent("iRC")
     local reminderContents, soundContents = {}, {}
-    local echoSoundContent = CreateTabContent("sounds", L["SoundSectionEcho"])
     for _, kind in ipairs(iST.ReminderKinds) do
         local title = iST:GetReminderTitle(kind)
         reminderContents[kind] = CreateTabContent("reminders", title)
@@ -1292,7 +1294,47 @@ function iST:CreateOptionsPanel()
         end
     end
 
-    local editButton = CreateSettingsButtonAt(settingsFrame, L["EditLayout"], 112, 659, -8, function()
+    local helpButton = CreateFrame("Button", nil, settingsFrame, BACKDROP_TEMPLATE)
+    helpButton:SetSize(58, 26)
+    helpButton:SetPoint("RIGHT", closeButton, "LEFT", -8, 0)
+    StyleSettingsButton(helpButton)
+    helpButton:SetText(L["SettingsHelp"])
+    helpButton:HookScript("OnEnter", function(owner)
+        if not GameTooltip then return end
+        if not CombatLocked() then iST:HasUnsealedWrath() end
+        local learned = iST.State.UnsealedWrathKnown
+
+        GameTooltip:SetOwner(owner, "ANCHOR_BOTTOMRIGHT")
+        GameTooltip:SetText(L["SettingsHelpTitle"], 1, 0.82, 0)
+        if learned == true then
+            GameTooltip:AddLine(L["SettingsHelpWrathReady"], 0.35, 1, 0.42, true)
+        elseif learned == false then
+            GameTooltip:AddLine(L["SettingsHelpWrathMissing"], 1, 0.45, 0.35, true)
+            GameTooltip:AddLine(L["SettingsHelpLearnWrath"], 1, 1, 1, true)
+        else
+            GameTooltip:AddLine(L["SettingsHelpWrathUnknown"], 1, 0.8, 0.25, true)
+            GameTooltip:AddLine(L["SettingsHelpWaitForTalents"], 1, 1, 1, true)
+        end
+        if not iSTSettings.enabled then
+            GameTooltip:AddLine(L["SettingsHelpAddonDisabled"], 1, 0.8, 0.25, true)
+        elseif not iST:ShouldShowBar() then
+            GameTooltip:AddLine(L["SettingsHelpPaladinOnly"], 1, 0.8, 0.25, true)
+        end
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(L["SettingsHelpHowToStack"], 1, 1, 1, true)
+        GameTooltip:AddLine(L["SettingsHelpWhereToConfigure"]:format(L["TabSealPair"], L["TabStacks"]),
+            0.82, 0.82, 0.82, true)
+        GameTooltip:Show()
+    end)
+    helpButton:HookScript("OnLeave", HideOwnedTooltip)
+    helpButton:HookScript("OnHide", HideOwnedTooltip)
+    settingsFrame:HookScript("OnHide", function() HideOwnedTooltip(helpButton) end)
+
+    local editButton = CreateFrame("Button", nil, settingsFrame, BACKDROP_TEMPLATE)
+    editButton:SetSize(112, 26)
+    editButton:SetPoint("RIGHT", helpButton, "LEFT", -8, 0)
+    StyleSettingsButton(editButton)
+    editButton:SetScript("OnClick", function()
         iST:ToggleLayoutEdit()
     end)
     DependsOn(editButton, function(inCombat)
@@ -1335,15 +1377,17 @@ function iST:CreateOptionsPanel()
     searchHint:SetText(L["SettingsSearch"])
 
     local results = CreateFrame("Frame", nil, settingsFrame, BACKDROP_TEMPLATE)
-    results:SetPoint("TOPRIGHT", search, "BOTTOMRIGHT", 0, -3)
-    results:SetWidth(472)
+    results:SetPoint("TOPLEFT", search, "BOTTOMLEFT", 0, -4)
+    results:SetPoint("TOPRIGHT", closeButton, "BOTTOMRIGHT", 0, -4)
     results:SetFrameStrata("DIALOG")
     results:EnableMouse(true)
     results:EnableMouseWheel(true)
     StyleSettingsSurface(results)
+    results:SetBackdropColor(0.054, 0.045, 0.034, 1)
+    results:SetBackdropBorderColor(0.36, 0.28, 0.17, 1)
     results:Hide()
     local matches, rows, first = {}, {}, 1
-    local maxRows, resultRowHeight = 8, 35
+    local maxRows, resultRowHeight = 8, 38
     local highlight
     local function JumpToSetting(entry)
         pages[entry.page].sidebarGroup.collapsed = false
@@ -1372,44 +1416,76 @@ function iST:CreateOptionsPanel()
         end)
     end
     local function UpdateResults()
+        local visibleRows = math.min(maxRows, #matches)
         for index, row in ipairs(rows) do
             local entry = matches[first + index - 1]
             row.entry = entry
             row:SetShown(entry ~= nil)
             if entry then
-                row:SetText(entry.label)
+                row.label:SetText(entry.label)
                 row.path:SetText(entry.path)
+                row.divider:SetShown(index < visibleRows)
             end
         end
         results.empty:SetShown(#matches == 0)
         local overflow = #matches > maxRows
         results.more:SetShown(overflow)
-        results:SetHeight(12 + resultRowHeight * math.max(1, math.min(maxRows, #matches)) + (overflow and 18 or 0))
+        results.footerRule:SetShown(overflow)
+        results:SetHeight(12 + resultRowHeight * math.max(1, visibleRows) + (overflow and 23 or 0))
     end
     for index = 1, maxRows do
-        local row = CreateSettingsButtonAt(results, "", 454, 9, -6 - resultRowHeight * (index - 1), function(button)
+        local row = CreateFrame("Button", nil, results)
+        local top = -6 - resultRowHeight * (index - 1)
+        row:SetPoint("TOPLEFT", results, "TOPLEFT", 6, top)
+        row:SetPoint("TOPRIGHT", results, "TOPRIGHT", -6, top)
+        row:SetHeight(resultRowHeight)
+        row:SetScript("OnClick", function(button)
             if button.entry then JumpToSetting(button.entry) end
-        end, true)
-        row:SetHeight(resultRowHeight - 2)
-        local label = row:GetFontString()
-        label:ClearAllPoints()
-        label:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -3)
-        label:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -3)
-        label:SetJustifyH("LEFT")
-        label:SetWordWrap(false)
-        row.path = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-        row.path:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 8, 4)
-        row.path:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -8, 4)
+        end)
+        local hover = row:CreateTexture(nil, "HIGHLIGHT")
+        hover:SetAllPoints(row)
+        hover:SetColorTexture(1, 0.66, 0.24, 0.11)
+        row.divider = row:CreateTexture(nil, "BORDER")
+        row.divider:SetHeight(1)
+        row.divider:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 10, 0)
+        row.divider:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 0)
+        row.divider:SetColorTexture(0.34, 0.27, 0.17, 0.50)
+
+        row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        row.label:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -5)
+        row.label:SetJustifyH("LEFT")
+        row.label:SetWordWrap(false)
+        row.label:SetTextColor(0.98, 0.93, 0.84)
+        if index == 1 then
+            local enter = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            enter:SetPoint("TOPRIGHT", row, "TOPRIGHT", -10, -6)
+            enter:SetText(L["SettingsSearchEnter"])
+            enter:SetTextColor(0.79, 0.64, 0.42)
+            row.label:SetPoint("TOPRIGHT", enter, "TOPLEFT", -10, 1)
+        else
+            row.label:SetPoint("TOPRIGHT", row, "TOPRIGHT", -10, -5)
+        end
+        row.path = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.path:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 10, 5)
+        row.path:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 5)
         row.path:SetJustifyH("LEFT")
         row.path:SetWordWrap(false)
+        row.path:SetTextColor(0.69, 0.62, 0.52)
         rows[index] = row
     end
-    results.empty = results:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    results.empty:SetPoint("CENTER")
+    results.empty = results:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    results.empty:SetPoint("LEFT", results, "LEFT", 16, 0)
     results.empty:SetText(L["SettingsSearchEmpty"])
-    results.more = results:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    results.more:SetPoint("BOTTOM", results, "BOTTOM", 0, 6)
+    results.empty:SetTextColor(0.79, 0.72, 0.61)
+    results.footerRule = results:CreateTexture(nil, "BORDER")
+    results.footerRule:SetHeight(1)
+    results.footerRule:SetPoint("BOTTOMLEFT", results, "BOTTOMLEFT", 16, 24)
+    results.footerRule:SetPoint("BOTTOMRIGHT", results, "BOTTOMRIGHT", -16, 24)
+    results.footerRule:SetColorTexture(0.34, 0.27, 0.17, 0.60)
+    results.more = results:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    results.more:SetPoint("BOTTOMLEFT", results, "BOTTOMLEFT", 16, 7)
     results.more:SetText(L["SettingsSearchMore"])
+    results.more:SetTextColor(0.69, 0.62, 0.52)
     results:SetScript("OnMouseWheel", function(_, delta)
         first = math.max(1, math.min(first - delta, #matches - maxRows + 1))
         UpdateResults()
@@ -1566,6 +1642,14 @@ function iST:CreateOptionsPanel()
         local counter = previewBody:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
         counter:SetPoint("BOTTOM", previewBar, "TOP", 0, 7)
         counter:SetJustifyH("CENTER")
+        local counterIcon = previewBody:CreateTexture(nil, "ARTWORK")
+        counterIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        if counterIcon.AddMaskTexture and previewBody.CreateMaskTexture then
+            local mask = previewBody:CreateMaskTexture()
+            mask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+            mask:SetAllPoints(counterIcon)
+            counterIcon:AddMaskTexture(mask)
+        end
         local previewCircles = iST:CreateStackBubbles(previewBody, nil, 18, 9)
         previewCircles:SetPoint("BOTTOM", previewBar, "TOP", 0, 6)
         local previewIcons = iST:CreateStackSealIcons(previewBody, 18, 5)
@@ -1667,6 +1751,15 @@ function iST:CreateOptionsPanel()
             counter:SetFont(fontPath, iSTSettings.stackCounterTextSize or 16, "THICKOUTLINE")
             counter:SetText("2 / " .. iST:GetTwistStackTargetLabel(source))
             counter:SetTextColor(stageColor.r, stageColor.g, stageColor.b, stageColor.a or 1)
+            local counterLayout = iST.BarFrame and iST.BarFrame.stackCountLayout
+            local showCounterIcon = showCounter and iSTSettings.showStackCounterIcon
+                and texture ~= nil and counterLayout ~= nil
+            counterIcon:SetShown(showCounterIcon)
+            if showCounterIcon then
+                counterIcon:SetTexture(texture)
+                counterIcon:SetSize(counterLayout.iconSize, counterLayout.iconSize)
+                counterIcon:SetPoint("RIGHT", counter, "CENTER", counterLayout.iconOffset, 0)
+            end
             local pipSize = math.max(10, math.min(50, iSTSettings.wrathCircleSize or 18))
             iST:ResizeStackBubbles(previewCircles, pipSize)
             iST:ResizeStackSealIcons(previewIcons, pipSize)
@@ -1718,6 +1811,7 @@ function iST:CreateOptionsPanel()
             previewToggle:SetText(previewCollapsed and L["ShowPreview"] or L["HidePreview"])
             LayoutPreviewSpace(visible and echoPreview:GetHeight() + 10 or 0)
             if visible and not previewCollapsed then RefreshEchoPreview() end
+            if settingsFrame.RefreshPlayerPipPreview then settingsFrame.RefreshPlayerPipPreview() end
         end
         settingsFrame.UpdatePreviewLayout = UpdatePreviewLayout
         previewToggle:SetScript("OnClick", function()
@@ -1768,7 +1862,10 @@ function iST:CreateOptionsPanel()
 
         _, y = CreateSettingsCheckbox(generalContent, L["OnlyAsPaladin"], L["OnlyAsPaladinDesc"], y,
             function() return iSTSettings.onlyAsPaladin end,
-            function(v) iSTSettings.onlyAsPaladin = v iST:UpdateBarVisibility() end
+            function(v)
+                iSTSettings.onlyAsPaladin = v
+                iST:UpdateBarVisibility()
+            end
         )
 
         _, y = CreateSectionHeader(generalContent, L["SectionTextAppearance"], y)
@@ -2258,7 +2355,7 @@ function iST:CreateOptionsPanel()
             function() return iSTSettings.showSealTimer end,
             function(v)
                 iSTSettings.showSealTimer = v
-                iST:UpdateSealTimer()
+                iST:UpdateSealDisplay()
                 if settingsFrame.RefreshEchoPreview then settingsFrame.RefreshEchoPreview() end
             end, 20
         )
@@ -2340,6 +2437,19 @@ function iST:CreateOptionsPanel()
         local y = -10
         _, y = CreateSectionHeader(stacksContent, L["SectionStackCounter"], y)
         y = AddIndicator(stacksContent, "showStackCounter", L["WrathCueCounter"], nil, y)
+        local counterBlocked = RequireOption("showStackCounter", "WrathCueCounter", true)
+        local counterIconCheckbox
+        counterIconCheckbox, y = CreateSettingsCheckbox(stacksContent, L["ShowStackCounterIcon"],
+            L["ShowStackCounterIconDesc"], y,
+            function() return iSTSettings.showStackCounterIcon end,
+            function(value)
+                if CombatLocked() or not iSTSettings.showStackCounter then return end
+                iSTSettings.showStackCounterIcon = value
+                iST:ApplyBarTypography()
+                settingsFrame.UpdatePreviewLayout()
+            end, 14)
+        DependsOn(counterIconCheckbox, counterBlocked)
+
         local counterSizeSlider
         counterSizeSlider, y = CreateCustomSlider(stacksContent, L["StackCounterTextSize"], y, 10, 50, 1,
             function() return iSTSettings.stackCounterTextSize end,
@@ -2349,7 +2459,6 @@ function iST:CreateOptionsPanel()
                 settingsFrame.UpdatePreviewLayout()
             end,
             function(value) return value .. "px" end)
-        local counterBlocked = RequireOption("showStackCounter", "WrathCueCounter", true)
         DependsOn(counterSizeSlider, counterBlocked)
 
         local resetCounter
@@ -2380,13 +2489,12 @@ function iST:CreateOptionsPanel()
         previewTitle:SetPoint("TOP", framePreview, "TOP", 0, -9)
         previewTitle:SetText(L["PlayerPipFramePreview"])
 
-        local sample = CreateFrame("Frame", nil, framePreview)
-        sample:SetPoint("TOP", framePreview, "TOP", 0, -37)
-        sample:EnableMouse(false)
-        local manaBar = CreateFrame("Frame", nil, framePreview, BACKDROP_TEMPLATE)
+        local previewStage = CreateFrame("Frame", nil, framePreview)
+        previewStage:SetPoint("TOP", framePreview, "TOP", 0, -29)
+        previewStage:EnableMouse(false)
+        local manaBar = CreateFrame("Frame", nil, previewStage, BACKDROP_TEMPLATE)
         manaBar:SetHeight(10)
-        manaBar:SetPoint("BOTTOM", sample, "TOP", 0, -1)
-        manaBar:SetFrameLevel(sample:GetFrameLevel() + 3)
+        manaBar:SetPoint("TOP", previewStage, "TOP")
         manaBar:EnableMouse(false)
         StyleSettingsSurface(manaBar)
         manaBar:SetBackdropColor(0.07, 0.18, 0.40, 1)
@@ -2394,34 +2502,59 @@ function iST:CreateOptionsPanel()
         local manaFill = manaBar:CreateTexture(nil, "ARTWORK")
         manaFill:SetPoint("TOPLEFT", manaBar, "TOPLEFT", 1, -1)
         manaFill:SetHeight(8)
-        manaFill:SetColorTexture(0.19, 0.42, 0.72, 1)
+        manaFill:SetAtlas("UI-HUD-UnitFrame-Player-PortraitOn-Bar-Mana")
 
-        local goldFrame = iST:CreateClassicPlayerPipFrame(sample)
-        local circles = iST:CreateStackBubbles(sample, nil, 16, 10)
-        local icons = iST:CreateStackSealIcons(sample, 16, 5)
+        local sample = CreateFrame("Frame", nil, previewStage)
+        sample:SetPoint("TOP", manaBar, "BOTTOM", -1, 1)
+        sample:EnableMouse(false)
+
+        -- The socket shoulders sit behind the player frame's lower trim.
+        -- Show just that part of the atlas at its original offset from mana.
+        local trimClip = CreateFrame("Frame", nil, previewStage)
+        trimClip:EnableMouse(false)
+        trimClip:SetClipsChildren(true)
+        trimClip:SetPoint("TOPLEFT", manaBar, "TOPLEFT", -6, 3)
+        trimClip:SetPoint("BOTTOMRIGHT", manaBar, "BOTTOMRIGHT", 6, -8)
+        trimClip:SetFrameLevel(sample:GetFrameLevel() + 4)
+        trimClip:Hide()
+        local trimFrame = CreateFrame("Frame", nil, trimClip)
+        trimFrame:EnableMouse(false)
+        local trimArt = trimFrame:CreateTexture(nil, "ARTWORK")
+        trimArt:SetAllPoints()
+        manaBar:SetFrameLevel(sample:GetFrameLevel() + 6)
+        local display = iST:CreatePlayerPipDisplay(sample, sample)
         local function RefreshPlayerPipPreview()
-            local portrait = iSTSettings.playerPipFrameStyle == "PORTRAIT"
-            local size = iST:GetPlayerPipSize()
-            local source = iSTSettings.twistFromSeal
-            local texture = iST.BarFrame and iST.BarFrame.stackSealIcons[source]
-            local iconStyle = iSTSettings.stackBubbleStyle == "SEAL_ICONS" and texture ~= nil
-            local count, target = 2, iST:GetTwistStackTarget(source)
-            local live = iST.PlayerWrathFrame
-            local manaWidth = math.min(212, live and live.pipManaWidth or 106)
-            sample.pipManaWidth = manaWidth
+            local liveMana = iST:GetPlayerManaAnchor()
+            local manaWidth = iST:GetPlayerPipManaWidth(liveMana) or 106
+            local width = iST:GetPlayerPipFrameWidth(manaWidth)
+            local height = math.max(28, iST:GetPlayerPipSize() + 12)
+            previewStage:SetSize(width, height + manaBar:GetHeight())
+            previewStage:SetScale(math.min(1, (framePreview:GetWidth() - 24) / width))
             manaBar:SetWidth(manaWidth)
             manaFill:SetWidth(math.max(1, (manaWidth - 2) * 0.8))
-            sample:SetSize(math.max(manaWidth + 6, (size + 2) * 3 + 18), math.max(28, size + 12))
-            goldFrame:SetShown(not portrait)
-            if iconStyle then
-                iST:RenderStackSealIcons(icons, count, texture, target)
-            else
-                iST:RenderStackBubbles(circles, count, iST:GetWrathCueColor(count), target)
+            if not CombatLocked() then
+                local ok, atlas, x, y, artWidth, artHeight = pcall(ReadPlayerManaTrim, liveMana)
+                local showTrim = ok and atlas ~= nil
+                if showTrim then
+                    trimArt:SetAtlas(atlas)
+                    trimFrame:SetSize(artWidth, artHeight)
+                    trimFrame:ClearAllPoints()
+                    trimFrame:SetPoint("BOTTOMLEFT", manaBar, "BOTTOMLEFT", x, y)
+                end
+                trimClip:SetShown(showTrim)
+                manaBar:SetBackdropBorderColor(0.60, 0.42, 0.23, showTrim and 0 or 1)
             end
-            iST:LayoutPlayerPipRow(iconStyle and icons or circles, sample, portrait)
-            circles:SetShown(not iconStyle)
-            icons:SetShown(iconStyle)
+            sample.pipManaWidth = manaWidth
+            sample:SetSize(width, height)
+            sample:SetShown(iSTSettings.showPlayerWrathBubbles == true)
+            if not sample:IsShown() then return end
+            local source = iSTSettings.twistFromSeal
+            local texture = iSTSettings.stackBubbleStyle == "SEAL_ICONS"
+                and iST.BarFrame and iST.BarFrame.stackSealIcons[source] or nil
+            local target = iST:GetTwistStackTarget(source)
+            iST:RenderPlayerPips(display, sample, math.min(2, target), texture, target)
         end
+        settingsFrame.RefreshPlayerPipPreview = RefreshPlayerPipPreview
         framePreview:SetScript("OnShow", RefreshPlayerPipPreview)
         RefreshPlayerPipPreview()
 
@@ -2446,6 +2579,7 @@ function iST:CreateOptionsPanel()
                 if CombatLocked() then return end
                 iSTSettings.showPlayerPipFrame = value
                 iST:UpdateWrathDisplay()
+                RefreshPlayerPipPreview()
             end, 20)
         DependsOn(playerFrameCheckbox, playerPipsBlocked)
         framePreview:SetPoint("TOPRIGHT", stacksContent, "TOPRIGHT", -20, y)
@@ -2483,7 +2617,6 @@ function iST:CreateOptionsPanel()
                 iST:UpdateWrathDisplay()
                 iST:UpdatePlayerWrathBubbles(GetTime())
                 settingsFrame.UpdatePreviewLayout()
-                RefreshPlayerPipPreview()
             end)
         DependsOn(stackStyleDropdown, function(inCombat)
             return CombatReason(inCombat) or (not (iSTSettings.showStackCircles or iSTSettings.showPlayerWrathBubbles)
@@ -3044,22 +3177,6 @@ function iST:CreateOptionsPanel()
 
     -- Keep every sound trigger and selection together.
     do
-        local soundsContent, y = echoSoundContent, -10
-        _, y = CreateSectionHeader(soundsContent, L["SectionEchoSound"], y)
-        local echoSoundCheckbox
-        echoSoundCheckbox, y = CreateSettingsCheckbox(soundsContent, L["SoundThreeStacks"],
-            L["SoundThreeStacksDesc"], y,
-            function() return iSTSettings.soundThreeStacks end,
-            function(value) iSTSettings.soundThreeStacks = value end)
-        DependsOn(echoSoundCheckbox, CombatReason)
-        local echoSoundDropdown
-        echoSoundDropdown, y = CreateSettingsDropdown(soundsContent, L["SoundChoice"], y, 370,
-            function() return iST:GetSoundOptions(iSTSettings.soundThreeStacksChoice) end,
-            function() return iSTSettings.soundThreeStacksChoice end,
-            function(value) iSTSettings.soundThreeStacksChoice = value end, 8,
-            function(value) iST:TestCueSound(value) end)
-        DependsOn(echoSoundDropdown, RequireOption("soundThreeStacks", "SoundThreeStacks", true))
-        soundsContent:SetHeight(math.abs(y) + 10)
         for soundIndex, kind in ipairs(iST.ReminderKinds) do
             local soundsContent, y = soundContents[kind], -10
             local settings = iSTSettings.reminders[kind]
@@ -3455,7 +3572,7 @@ function iST:CreateOptionsPanel()
             function() return iSTSettings.debugMode end,
             function(value)
                 iSTSettings.debugMode = value
-                if value then iST:DebugMsg("Debug mode enabled.", 3) end
+                iST:DebugMsg(L["DebugModeActive"], 3)
             end)
 
         _, y = CreateInfoText(aboutContent, L["TestingDesc"], y, "GameFontDisableSmall")

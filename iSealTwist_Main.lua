@@ -136,6 +136,9 @@ iST.SEALS = {
     -- Seal of Justice
     [20164] = "Seal of Justice",
     -- Seal of Fury (Forever ranks)
+    [1311649] = "Seal of Fury",
+    [1311656] = "Seal of Fury",
+    [20163] = "Seal of Fury",
     [20418] = "Seal of Fury",
     [20419] = "Seal of Fury",
     [20420] = "Seal of Fury",
@@ -316,8 +319,6 @@ iST.SettingsDefault = {
     showSealName = true,
     showWeaponSpeed = true,
     showSwingRemaining = true,
-    soundThreeStacks = false,
-    soundThreeStacksChoice = "FILE:Echo Spark",
     barVisibility = "COMBAT_OR_AURA",
     onlyAsPaladin = true,
     barPoint = { "CENTER", nil, "CENTER", 0, -200 },
@@ -339,6 +340,7 @@ iST.SettingsDefault = {
     latencyTextSize   = 9,
     barFont           = "FRIZQT",
     showStackCounter = true,
+    showStackCounterIcon = true,
     showStackCircles = true,
     stackBubbleStyle = "SEAL_ICONS",
     showStackBarColor = false,
@@ -445,9 +447,9 @@ function iST:InitializeSettings()
             end
         end
     end
-    if not self:IsSoundChoiceValid(iSTSettings.soundThreeStacksChoice) then
-        iSTSettings.soundThreeStacksChoice = self.SettingsDefault.soundThreeStacksChoice
-    end
+    iSTSettings.soundThreeStacks = nil
+    iSTSettings.soundThreeStacksChoice = nil
+    iSTSettings.echoSoundTrigger = nil
     -- Migrate the old indicator and cue defaults once, before saving current choices.
     if migrateIndicators then
         local cue = iSTSettings.wrathCue
@@ -670,10 +672,11 @@ function iST:ApplyBarTypography()
         local stackIconSize = math.max(18, math.min(32, math.floor(stackSize * 0.8 + 0.5)))
         bar.stackCountLayout = {
             fontPath = fontPath, fontSize = stackSize,
-            countWidth = countWidth, totalWidth = totalWidth,
             rowWidth = rowWidth, rowHeight = rowHeight, iconSize = stackIconSize,
+            iconOffset = -countWidth - 8,
         }
-        bar.stackCountFrame:SetSize(rowWidth + stackIconSize + 6, rowHeight)
+        local iconSpace = iSTSettings.showStackCounterIcon and stackIconSize + 6 or 0
+        bar.stackCountFrame:SetSize(rowWidth + iconSpace, rowHeight)
         bar.stackCountValue:ClearAllPoints()
         bar.stackCountValue:SetPoint("RIGHT", bar.stackCountFrame, "CENTER", -4, 0)
         bar.stackCountValue:SetSize(countWidth, rowHeight)
@@ -684,18 +687,8 @@ function iST:ApplyBarTypography()
         bar.stackCountTotal:SetJustifyH("LEFT")
         if self.LayoutManagedStackReadout then self:LayoutManagedStackReadout() end
     end
-    local iconSize = math.max(16, iSTSettings.sealIconSize or iSTSettings.barHeight or 25)
-    local sealTimerSize = math.floor(iconSize * 0.46 + 0.5)
-    ApplyFont(bar.sealTimerText, sealTimerSize, "THICKOUTLINE")
-    ApplyFont(bar.sealTimerLabel, math.max(8, math.floor(iconSize * 0.23 + 0.5)), "OUTLINE")
-    if bar.sealTimerOverlay then
-        -- Center the visible digits, allowing for the font's side bearing and
-        -- baseline padding. A fixed pixel nudge stops fitting as the icon grows.
-        local opticalOffset = sealTimerSize * 0.1
-        bar.sealTimerText:ClearAllPoints()
-        bar.sealTimerText:SetSize(iconSize, iconSize)
-        bar.sealTimerText:SetPoint("CENTER", bar.sealTimerOverlay, "CENTER", opticalOffset - 1, -opticalOffset)
-    end
+    if bar.sealTimerArtwork then self:LayoutSealTimerArtwork(bar.sealTimerArtwork) end
+    if bar.nativeSealTimer then self:UpdateNativeSealTimer() end
     bar.latencyText:SetScale(1)
 end
 
@@ -1017,6 +1010,82 @@ function iST:CanResetMovePosition(frame)
     return true
 end
 
+local SEAL_RING_TEXTURE = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
+
+function iST:CreateSealTimerArtwork(parent)
+    local shadow = parent:CreateTexture(nil, "BACKGROUND")
+    shadow:SetTexture(SEAL_RING_TEXTURE)
+    shadow:SetPoint("CENTER", parent, "CENTER", 1, -1)
+    shadow:SetVertexColor(0, 0, 0, 0.75)
+
+    local ring = parent:CreateTexture(nil, "BORDER")
+    ring:SetTexture(SEAL_RING_TEXTURE)
+    ring:SetPoint("CENTER", parent, "CENTER")
+    ring:SetVertexColor(1, 0.59, 0.09, 0.95)
+
+    local cooldown = CreateFrame("Cooldown", nil, parent, "CooldownFrameTemplate")
+    cooldown:SetAllPoints(ring)
+    cooldown:SetFrameLevel(parent:GetFrameLevel() + 1)
+    cooldown:EnableMouse(false)
+    cooldown:SetSwipeTexture(SEAL_RING_TEXTURE)
+    cooldown:SetSwipeColor(1, 0.59, 0.09, 0.95)
+    cooldown:SetDrawSwipe(true)
+    cooldown:SetDrawEdge(false)
+    cooldown:SetDrawBling(false)
+    cooldown:SetUseCircularEdge(true)
+    cooldown:SetReverse(false)
+    cooldown:SetHideCountdownNumbers(true)
+    cooldown.noCooldownCount = true
+    cooldown:Hide()
+
+    -- The portrait covers the center of the swipe, leaving the ring visible.
+    local portrait = CreateFrame("Frame", nil, parent)
+    portrait:SetAllPoints(parent)
+    portrait:SetFrameLevel(cooldown:GetFrameLevel() + 1)
+    portrait:EnableMouse(false)
+    local icon = portrait:CreateTexture(nil, "ARTWORK")
+    icon:SetPoint("CENTER", parent, "CENTER")
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    if icon.AddMaskTexture and portrait.CreateMaskTexture then
+        local mask = portrait:CreateMaskTexture()
+        mask:SetTexture(SEAL_RING_TEXTURE)
+        mask:SetAllPoints(icon)
+        icon:AddMaskTexture(mask)
+    end
+
+    local overlay = CreateFrame("Frame", nil, parent)
+    overlay:SetAllPoints(icon)
+    overlay:SetFrameLevel(portrait:GetFrameLevel() + 1)
+    overlay:EnableMouse(false)
+    local text = overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    text:SetJustifyH("CENTER")
+    text:SetJustifyV("MIDDLE")
+    text:SetWordWrap(false)
+    text:SetNonSpaceWrap(false)
+    text:SetMaxLines(1)
+    text:SetTextColor(1, 1, 1, 1)
+    text:SetShadowOffset(0, 0)
+    text:SetShadowColor(0, 0, 0, 0)
+    text:Hide()
+    return { shadow = shadow, ring = ring, cooldown = cooldown, icon = icon, overlay = overlay, text = text }
+end
+
+function iST:LayoutSealTimerArtwork(art)
+    local iconSize = math.max(16, iSTSettings.sealIconSize or iSTSettings.barHeight or 25)
+    local font = self:GetBarFontPath()
+    if art.iconSize == iconSize and art.font == font then return end
+    art.shadow:SetSize(iconSize + 10, iconSize + 10)
+    art.ring:SetSize(iconSize + 8, iconSize + 8)
+    art.icon:SetSize(iconSize, iconSize)
+    local textSize = math.floor(iconSize * 0.46 + 0.5)
+    local opticalOffset = textSize * 0.1
+    art.text:SetFont(font, textSize, "THICKOUTLINE")
+    art.text:ClearAllPoints()
+    art.text:SetSize(iconSize, iconSize)
+    art.text:SetPoint("CENTER", art.overlay, "CENTER", opticalOffset - 1, -opticalOffset)
+    art.iconSize, art.font = iconSize, font
+end
+
 function iST:CreateSwingBar()
     if self.BarFrame then return end
 
@@ -1129,94 +1198,23 @@ function iST:CreateSwingBar()
     end)
     sealIconFrame:Hide()
 
-    local sealIconShadow = sealIconFrame:CreateTexture(nil, "BACKGROUND")
-    sealIconShadow:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
-    sealIconShadow:SetPoint("CENTER", sealIconFrame, "CENTER", 1, -1)
-    sealIconShadow:SetVertexColor(0, 0, 0, 0.75)
-
-    local sealIconRing = sealIconFrame:CreateTexture(nil, "BORDER")
-    sealIconRing:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
-    sealIconRing:SetPoint("CENTER", sealIconFrame, "CENTER")
-    sealIconRing:SetVertexColor(1, 0.59, 0.09, 0.95)
-
-    -- The portrait covers the center of this circular swipe, leaving only the
-    -- outer ring visible. Blizzard animates the countdown between our updates.
-    local sealRingCountdown = CreateFrame("Cooldown", nil, sealIconFrame, "CooldownFrameTemplate")
-    sealRingCountdown:SetAllPoints(sealIconRing)
-    sealRingCountdown:SetFrameLevel(sealIconFrame:GetFrameLevel() + 1)
-    sealRingCountdown:EnableMouse(false)
-    sealRingCountdown:SetSwipeTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
-    sealRingCountdown:SetSwipeColor(1, 0.59, 0.09, 0.95)
-    sealRingCountdown:SetDrawSwipe(true)
-    sealRingCountdown:SetDrawEdge(false)
-    sealRingCountdown:SetDrawBling(false)
-    sealRingCountdown:SetUseCircularEdge(true)
-    sealRingCountdown:SetReverse(false)
-    sealRingCountdown:SetHideCountdownNumbers(true)
-    sealRingCountdown.noCooldownCount = true
-    sealRingCountdown:Hide()
-    bar.sealRingCountdown = sealRingCountdown
-
-    local sealPortraitFrame = CreateFrame("Frame", nil, sealIconFrame)
-    sealPortraitFrame:SetAllPoints(sealIconFrame)
-    sealPortraitFrame:SetFrameLevel(sealRingCountdown:GetFrameLevel() + 1)
-    sealPortraitFrame:EnableMouse(false)
-    bar.sealPortraitFrame = sealPortraitFrame
-
-    local sealIcon = sealPortraitFrame:CreateTexture(nil, "ARTWORK")
-    sealIcon:SetPoint("CENTER", sealIconFrame, "CENTER")
-    sealIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-
-    local sealIconMask
-    if sealIcon.AddMaskTexture and sealPortraitFrame.CreateMaskTexture then
-        sealIconMask = sealPortraitFrame:CreateMaskTexture()
-        sealIconMask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
-        sealIconMask:SetAllPoints(sealIcon)
-        sealIcon:AddMaskTexture(sealIconMask)
-    end
+    local sealFallback = CreateFrame("Frame", nil, sealIconFrame)
+    sealFallback:SetAllPoints(sealIconFrame)
+    sealFallback:EnableMouse(false)
+    local sealArt = self:CreateSealTimerArtwork(sealFallback)
+    bar.sealIconFrame, bar.sealFallbackLayer = sealIconFrame, sealFallback
+    bar.sealTimerArtwork = sealArt
+    bar.sealIcon, bar.sealIconRing = sealArt.icon, sealArt.ring
+    bar.sealRingCountdown, bar.sealTimerText = sealArt.cooldown, sealArt.text
 
     function bar:UpdateModernDimensions(height)
         local iconSize = math.max(16, iSTSettings.sealIconSize or height)
         sealIconFrame:SetSize(iconSize + 6, iconSize + 6)
-        sealIconShadow:SetSize(iconSize + 10, iconSize + 10)
-        sealIconRing:SetSize(iconSize + 8, iconSize + 8)
-        sealIcon:SetSize(iconSize, iconSize)
         gloss:SetHeight(math.max(1, math.floor((height - (self.contentInset or CONTENT_INSET) * 2) * 0.35)))
-        if self.sealTimerText then iST:ApplyBarTypography() end
+        iST:ApplyBarTypography()
     end
 
     bar:UpdateModernDimensions(barHeight)
-    bar.sealIconFrame = sealIconFrame
-    bar.sealIcon = sealIcon
-    bar.sealIconRing = sealIconRing
-    bar.sealIconMask = sealIconMask
-
-    -- A separate, non-interactive text area follows the icon's exact bounds.
-    local sealTimerOverlay = CreateFrame("Frame", nil, sealIconFrame)
-    sealTimerOverlay:SetAllPoints(sealIcon)
-    sealTimerOverlay:SetFrameLevel(sealPortraitFrame:GetFrameLevel() + 1)
-    sealTimerOverlay:EnableMouse(false)
-    bar.sealTimerOverlay = sealTimerOverlay
-
-    local sealTimerText = sealTimerOverlay:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    sealTimerText:SetAllPoints(sealTimerOverlay)
-    sealTimerText:SetJustifyH("CENTER")
-    sealTimerText:SetJustifyV("MIDDLE")
-    sealTimerText:SetWordWrap(false)
-    sealTimerText:SetNonSpaceWrap(false)
-    sealTimerText:SetMaxLines(1)
-    sealTimerText:SetText("")
-    sealTimerText:SetTextColor(1, 1, 1, 1)
-    sealTimerText:SetShadowOffset(0, 0)
-    sealTimerText:SetShadowColor(0, 0, 0, 0)
-    sealTimerText:Hide()
-    bar.sealTimerText = sealTimerText
-    local sealTimerLabel = sealTimerOverlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    sealTimerLabel:SetPoint("BOTTOM", sealIconFrame, "TOP", 0, 1)
-    sealTimerLabel:SetText(L["SealTimerLabel"])
-    sealTimerLabel:SetTextColor(0.35, 0.82, 1, 1)
-    sealTimerLabel:Hide()
-    bar.sealTimerLabel = sealTimerLabel
 
     -- Keep the labels above the sword and the native stack graphics.
     local labelOverlay = CreateFrame("Frame", nil, bar)
@@ -1465,6 +1463,7 @@ end
 function iST:FadeBarTo(target)
     local bar = self.BarFrame
     if not bar then return end
+    local revealing = target > 0 and bar.fadeAlpha == 0 and bar.fadeTarget ~= target
     if not bar:IsShown() or not self.State.Initialized then
         bar.fadeAlpha = target
         SetSwingBarAlpha(bar, target)
@@ -1479,6 +1478,13 @@ function iST:FadeBarTo(target)
     end
     bar.fadeTarget = target
     bar:Show()
+    if revealing then
+        -- The timer stops refreshing while the bar is fully faded. Rebuild
+        -- its display before the first visible frame using the saved expiry.
+        self:UpdateSealRing(nil, false, false)
+        bar.sealTextVisible = nil
+        self:UpdateSealDisplay()
+    end
     self:UpdateBarAnimationDriver()
     self.State.BarVisible = target > 0
 end
@@ -1860,7 +1866,7 @@ function iST:RefreshUnsealedWrathState()
         self:CancelWrathAuraChecks()
         self:CancelPendingWrathHits()
         self.WrathTracker:Reset()
-        self.State.ThreeStackSoundReady = true
+        self.State.WrathCountRestricted = nil
         self.State.WrathAuraInstanceID = nil
         self.State.WrathEchoSeal = nil
         self.State.EchoSwitchBackSeal = nil
@@ -1919,24 +1925,33 @@ local function IsWrathAura(aura)
     return false
 end
 
--- Name lookups are a fallback when UNIT_AURA does not provide a usable update.
--- A nil second result means a protected read, not a confirmed missing Echo.
+-- Use spell IDs when UNIT_AURA does not provide a usable Echo update.
+-- A nil second result means the lookup could not confirm absence.
 function iST:FindWrathEchoAura()
-    local reader = C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName
+    local api = C_UnitAuras
+    local byID = api and type(api.GetPlayerAuraBySpellID) == "function"
+    local reader = api and (byID and api.GetPlayerAuraBySpellID or api.GetAuraDataBySpellName)
     if type(reader) ~= "function" then return nil, nil end
+    local absenceKnown = true
     for _, spell in ipairs(self.WrathEchoSpells) do
-        local name = GetLocalizedSpellName(spell.id, spell.name)
-        local ok, aura = pcall(reader, "player", name, "HELPFUL")
-        if not ok or IsSecret(aura) then return nil, nil end
-        if aura ~= nil then
+        local ok, aura
+        if byID then
+            ok, aura = pcall(reader, spell.id)
+        else
+            ok, aura = pcall(reader, "player", GetLocalizedSpellName(spell.id, spell.name), "HELPFUL")
+        end
+        if not ok or IsSecret(aura) then
+            absenceKnown = nil
+        elseif aura ~= nil then
+            if byID and type(aura) == "table" then return aura, true, spell.seal end
             if IsWrathAura(aura) then return aura, true end
-            return nil, nil
+            absenceKnown = nil
         end
     end
-    return nil, true
+    return nil, absenceKnown
 end
 
-function iST:ApplyWrathAura(aura, source, refreshed, newlyAdded)
+function iST:ApplyWrathAura(aura, source, refreshed, newlyAdded, knownSeal)
     if IsSecret(aura) or type(aura) ~= "table" then return false end
     local ok, count, expiresAt, instanceID, spellID, name = pcall(function()
         return aura.applications, aura.expirationTime, aura.auraInstanceID, aura.spellId, aura.name
@@ -1947,8 +1962,7 @@ function iST:ApplyWrathAura(aura, source, refreshed, newlyAdded)
     local previousInstance = state.WrathAuraInstanceID
     local knownInstance = not IsSecret(instanceID) and type(instanceID) == "number" and instanceID > 0 and instanceID or nil
     if knownInstance then state.WrathAuraInstanceID = knownInstance end
-    local echoSeal
-    if not IsSecret(spellID) then echoSeal = self.WrathEchoSpellIDs[spellID] end
+    local echoSeal = knownSeal or (not IsSecret(spellID) and self.WrathEchoSpellIDs[spellID])
     if not echoSeal and not IsSecret(name) and type(name) == "string" then
         for _, spell in ipairs(self.WrathEchoSpells) do
             if name == GetLocalizedSpellName(spell.id, spell.name) then
@@ -1969,7 +1983,7 @@ function iST:ApplyWrathAura(aura, source, refreshed, newlyAdded)
     end
     if not IsSecret(name) and type(name) == "string" then state.WrathAuraName = name end
     if IsSecret(count) then
-        if not state.WrathCountRestricted then self:DebugMsg("Unsealed Wrath stack count is restricted; continuing hit tracking.", 3) end
+        if not state.WrathCountRestricted then self:DebugMsg("Unsealed Wrath stack count is restricted.", 3) end
         state.WrathCountRestricted = true
         if previousInstance ~= state.WrathAuraInstanceID then self:UpdateBarVisibility(true) end
         -- Aura identity is confirmed. A fallback lookup must not clear it
@@ -2013,7 +2027,6 @@ function iST:ApplyWrathAura(aura, source, refreshed, newlyAdded)
         self:DebugMsg(string.format("Unsealed Wrath confirmed by %s: %d -> %d/3; timer %s.",
             source, previous, tracker.count, tracker.expiryUnconfirmed and "derived from stack updates" or "confirmed by buff"), 3)
     end
-    self:UpdateThreeStackSound(tracker.count, self:IsWrathTrackingEnabled(), GetTime(), true)
     self:UpdateBarVisibility(knownInstance ~= nil)
     return true, true
 end
@@ -2069,9 +2082,10 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         end
     end
     if not removedCurrent then
-        local aura, absenceKnown = self:FindWrathEchoAura()
+        local aura, absenceKnown, knownSeal = self:FindWrathEchoAura()
         if aura then
-            local handled, changed = self:ApplyWrathAura(aura, "Echo buff lookup")
+            local handled, changed = self:ApplyWrathAura(aura, knownSeal and "Echo spell ID lookup" or "Echo buff lookup",
+                nil, nil, knownSeal)
             if handled then return true, changed end
         elseif absenceKnown and state.WrathEchoSeal and not state.InCombat
             and not (InCombatLockdown and InCombatLockdown()) then
@@ -2088,7 +2102,7 @@ function iST:ObserveWrathAura(updateInfo, delayed)
         state.WrathAuraInstanceID = nil
         state.WrathEchoSeal = nil
         state.WrathAuraSnapshot = nil
-        self:UpdateThreeStackSound(0, self:IsWrathTrackingEnabled(), GetTime(), true)
+        state.WrathCountRestricted = nil
         self:UpdateBarVisibility()
         return true, true
     end
@@ -2163,7 +2177,7 @@ function iST:ScanForActiveSealOutOfCombat(sourceEvent, preferredID)
         if IsSecret(expirationTime) or type(expirationTime) ~= "number"
             or expirationTime <= GetTime() or expirationTime >= math.huge
             or expirationTime ~= expirationTime then return true end
-        if self.State.CurrentSealName ~= self.SEALS[spellID] or self.State.SealExpiresAt ~= expirationTime then
+        if self.State.CurrentSealID ~= spellID or self.State.SealExpiresAt ~= expirationTime then
             self:SetCurrentSeal(spellID, expirationTime, sourceEvent or "OUT_OF_COMBAT_AURA_SCAN")
         end
         if not IsSecret(instanceID) and type(instanceID) == "number" then
@@ -2261,7 +2275,7 @@ function iST:UpdateSealTimer(now)
     local expiresAt = self.State.EditMode and self.State.EditSealExpiresAt
         or self.State.SealExpiresAt or 0
     local remaining = expiresAt - now
-    local showTimer = iSTSettings.showSealTimer
+    local showTimer = not bar.sealTimerUsesBuff and iSTSettings.showSealTimer
         and iSTSettings.showSealIcon
         and (self.State.CurrentSealIcon or self.State.EditMode)
         and remaining > 0
@@ -2331,14 +2345,21 @@ function iST:UpdateSealDisplay()
     local previewIcon = previewSeal and self.SEAL_SPELL_IDS[previewSeal]
         and C_Spell.GetSpellTexture(self.SEAL_SPELL_IDS[previewSeal])
     local icon = self.State.EditMode and previewIcon or self.State.CurrentSealIcon
-    if icon and iSTSettings.showSealIcon then
+    local native = self:UpdateNativeSealTimer()
+    local id = self.State.CurrentSealID
+    local useBuff = native ~= nil and iSTSettings.showSealIcon and not self.State.EditMode
+        and (not id or native.spellIDs[id] == true)
+    local showFallback = icon and not useBuff and iSTSettings.showSealIcon or false
+    bar.sealTimerUsesBuff = useBuff
+    if native then native.layer:SetShown(useBuff) end
+    bar.sealFallbackLayer:SetShown(showFallback)
+    if showFallback then
         bar.sealIcon:SetTexture(icon)
         bar.sealIcon:Show()
-        if bar.sealIconFrame then bar.sealIconFrame:Show() end
     else
         bar.sealIcon:Hide()
-        if bar.sealIconFrame then bar.sealIconFrame:Hide() end
     end
+    bar.sealIconFrame:SetShown(useBuff or showFallback)
 
     self:UpdateSealTimer()
 
@@ -2822,6 +2843,7 @@ end
 
 -- Game events
 local eventFrame = CreateFrame("Frame")
+local playerAuraEventsFiltered = false
 
 local function OnEvent(self, event, ...)
     if event == "ADDON_LOADED" then
@@ -2932,6 +2954,7 @@ local function OnEvent(self, event, ...)
             iST.WrathTracker:GetCount(GetTime())
         end
         iST:ScanForActiveSealOutOfCombat("PLAYER_REGEN_ENABLED")
+        iST:UpdateSealDisplay()
         iST:ObserveWrathAura()
         iST:UpdateBarVisibility()
         iST:CreateStackManagedDisplay()
@@ -2954,7 +2977,7 @@ local function OnEvent(self, event, ...)
 
     if event == "UNIT_AURA" then
         local unit, updateInfo = ...
-        if not IsSecret(unit) and unit == "player" then
+        if playerAuraEventsFiltered or (not IsSecret(unit) and unit == "player") then
             local scanSeal, scanEcho, sealSpellID = PlayerAuraImpact(iST, updateInfo)
             if scanSeal then iST:ScanForActiveSealOutOfCombat("UNIT_AURA", sealSpellID) end
             if scanEcho and iST:IsWrathTrackingEnabled() then
@@ -2974,6 +2997,7 @@ local function OnEvent(self, event, ...)
         iST.State.LastSwingTime, iST.State.NextSwingTime = 0, 0
         iST:InvalidateBarState()
         iST.WrathTracker:Reset()
+        iST.State.WrathCountRestricted = nil
         iST.State.WrathAuraInstanceID = nil
         iST.State.WrathEchoSeal = nil
         iST.State.EchoSwitchBackSeal = nil
@@ -3052,7 +3076,11 @@ for _, eventName in ipairs({
     "PLAYER_SPECIALIZATION_CHANGED",
 }) do
     if C_EventUtils.IsEventValid(eventName) then
-        eventFrame:RegisterEvent(eventName)
+        if eventName == "UNIT_AURA" and type(eventFrame.RegisterUnitEvent) == "function" then
+            local ok, registered = pcall(eventFrame.RegisterUnitEvent, eventFrame, eventName, "player")
+            playerAuraEventsFiltered = ok and registered == true
+        end
+        if eventName ~= "UNIT_AURA" or not playerAuraEventsFiltered then eventFrame:RegisterEvent(eventName) end
     end
 end
 
@@ -3087,6 +3115,7 @@ function iST:OnAddonLoaded()
     self:UpdateLatency()
 
     self:ScanForActiveSealOutOfCombat("ADDON_LOADED")
+    self:UpdateSealDisplay()
 
     self:RegisterSlashCommands()
 
@@ -3094,6 +3123,7 @@ function iST:OnAddonLoaded()
 end
 
 function iST:OnPlayerLogin()
+    self:DebugMsg(L["DebugModeActive"], 3)
     -- Wait until login to build settings that use Blizzard's UI frames.
     if self.CreateOptionsPanel and self.State.Initialized then
         self:CreateOptionsPanel()
@@ -3110,6 +3140,7 @@ function iST:OnPlayerLogin()
         if iST.State.Initialized then
             iST:RefreshUnsealedWrathState()
             iST:ScanForActiveSealOutOfCombat("PLAYER_LOGIN")
+            iST:UpdateSealDisplay()
             iST:ObserveWrathAura()
             iST:CreateStackManagedDisplay()
         end

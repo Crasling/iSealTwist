@@ -2,6 +2,8 @@ local _, iST = ...
 local L = iST.L
 local FURY_SPELL = 25780
 local SEAL_IDLE_HIDE_SECONDS = 300
+local OWN_BUFF_FILTER = "HELPFUL|PLAYER"
+local EXTERNAL_BUFF_FILTER = "HELPFUL|!PLAYER"
 local CAPITAL_MAPS = { [1453] = "Alliance", [1454] = "Horde", [1455] = "Alliance",
     [1456] = "Horde", [1457] = "Alliance", [1458] = "Horde" }
 
@@ -71,7 +73,7 @@ local function enabled()
     end
     return false
 end
-local previewUntil, nextProtectionRead, protectionRefreshGeneration = {}, 0, 0
+local previewUntil, nextProtectionRead = {}, 0
 local lastSealCombatAt = GetTime()
 local capitalMap, nextCapitalCheck = nil, 0
 
@@ -153,6 +155,7 @@ function iST:RefreshReminderProtection()
     -- talent read instead of guessing the character's specialization.
     if read(InCombatLockdown) ~= false or read(UnitAffectingCombat, "player") ~= false then return end
     local _, class = read(UnitClass, "player")
+    if not class then return end
     if class ~= "PALADIN" then
         self.State.ReminderProtection = false
         self.State.ReminderProtectionGroup = nil
@@ -165,8 +168,7 @@ function iST:RefreshReminderProtection()
     if not number(group) then group = nil end
     local state = self.State
     if state.ReminderProtectionConfigID == configID and state.ReminderProtectionGroup == group
-        and state.ReminderProtection ~= nil
-        and GetTime() < (state.ReminderProtectionNextScanAt or 0) then return end
+        and state.ReminderProtection ~= nil then return end
     local traits = C_Traits
     if not traits or type(traits.GetGroupDisplayInfoByTreeID) ~= "function" then return end
     local ok, points = pcall(function()
@@ -185,11 +187,13 @@ function iST:RefreshReminderProtection()
             groupIndex[info.groupID] = index
         end
         local nodes = traits.GetTreeNodes(treeID)
-        if secret(nodes) or type(nodes) ~= "table" then return nil end
+        if secret(nodes) or type(nodes) ~= "table" or #nodes == 0 then return nil end
+        local hasNode = false
         for _, nodeID in ipairs(nodes) do
             if not number(nodeID) then return nil end
             local node = traits.GetNodeInfo(configID, nodeID)
             if secret(node) then return nil end
+            if node then hasNode = true end
             if node and node.isVisible and node.entryIDs and node.entryIDs[1] then
                 local rank = node.activeRank or node.currentRank
                 if not number(rank) then return nil end
@@ -203,16 +207,22 @@ function iST:RefreshReminderProtection()
                 end
             end
         end
-        return result
+        return hasNode and result or nil
     end)
     if not ok or not points then return end
     state.ReminderProtectionGroup = group
     state.ReminderProtectionConfigID = configID
-    state.ReminderProtectionNextScanAt = GetTime() + 5
-    self.State.ReminderProtection = points[2] > 0 and points[2] > points[1] and points[2] > points[3]
-    self:DebugMsg(string.format("Righteous Fury reminder: active config %d, group %s; points Holy %d / Protection %d / Retribution %d; Protection filter %s.",
-        configID, tostring(state.ReminderProtectionGroup or "?"), points[1], points[2], points[3],
-        state.ReminderProtection and "matched" or "not matched"), 3)
+    state.ReminderProtection = points[2] > 0 and points[2] > points[1] and points[2] > points[3]
+    if iSTSettings.debugMode then
+        local message = string.format(
+            "Righteous Fury reminder: config %d, group %s. Holy %d / Protection %d / Retribution %d. Protection filter %s.",
+            configID, tostring(group or "?"), points[1], points[2], points[3],
+            state.ReminderProtection and "matched" or "not matched")
+        if state.ReminderProtectionDebugMessage ~= message then
+            state.ReminderProtectionDebugMessage = message
+            self:DebugMsg(message, 3)
+        end
+    end
 end
 
 local function furyScanAllowed()
@@ -250,11 +260,21 @@ local function BuildBuffWatch(kind, selection)
     return watch
 end
 
-local function IsSelfCast(aura)
+local function IsSelfCast(aura, instanceID, previousOwner)
     local caster = read(function() return aura.sourceUnit end)
     if caster == "player" then return true end
-    if read(function() return aura.isFromPlayerOrPlayerPet end) == false then return false end
-    if type(caster) == "string" and caster ~= "" then return read(UnitIsUnit, caster, "player") end
+    if type(caster) == "string" and caster ~= "" then
+        local own = read(UnitIsUnit, caster, "player")
+        if type(own) == "boolean" then return own end
+    end
+    local own = read(function() return aura.isFromPlayerOrPlayerPet end)
+    if type(own) == "boolean" then return own end
+    if previousOwner ~= nil then return previousOwner end
+    if instanceID then
+        local filtered = read(C_UnitAuras and C_UnitAuras.IsAuraFilteredOutByInstanceID,
+            "player", instanceID, OWN_BUFF_FILTER)
+        if type(filtered) == "boolean" then return not filtered end
+    end
 end
 
 local buffWatches = {}
@@ -284,8 +304,7 @@ local function ObserveBuffAura(aura, seen, instanceID)
         local previous = instanceID and watch.auras[instanceID]
         local family = watch.ids[id] or watch.names[name] or (not identified and previous and previous.family)
         if family then
-            local selfCast = IsSelfCast(aura)
-            if selfCast == nil and previous then selfCast = previous.selfCast end
+            local selfCast = IsSelfCast(aura, instanceID, previous and previous.selfCast)
             local fallbackKey = family .. ":" .. tostring(selfCast)
             local key = instanceID or fallbackKey
             previous = previous or watch.auras[fallbackKey]
@@ -577,10 +596,7 @@ function iST:ApplyReminderSettings()
         local point = settings.point
         frame:SetPoint(point[1], UIParent, point[2], point[3], point[4])
     end
-    if iSTSettings.reminders.FURY.enabled then
-        if iSTSettings.reminders.FURY.protOnly then self:RefreshReminderProtection() end
-        self:RefreshReminderFury()
-    end
+    if iSTSettings.reminders.FURY.enabled then self:RefreshReminderFury() end
     self:UpdateReminders()
 end
 
@@ -650,7 +666,6 @@ end
 
 local AURA_WARNING_WIDTH = 640
 local AURA_WARNING_SPAN = AURA_WARNING_WIDTH + 1
-local OWN_BUFF_FILTER = "HELPFUL|PLAYER"
 
 local function GetNativeBuffFilters(watch)
     local own, families = {}, {}
@@ -711,10 +726,9 @@ local function CreateNativeBuffWarning(root, kind, watch)
     AddBuffPresenceGroup(native.presence, "own", OWN_BUFF_FILTER, ownIDs, watch.familyCount * AURA_WARNING_SPAN)
     for family, ids in pairs(families) do AddBuffPresenceGroup(native.presence, family, "HELPFUL", ids) end
     local missingClip = CreateBuffAbsenceClip(root, native.presence, watch.familyCount)
-    -- The tracked buff can be present from any caster. Select the wording
-    -- inside the existing warning gate, which already handles own casts and full coverage.
+    -- A matching buff from another caster selects the general reminder.
     native.tracked = CreateBuffContainer(root)
-    AddBuffPresenceGroup(native.tracked, "tracked", "HELPFUL", ownIDs)
+    AddBuffPresenceGroup(native.tracked, "tracked", EXTERNAL_BUFF_FILTER, ownIDs)
     local specificClip = CreateBuffAbsenceClip(root, native.tracked, 1, missingClip)
     local generalClip = CreateBuffClip(missingClip)
     generalClip:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT")
@@ -831,17 +845,18 @@ function iST:UpdateReminders()
     if iSTSettings.reminders.FURY.enabled and now >= (state.FuryNextCheckAt or 0) then
         self:RefreshReminderFury()
     end
-    if iSTSettings.reminders.FURY.enabled and iSTSettings.reminders.FURY.protOnly
-        and now >= nextProtectionRead then
-        nextProtectionRead = now + 1
-        self:RefreshReminderProtection()
-    end
     local _, class = read(UnitClass, "player")
     local visible = iSTSettings.enabled and (not iSTSettings.onlyAsPaladin or class == "PALADIN")
     local dead = visible and read(UnitIsDeadOrGhost, "player") == true
     local onTaxi
     local inCombat = state.ReminderCombat == true or read(InCombatLockdown) == true
         or read(UnitAffectingCombat, "player") == true
+    local fury = iSTSettings.reminders.FURY
+    if visible and not inCombat and fury.enabled and fury.protOnly
+        and state.ReminderProtection == nil and now >= nextProtectionRead then
+        nextProtectionRead = now + 1
+        self:RefreshReminderProtection()
+    end
     if visible then scanBuffReminders(now, inCombat) end
     for kind, frame in pairs(self.ReminderFrames) do
         local settings = iSTSettings.reminders[kind]
@@ -983,26 +998,10 @@ events:SetScript("OnEvent", function(_, event, ...)
         or event == "ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event == "PLAYER_SPECIALIZATION_CHANGED"
         or event == "TRAIT_NODE_CHANGED" or event == "TRAIT_TREE_CURRENCY_INFO_UPDATED" then
         if event == "PLAYER_SPECIALIZATION_CHANGED" and (secret((...)) or (...) ~= "player") then return end
+        -- Talent events can arrive before the active tree reflects the edit.
+        -- Wait for the event burst to settle, then cache the next readable result.
         iST.State.ReminderProtection = nil
-        iST.State.ReminderProtectionGroup = nil
-        iST.State.ReminderProtectionConfigID = nil
-        iST.State.ReminderProtectionNextScanAt = 0
-        nextProtectionRead = 0
-        if iSTSettings.reminders.FURY.enabled and iSTSettings.reminders.FURY.protOnly then
-            -- Talent events may arrive before the new points are available.
-            -- Recheck once the active tree has settled, including same-group edits.
-            protectionRefreshGeneration = protectionRefreshGeneration + 1
-            local generation = protectionRefreshGeneration
-            C_Timer.After(0.3, function()
-                if generation ~= protectionRefreshGeneration then return end
-                iST.State.ReminderProtection = nil
-                iST.State.ReminderProtectionGroup = nil
-                iST.State.ReminderProtectionConfigID = nil
-                iST.State.ReminderProtectionNextScanAt = 0
-                nextProtectionRead = 0
-                iST:UpdateReminders()
-            end)
-        end
+        nextProtectionRead = GetTime() + 0.3
     end
     if not enabled() then iST:UpdateReminders(); return end
     local furyFromEvent = false

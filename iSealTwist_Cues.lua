@@ -335,6 +335,123 @@ local function EchoUrgentRingFormatter(size)
     }) then return formatter end
 end
 
+local SEAL_TIMER_TEXT = { r = 1, g = 1, b = 1, a = 1 }
+local PLAYER_SEAL_FILTER = "HELPFUL|PLAYER"
+
+local function SealTimerSpellIDs()
+    local ids = {}
+    for id in pairs(iST.SEALS) do ids[id] = true end
+    return ids
+end
+
+local function ShowSealBuffCountdown(artwork, shown)
+    if artwork.timerShown == shown then return end
+    artwork.cooldown:SetAlpha(shown and 1 or 0)
+    artwork.overlay:SetShown(shown)
+    local color = shown and 0.28
+    artwork.ring:SetVertexColor(color or 1, color or 0.59, color or 0.09, 0.95)
+    artwork.timerShown = shown
+end
+
+local function CreateSealBuffContainer(parent, spellIDs, initialize)
+    local container = CreateFrame("AuraContainer", nil, parent, "CustomAuraContainerTemplate")
+    container:SetAllPoints(parent)
+    container:EnableMouse(false)
+    container:SetUnit("player")
+    container:AddAuraSlot("seal", PLAYER_SEAL_FILTER, {
+        candidateFilters = { includeSpellIDs = spellIDs },
+        initializeFrame = function(button)
+            button:SetAllPoints(parent)
+            button:EnableMouse(false)
+            initialize(button)
+        end,
+    })
+    container:SetEnabled(true)
+    return container
+end
+
+local function BuildNativeSealTimer(layer)
+    local native = { layer = layer, spellIDs = SealTimerSpellIDs() }
+    -- Match any of our Seal ranks in one slot. WoW supplies the icon and
+    -- duration directly, including when the aura is protected in combat.
+    native.container = CreateSealBuffContainer(layer, native.spellIDs, function(button)
+        assert(type(button.SetIcon) == "function" and type(button.SetDurationCooldown) == "function"
+            and type(button.SetDurationText) == "function", "native Seal timer bindings are unavailable")
+        local artwork = iST:CreateSealTimerArtwork(button)
+        iST:LayoutSealTimerArtwork(artwork)
+        button:SetIcon(artwork.icon)
+        button:SetDurationCooldown(artwork.cooldown)
+        local formatter = EchoSecondsFormatter(SEAL_TIMER_TEXT)
+        button:SetDurationText(artwork.text, formatter and { textFormatter = formatter } or {})
+        artwork.cooldown:Show()
+        artwork.text:Show()
+        ShowSealBuffCountdown(artwork, iSTSettings.showSealTimer)
+        native.artwork = artwork
+    end)
+    if C_StringUtil and C_StringUtil.CreateNumericRuleFormatter then
+        local iconSize = math.max(16, iSTSettings.sealIconSize or iSTSettings.barHeight or 25)
+        native.urgent = CreateSealBuffContainer(layer, native.spellIDs, function(button)
+            local text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            text:SetAllPoints(button)
+            text:SetJustifyH("CENTER")
+            text:SetJustifyV("MIDDLE")
+            local formatter = EchoUrgentRingFormatter(iconSize + 8)
+            if formatter then button:SetDurationText(text, { textFormatter = formatter }) end
+            native.urgentButton, native.urgentText, native.urgentSize = button, text, iconSize
+        end)
+        native.urgent:SetFrameLevel(native.container:GetFrameLevel() + 5)
+    end
+    return native
+end
+
+function iST:UpdateNativeSealTimer()
+    local bar = self.BarFrame
+    if not bar or not bar.sealIconFrame then return end
+    local native = bar.nativeSealTimer
+    if CombatLocked() or not iSTSettings.showSealIcon or not self:ShouldShowBar() then return native end
+    if not native then
+        if bar.nativeSealTimerFailed or not NativeContainerReady() then return end
+        local layer = CreateFrame("Frame", nil, bar.sealIconFrame)
+        layer:SetAllPoints(bar.sealIconFrame)
+        layer:EnableMouse(false)
+        layer:Hide()
+        local ok, result = pcall(BuildNativeSealTimer, layer)
+        if not ok then
+            bar.nativeSealTimerFailed = true
+            self:DebugMsg("Seal buff timer is unavailable: " .. tostring(result), 2)
+            return
+        end
+        native = result
+        bar.nativeSealTimer = native
+    end
+    local id = self.State.CurrentSealID
+    if id and not native.spellIDs[id] then
+        local ids = SealTimerSpellIDs()
+        local filter = { includeSpellIDs = ids }
+        if pcall(native.container.SetAuraSlotCandidateFilters, native.container, "seal", filter) then
+            native.spellIDs = ids
+            if native.urgent then pcall(native.urgent.SetAuraSlotCandidateFilters, native.urgent, "seal", filter) end
+        end
+    end
+    if native.artwork then
+        pcall(self.LayoutSealTimerArtwork, self, native.artwork)
+        pcall(ShowSealBuffCountdown, native.artwork, iSTSettings.showSealTimer)
+    end
+    if native.urgent then
+        if native.urgentShown ~= iSTSettings.showSealTimer
+            and pcall(native.urgent.SetShown, native.urgent, iSTSettings.showSealTimer) then
+            native.urgentShown = iSTSettings.showSealTimer
+        end
+        local size = native.artwork and native.artwork.iconSize
+        if size and native.urgentButton and size ~= native.urgentSize then
+            local formatter = EchoUrgentRingFormatter(size + 8)
+            if formatter and pcall(native.urgentButton.SetDurationText, native.urgentButton,
+                native.urgentText, { textFormatter = formatter }) then native.urgentSize = size end
+        end
+    end
+    return native
+end
+
 function iST:UpdateEchoTimerDisplay()
     local bar = self.BarFrame
     if not bar then return end
@@ -1988,7 +2105,8 @@ function iST:LayoutManagedStackReadout(initial)
         if row.icon then
             row.icon:SetSize(layout.iconSize, layout.iconSize)
             row.icon:ClearAllPoints()
-            row.icon:SetPoint("RIGHT", button, "CENTER", -layout.countWidth - 8, 0)
+            row.icon:SetPoint("RIGHT", button, "CENTER", layout.iconOffset, 0)
+            row.icon:SetShown(iSTSettings.showStackCounterIcon)
         end
     end
     if initial then
@@ -2058,7 +2176,6 @@ function iST:CreateStackManagedDisplay()
                         mask:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
                         mask:SetAllPoints(icon)
                         icon:AddMaskTexture(mask)
-                        icon:Show()
                     end
                     bar.stackManagedRows[#bar.stackManagedRows + 1] = {
                         button = button, count = count, icon = icon,

@@ -2,6 +2,20 @@
  iSealTwist - Changelog
 ================================================================================
 
+v0.10.2 - Seal Timer and Settings
+--------------------------------------------------------------------------------
+[FIXED] The Seal timer shows the remaining time when the combat-only swing bar fades in.
+[FIXED] Blessing and Aura reminders distinguish your casts from buffs applied by other players.
+[FIXED] In-game mana-bar Echo pips require Unsealed Wrath.
+[FIXED] The mana-bar pip preview updates when you change the size, style, or frame.
+[FIXED] The mouse wheel scrolls settings without changing sliders.
+[ADDED] Option to hide the Seal icon beside the Echo counter.
+[ADDED] Settings help explains Echo stacking and shows whether Unsealed Wrath is learned.
+[IMPROVED] The Protection-only Righteous Fury reminder uses fewer background checks.
+[IMPROVED] Settings search has clearer results and shows the Enter shortcut.
+[CHANGED] Color swatches sit beside their labels.
+[REMOVED] The experimental Echo Switch sound.
+
 v0.10.1 - Sword Indicators and Layouts
 --------------------------------------------------------------------------------
 [ADDED] Sword frames for the swing bar and a movable Echo sword with per-Seal styles and optional Switch and Attack glows.
